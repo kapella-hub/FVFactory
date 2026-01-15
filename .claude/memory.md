@@ -4,13 +4,13 @@ This file stores progress and context for Claude across sessions.
 
 ## Current Progress
 
-**Status:** Full MVP with Web UI - Streamlit dashboard complete
+**Status:** Full MVP with Talking Head mode - Phase 11 complete
 
 ## Completed Work
 
-- [x] Project structure created (/app, /output, /assets, /assets/music)
+- [x] Project structure created (/app, /output, /assets, /assets/music, /assets/personas)
 - [x] requirements.txt with dependencies (including Whisper, Streamlit)
-- [x] config.py with Pydantic settings for API keys + mascot + music
+- [x] config.py with Pydantic settings for API keys + mascot + music + animation
 - [x] Dockerfile with ffmpeg, imagemagick, fonts
 - [x] ImageMagick policy.xml fix for text processing
 - [x] main.py CLI orchestrator with full pipeline
@@ -18,6 +18,7 @@ This file stores progress and context for Claude across sessions.
 - [x] Mascot integration for visual branding consistency
 - [x] Background music with audio ducking
 - [x] Streamlit web dashboard (app/dashboard.py)
+- [x] Portrait animator module (app/animator.py) - Hedra & Replicate APIs
 
 ## Project Overview
 
@@ -29,13 +30,14 @@ This file stores progress and context for Claude across sessions.
 
 ## Current Task
 
-None - Full MVP complete with both CLI and Web UI
+None - Full MVP complete with CLI, Web UI, and Talking Head mode
 
 ## Completed Modules
 
 - [x] Script Generator with Mascot (app/content_engine.py)
 - [x] Asset Manager with Style Consistency (app/asset_manager.py)
 - [x] Video Editor with Subtitles + Music (app/video_editor.py)
+- [x] Portrait Animator with Hedra/Replicate (app/animator.py)
 - [x] CLI Orchestrator (main.py)
 - [x] Streamlit Dashboard (app/dashboard.py)
 
@@ -75,10 +77,30 @@ None - Full MVP complete with both CLI and Web UI
   - `_mix_audio()` - Combines voice + music with CompositeAudioClip
   - Audio ducking: Music at 10%, Voice at 100%
 - Output: 1080x1920 vertical HD, 24fps, libx264 codec
+- **Persona Mode Support:**
+  - `add_music_to_video()` - Adds background music to animated portrait videos
+
+### Portrait Animator (app/animator.py)
+- `PortraitAnimator` class for audio-driven portrait animation
+- **Two Animation APIs:**
+  - Hedra API (primary) - Full portrait animation service
+  - Replicate LivePortrait (fallback) - Uses fofr/live-portrait model
+- **Workflow:**
+  - Upload audio and image to API
+  - Create generation job
+  - Poll for completion (up to 10 minutes)
+  - Download generated video
+- **Persona Management:**
+  - `get_available_personas()` - Lists images in assets/personas/
+  - `get_persona_path()` - Returns full path to persona image
+  - Supports PNG, JPG, JPEG, WEBP formats
+- Configurable via HEDRA_API_KEY or REPLICATE_API_TOKEN
 
 ### Streamlit Dashboard (app/dashboard.py)
 - **Sidebar Configuration:**
-  - Niche/Persona dropdown with preset mascots
+  - **Video Mode Selection:** Image Slideshow vs Talking Head (Persona)
+  - Persona dropdown with preview (if talking head mode)
+  - Niche/Mascot dropdown with preset mascots (if slideshow mode)
   - Video topic input field
   - Options: mock images, subtitles, music
   - Generate Script button
@@ -103,6 +125,15 @@ None - Full MVP complete with both CLI and Web UI
 ## Configuration (config.py)
 
 ```python
+# Portrait Animation APIs
+hedra_api_key: str = ""
+replicate_api_token: str = ""
+
+# Persona settings (talking head mode)
+personas_dir: str = "assets/personas"
+use_persona: bool = False
+default_persona: str = ""
+
 # Mascot settings
 mascot_enabled: bool = True
 mascot_prompt: str = "A cute, futuristic robot with glowing blue eyes..."
@@ -151,3 +182,5 @@ streamlit run app/dashboard.py
 - Custom subtitle styling options
 - Dynamic audio ducking based on voice detection
 - User authentication for multi-user support
+- Additional portrait animation providers
+- Green screen/background replacement for personas
