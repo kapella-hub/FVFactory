@@ -7,7 +7,6 @@ Pipeline: Topic -> Script -> Audio/Images or Animated Portrait -> MP4
 import logging
 import sys
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from app.config import settings
@@ -72,7 +71,8 @@ def run_pipeline(
     use_mock_images: bool = True,
     enable_subtitles: bool = True,
     enable_music: bool = True,
-    persona: Optional[str] = None
+    persona: Optional[str] = None,
+    use_chroma_key: bool = False,
 ) -> str:
     """
     Run the full video generation pipeline.
@@ -82,7 +82,8 @@ def run_pipeline(
         use_mock_images: If True, use placeholder images instead of DALL-E
         enable_subtitles: If True, generate word-level subtitles using Whisper
         enable_music: If True, add background music with ducking
-        persona: Optional persona image filename for talking head mode
+        persona: Optional persona image filename for hybrid/talking head mode
+        use_chroma_key: If True, use chroma key for green screen personas
 
     Returns:
         str: Path to the generated video file
@@ -106,11 +107,10 @@ def run_pipeline(
         print(f"\nHOOK: {script.hook}")
         print(f"\nBODY:\n{script.body}")
 
-        # Only show image prompts if not using persona
-        if not persona:
-            print(f"\nIMAGE PROMPTS:")
-            for i, prompt in enumerate(script.image_prompts, 1):
-                print(f"  {i}. {prompt}")
+        # Always show image prompts (needed for hybrid mode too)
+        print(f"\nIMAGE PROMPTS:")
+        for i, prompt in enumerate(script.image_prompts, 1):
+            print(f"  {i}. {prompt}")
 
         print(f"\nKEYWORDS: {', '.join(script.keywords)}")
         print("=" * 50)
@@ -126,12 +126,20 @@ def run_pipeline(
 
         logger.info(f"Audio generated: {audio_result.duration:.1f} seconds")
 
-        # Step 3: Generate visuals (images OR animated portrait)
+        # Step 3: Generate visuals
         output_filename = generate_output_filename(topic)
 
+        # Always generate background images (for both standard and hybrid mode)
+        logger.info("Generating background images...")
+        image_paths = asset_manager.generate_images(
+            script.image_prompts,
+            use_mock=use_mock_images
+        )
+        logger.info(f"Generated {len(image_paths)} images")
+
         if persona:
-            # PERSONA MODE: Use animated talking head
-            logger.info(f"Using persona mode with: {persona}")
+            # HYBRID MODE: Background images + Talking head overlay
+            logger.info(f"Using hybrid mode with persona: {persona}")
 
             animator = PortraitAnimator()
             persona_path = animator.get_persona_path(persona)
@@ -149,35 +157,22 @@ def run_pipeline(
 
             logger.info(f"Portrait animation complete: {animated_video_path}")
 
-            # For persona mode, we use the animated video directly
-            # Optionally add music overlay
-            if enable_music and settings.music_enabled:
-                logger.info("Adding background music to animated video...")
-                video_editor = VideoEditor()
-                output_path = video_editor.add_music_to_video(
-                    video_path=animated_video_path,
-                    output_filename=output_filename
-                )
-            else:
-                # Just copy/rename the animated video to output
-                output_dir = Path(settings.output_dir)
-                output_dir.mkdir(parents=True, exist_ok=True)
-                output_path = output_dir / output_filename
+            # Render hybrid video (background images + talking head overlay)
+            logger.info("Rendering hybrid video...")
+            video_editor = VideoEditor()
 
-                import shutil
-                shutil.copy(animated_video_path, output_path)
-                output_path = str(output_path)
+            output_path = video_editor.assemble_hybrid_video(
+                audio_path=audio_result.file_path,
+                image_paths=image_paths,
+                talking_head_path=animated_video_path,
+                output_filename=output_filename,
+                enable_subtitles=enable_subtitles,
+                enable_music=enable_music,
+                use_chroma_key=use_chroma_key,
+            )
 
         else:
-            # STANDARD MODE: Generate images and compose video
-            logger.info("Generating images...")
-            image_paths = asset_manager.generate_images(
-                script.image_prompts,
-                use_mock=use_mock_images
-            )
-            logger.info(f"Generated {len(image_paths)} images")
-
-            # Step 4: Render Video (with subtitles and background music)
+            # STANDARD MODE: Just background images
             logger.info("Rendering video...")
             video_editor = VideoEditor()
 
@@ -248,10 +243,11 @@ def main():
     # Check for available personas
     personas = list_personas()
     selected_persona = None
+    use_chroma_key = False
 
     if personas and (settings.hedra_api_key or settings.replicate_api_token):
-        print("Available Personas (Talking Head Mode):")
-        print("  0. None (use image slideshow)")
+        print("Available Personas (Hybrid Mode - Background Images + Talking Head):")
+        print("  0. None (use image slideshow only)")
         for i, persona in enumerate(personas, 1):
             print(f"  {i}. {persona}")
 
@@ -262,32 +258,34 @@ def main():
                 if 1 <= idx <= len(personas):
                     selected_persona = personas[idx - 1]
                     logger.info(f"Selected persona: {selected_persona}")
+
+                    # Ask about chroma key for green screen personas
+                    choice = input("Use chroma key for green screen? (y/N): ").strip().lower()
+                    use_chroma_key = choice == "y"
         except (KeyboardInterrupt, EOFError):
             print("\nCancelled.")
             sys.exit(0)
 
         print()
 
-    # Standard mode options (only if not using persona)
+    # Image generation options
     use_mock = True
-    if not selected_persona:
-        if settings.openai_api_key:
-            try:
-                choice = input("Use mock images? (Y/n): ").strip().lower()
-                use_mock = choice != "n"
-            except (KeyboardInterrupt, EOFError):
-                print("\nCancelled.")
-                sys.exit(0)
-
-    # Ask about subtitles (only for standard mode - persona videos already have audio sync)
-    enable_subs = True
-    if not selected_persona:
+    if settings.openai_api_key:
         try:
-            choice = input("Enable word-level subtitles? (Y/n): ").strip().lower()
-            enable_subs = choice != "n"
+            choice = input("Use mock images? (Y/n): ").strip().lower()
+            use_mock = choice != "n"
         except (KeyboardInterrupt, EOFError):
             print("\nCancelled.")
             sys.exit(0)
+
+    # Ask about subtitles
+    enable_subs = True
+    try:
+        choice = input("Enable word-level subtitles? (Y/n): ").strip().lower()
+        enable_subs = choice != "n"
+    except (KeyboardInterrupt, EOFError):
+        print("\nCancelled.")
+        sys.exit(0)
 
     # Ask about background music
     enable_music = True
@@ -306,7 +304,8 @@ def main():
             use_mock_images=use_mock,
             enable_subtitles=enable_subs,
             enable_music=enable_music,
-            persona=selected_persona
+            persona=selected_persona,
+            use_chroma_key=use_chroma_key,
         )
 
         print()

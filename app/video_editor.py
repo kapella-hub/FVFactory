@@ -14,11 +14,13 @@ from moviepy import (
     ImageClip,
     AudioFileClip,
     TextClip,
+    VideoFileClip,
     CompositeVideoClip,
     CompositeAudioClip,
     concatenate_videoclips,
     concatenate_audioclips,
 )
+import numpy as np
 
 from app.config import settings
 
@@ -62,6 +64,15 @@ class VideoEditor:
 
     # Supported music file extensions
     MUSIC_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".aac"}
+
+    # Talking head overlay settings (for hybrid mode)
+    TALKING_HEAD_SIZE_RATIO = 0.30  # 30% of screen width
+    TALKING_HEAD_PADDING = 40  # Padding from edges in pixels
+    TALKING_HEAD_POSITION = "bottom-right"  # Position on screen
+
+    # Chroma key settings (for green screen removal)
+    CHROMA_KEY_COLOR = [0, 177, 64]  # Standard green screen RGB
+    CHROMA_KEY_THRESHOLD = 100  # Color similarity threshold
 
     def __init__(self):
         self.output_dir = Path(settings.output_dir)
@@ -569,6 +580,328 @@ class VideoEditor:
 
         # Composite text over video
         return CompositeVideoClip([video, text_clip])
+
+    def _create_circle_mask(self, size: int) -> np.ndarray:
+        """
+        Create a circular alpha mask.
+
+        Args:
+            size: Diameter of the circle (width and height)
+
+        Returns:
+            numpy array with circular mask (255 inside, 0 outside)
+        """
+        y, x = np.ogrid[:size, :size]
+        center = size // 2
+        radius = size // 2
+
+        # Create circular mask
+        mask = ((x - center) ** 2 + (y - center) ** 2 <= radius ** 2).astype(np.uint8) * 255
+
+        return mask
+
+    def _apply_circle_crop(
+        self,
+        clip: VideoFileClip,
+        target_size: int
+    ) -> VideoFileClip:
+        """
+        Crop a video clip into a circle and resize.
+
+        Args:
+            clip: The video clip to crop
+            target_size: Target diameter for the circle
+
+        Returns:
+            Video clip with circular mask applied
+        """
+        from PIL import Image
+
+        # Calculate crop dimensions (square, centered on frame)
+        clip_w, clip_h = clip.size
+        crop_size = min(clip_w, clip_h)
+
+        # Center crop to square
+        x_center = clip_w // 2
+        y_center = clip_h // 2
+        x1 = x_center - crop_size // 2
+        y1 = y_center - crop_size // 2
+
+        # Crop to square
+        cropped_clip = clip.cropped(x1=x1, y1=y1, width=crop_size, height=crop_size)
+
+        # Resize to target size
+        cropped_clip = cropped_clip.resized((target_size, target_size))
+
+        # Create circular mask
+        circle_mask = self._create_circle_mask(target_size)
+
+        def apply_mask(frame):
+            """Apply circular mask to frame"""
+            # Convert to RGBA if needed
+            if frame.shape[2] == 3:
+                # Add alpha channel
+                rgba = np.zeros((frame.shape[0], frame.shape[1], 4), dtype=np.uint8)
+                rgba[:, :, :3] = frame
+                rgba[:, :, 3] = circle_mask
+                return rgba
+            else:
+                frame[:, :, 3] = circle_mask
+                return frame
+
+        # Apply mask using image_transform
+        masked_clip = cropped_clip.image_transform(apply_mask)
+
+        return masked_clip
+
+    def _apply_chroma_key(
+        self,
+        clip: VideoFileClip,
+        key_color: Optional[List[int]] = None,
+        threshold: Optional[int] = None
+    ) -> VideoFileClip:
+        """
+        Remove green screen background using chroma key.
+
+        Args:
+            clip: The video clip to process
+            key_color: RGB color to key out (default: standard green)
+            threshold: Color similarity threshold (default: class setting)
+
+        Returns:
+            Video clip with green screen removed (alpha channel added)
+        """
+        if key_color is None:
+            key_color = self.CHROMA_KEY_COLOR
+        if threshold is None:
+            threshold = self.CHROMA_KEY_THRESHOLD
+
+        key_color = np.array(key_color)
+
+        def chroma_key_filter(frame):
+            """Remove green screen from frame"""
+            # Calculate color distance from key color
+            diff = np.sqrt(np.sum((frame[:, :, :3].astype(float) - key_color) ** 2, axis=2))
+
+            # Create alpha mask (transparent where close to key color)
+            alpha = np.where(diff < threshold, 0, 255).astype(np.uint8)
+
+            # Smooth the edges a bit
+            from scipy import ndimage
+            alpha = ndimage.gaussian_filter(alpha.astype(float), sigma=1)
+            alpha = np.clip(alpha, 0, 255).astype(np.uint8)
+
+            # Create RGBA frame
+            if frame.shape[2] == 3:
+                rgba = np.zeros((frame.shape[0], frame.shape[1], 4), dtype=np.uint8)
+                rgba[:, :, :3] = frame
+                rgba[:, :, 3] = alpha
+                return rgba
+            else:
+                frame[:, :, 3] = alpha
+                return frame
+
+        return clip.image_transform(chroma_key_filter)
+
+    def assemble_hybrid_video(
+        self,
+        audio_path: str,
+        image_paths: List[str],
+        talking_head_path: str,
+        output_filename: str,
+        enable_subtitles: bool = True,
+        enable_music: bool = True,
+        use_chroma_key: bool = False,
+    ) -> str:
+        """
+        Assemble a hybrid video with background images and talking head overlay.
+
+        Layer 1 (Background): Ken Burns effect on images
+        Layer 2 (Foreground): Talking head video (circle cropped or chroma keyed)
+        Layer 3 (Top): Word-level subtitles
+
+        Audio comes from the talking head video, mixed with background music.
+
+        Args:
+            audio_path: Path to the original voiceover audio (for subtitles)
+            image_paths: List of paths to background image files
+            talking_head_path: Path to the animated talking head video
+            output_filename: Name of the output video file
+            enable_subtitles: If True, generate word-level subtitles
+            enable_music: If True, add background music
+            use_chroma_key: If True, use chroma key instead of circle crop
+
+        Returns:
+            str: Path to the generated video file
+
+        Raises:
+            VideoEditorError: If video assembly fails
+        """
+        if not Path(audio_path).exists():
+            raise VideoEditorError(f"Audio file not found: {audio_path}")
+
+        if not image_paths:
+            raise VideoEditorError("No images provided")
+
+        if not Path(talking_head_path).exists():
+            raise VideoEditorError(f"Talking head video not found: {talking_head_path}")
+
+        for img_path in image_paths:
+            if not Path(img_path).exists():
+                raise VideoEditorError(f"Image file not found: {img_path}")
+
+        subtitle_clips = []
+        music_clip = None
+        clips_to_close = []
+
+        try:
+            # Load the talking head video (this determines the duration)
+            logger.info("Loading talking head video...")
+            talking_head = VideoFileClip(talking_head_path)
+            clips_to_close.append(talking_head)
+            video_duration = talking_head.duration
+
+            # Extract audio from talking head
+            talking_head_audio = talking_head.audio
+            if talking_head_audio is None:
+                raise VideoEditorError("Talking head video has no audio")
+
+            logger.info(f"Video duration: {video_duration:.1f}s")
+
+            # Calculate duration per image
+            duration_per_image = video_duration / len(image_paths)
+
+            # LAYER 1: Create background from images with Ken Burns effect
+            logger.info("Creating background layer with Ken Burns effect...")
+            background_clips = []
+            for i, img_path in enumerate(image_paths):
+                clip = self._create_ken_burns_clip(img_path, duration_per_image)
+                background_clips.append(clip)
+                clips_to_close.append(clip)
+
+            background = concatenate_videoclips(background_clips, method="compose")
+            clips_to_close.append(background)
+
+            # LAYER 2: Prepare talking head overlay
+            logger.info("Preparing talking head overlay...")
+
+            # Calculate target size for talking head (30% of screen width)
+            target_size = int(self.WIDTH * self.TALKING_HEAD_SIZE_RATIO)
+
+            if use_chroma_key:
+                logger.info("Applying chroma key to talking head...")
+                processed_head = self._apply_chroma_key(talking_head)
+                # Resize to target size (maintain aspect ratio)
+                scale = target_size / min(talking_head.w, talking_head.h)
+                processed_head = processed_head.resized(scale)
+            else:
+                logger.info("Applying circle crop to talking head...")
+                processed_head = self._apply_circle_crop(talking_head, target_size)
+
+            clips_to_close.append(processed_head)
+
+            # Calculate position for talking head (bottom-right with padding)
+            if self.TALKING_HEAD_POSITION == "bottom-right":
+                head_x = self.WIDTH - target_size - self.TALKING_HEAD_PADDING
+                head_y = self.HEIGHT - target_size - self.TALKING_HEAD_PADDING - 200  # Extra padding for subtitles
+            elif self.TALKING_HEAD_POSITION == "bottom-left":
+                head_x = self.TALKING_HEAD_PADDING
+                head_y = self.HEIGHT - target_size - self.TALKING_HEAD_PADDING - 200
+            elif self.TALKING_HEAD_POSITION == "top-right":
+                head_x = self.WIDTH - target_size - self.TALKING_HEAD_PADDING
+                head_y = self.TALKING_HEAD_PADDING
+            else:  # top-left
+                head_x = self.TALKING_HEAD_PADDING
+                head_y = self.TALKING_HEAD_PADDING
+
+            # Position the talking head
+            positioned_head = processed_head.with_position((head_x, head_y))
+
+            # Composite background and talking head
+            composite = CompositeVideoClip(
+                [background, positioned_head],
+                size=(self.WIDTH, self.HEIGHT)
+            )
+            clips_to_close.append(composite)
+
+            # LAYER 3: Generate and add subtitles if enabled
+            if enable_subtitles:
+                logger.info("Generating subtitles...")
+                try:
+                    subtitle_segments = self.generate_subtitles(audio_path)
+                    subtitle_clips = self._create_subtitle_clips(subtitle_segments)
+
+                    if subtitle_clips:
+                        logger.info(f"Adding {len(subtitle_clips)} subtitle overlays...")
+                        composite = CompositeVideoClip(
+                            [composite] + subtitle_clips,
+                            size=(self.WIDTH, self.HEIGHT)
+                        )
+                except Exception as e:
+                    logger.warning(f"Subtitle generation failed, continuing without: {e}")
+
+            # AUDIO: Use audio from talking head, mix with background music
+            voice_audio = talking_head_audio.with_volume_scaled(settings.voice_volume)
+
+            if enable_music and settings.music_enabled:
+                music_path = self._get_random_music_file()
+                if music_path:
+                    try:
+                        music_clip = self._prepare_background_music(music_path, video_duration)
+                    except Exception as e:
+                        logger.warning(f"Failed to load music: {e}")
+                        music_clip = None
+
+            # Mix audio tracks
+            final_audio = self._mix_audio(voice_audio, music_clip)
+
+            # Set audio to composite
+            final_video = composite.with_audio(final_audio)
+
+            # Generate output path
+            output_path = self.output_dir / output_filename
+            if not output_path.suffix:
+                output_path = output_path.with_suffix(".mp4")
+
+            # Write video file
+            logger.info(f"Rendering hybrid video to {output_path}...")
+            final_video.write_videofile(
+                str(output_path),
+                fps=self.FPS,
+                codec=self.CODEC,
+                audio_codec="aac",
+                temp_audiofile="temp-audio.m4a",
+                remove_temp=True,
+                logger="bar",
+            )
+
+            # Clean up
+            for clip in clips_to_close:
+                try:
+                    clip.close()
+                except Exception:
+                    pass
+            for clip in subtitle_clips:
+                try:
+                    clip.close()
+                except Exception:
+                    pass
+            if music_clip:
+                try:
+                    music_clip.close()
+                except Exception:
+                    pass
+
+            return str(output_path)
+
+        except Exception as e:
+            # Clean up on error
+            for clip in clips_to_close:
+                try:
+                    clip.close()
+                except Exception:
+                    pass
+            raise VideoEditorError(f"Failed to assemble hybrid video: {e}")
 
     def add_music_to_video(
         self,

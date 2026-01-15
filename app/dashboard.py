@@ -3,9 +3,7 @@ FVFactory Streamlit Dashboard
 Web UI for video generation pipeline
 """
 
-import os
 import sys
-import shutil
 from pathlib import Path
 from datetime import datetime
 
@@ -92,6 +90,9 @@ def init_session_state():
     if "animated_video_path" not in st.session_state:
         st.session_state.animated_video_path = None
 
+    if "use_chroma_key" not in st.session_state:
+        st.session_state.use_chroma_key = False
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -130,6 +131,7 @@ def reset_pipeline():
     st.session_state.video_path = None
     st.session_state.selected_persona = None
     st.session_state.animated_video_path = None
+    st.session_state.use_chroma_key = False
 
     # Cleanup temp files
     if st.session_state.asset_manager:
@@ -160,22 +162,30 @@ def render_sidebar():
 
         video_mode = st.radio(
             "Select mode",
-            options=["Image Slideshow", "Talking Head (Persona)"],
-            help="Slideshow uses multiple images. Talking Head animates a single portrait.",
+            options=["Image Slideshow", "Hybrid (Images + Talking Head)"],
+            help="Slideshow uses multiple images. Hybrid adds a talking head overlay on top.",
             disabled=not (personas and has_api),
         )
 
-        use_persona = video_mode == "Talking Head (Persona)"
+        use_persona = video_mode == "Hybrid (Images + Talking Head)"
         st.session_state.use_persona = use_persona
 
-        # Persona Selection (if talking head mode)
+        # Persona Selection (if hybrid mode)
         if use_persona and personas:
             selected_persona = st.selectbox(
                 "Select Persona",
                 options=personas,
-                help="Choose a master image for the talking head"
+                help="Choose a master image for the talking head overlay"
             )
             st.session_state.selected_persona = selected_persona
+
+            # Chroma key option for green screen personas
+            use_chroma_key = st.checkbox(
+                "Use chroma key (green screen)",
+                value=False,
+                help="Enable if your persona image has a green background"
+            )
+            st.session_state.use_chroma_key = use_chroma_key
 
             # Show persona preview
             animator = PortraitAnimator()
@@ -184,32 +194,32 @@ def render_sidebar():
                 st.image(str(persona_path), caption=selected_persona, width=150)
         else:
             st.session_state.selected_persona = None
+            st.session_state.use_chroma_key = False
 
         if not has_api and personas:
-            st.warning("Configure HEDRA_API_KEY or REPLICATE_API_TOKEN for Talking Head mode")
+            st.warning("Configure HEDRA_API_KEY or REPLICATE_API_TOKEN for Hybrid mode")
 
         st.divider()
 
-        # Niche/Mascot Selection (only for slideshow mode)
-        if not use_persona:
-            st.subheader("2. Select Niche")
-            selected_niche = st.selectbox(
-                "Topic/Niche",
-                options=list(NICHE_PRESETS.keys()),
-                help="Each niche has a different mascot and visual style"
-            )
-            apply_niche_settings(selected_niche)
+        # Niche/Mascot Selection
+        st.subheader("2. Select Niche")
+        selected_niche = st.selectbox(
+            "Topic/Niche",
+            options=list(NICHE_PRESETS.keys()),
+            help="Each niche has a different mascot and visual style"
+        )
+        apply_niche_settings(selected_niche)
 
-            # Show current mascot preview
-            if settings.mascot_enabled:
-                with st.expander("Mascot Preview"):
-                    st.caption(settings.mascot_prompt)
-                    st.caption(f"Style: {settings.image_style}")
+        # Show current mascot preview
+        if settings.mascot_enabled:
+            with st.expander("Mascot Preview"):
+                st.caption(settings.mascot_prompt)
+                st.caption(f"Style: {settings.image_style}")
 
-            st.divider()
+        st.divider()
 
         # Video Topic Input
-        st.subheader("3. Video Topic" if not use_persona else "2. Video Topic")
+        st.subheader("3. Video Topic")
         video_topic = st.text_input(
             "Enter your topic",
             placeholder="e.g., The History of Bitcoin",
@@ -219,15 +229,10 @@ def render_sidebar():
         st.divider()
 
         # Generation Options
-        st.subheader("4. Options" if not use_persona else "3. Options")
+        st.subheader("4. Options")
 
-        if not use_persona:
-            use_mock_images = st.checkbox("Use mock images", value=True, help="Use placeholder images instead of DALL-E")
-            enable_subtitles = st.checkbox("Enable subtitles", value=True, help="Add word-level subtitles")
-        else:
-            use_mock_images = True
-            enable_subtitles = False
-
+        use_mock_images = st.checkbox("Use mock images", value=True, help="Use placeholder images instead of DALL-E")
+        enable_subtitles = st.checkbox("Enable subtitles", value=True, help="Add word-level subtitles")
         enable_music = st.checkbox("Enable background music", value=True, help="Add background music with ducking")
 
         st.divider()
@@ -328,31 +333,33 @@ def render_script_review():
 
         # Show mode
         if use_persona:
-            st.info(f"Mode: Talking Head\nPersona: {st.session_state.selected_persona}")
+            st.info(f"Mode: Hybrid\nPersona: {st.session_state.selected_persona}")
 
     st.divider()
 
-    # Image Prompts Review (only for slideshow mode)
-    if not use_persona:
-        st.subheader("Image Prompts")
+    # Image Prompts Review (always shown - needed for hybrid mode too)
+    st.subheader("Image Prompts")
+    if use_persona:
+        st.caption("These prompts will be used to generate background images")
+    else:
         st.caption("These prompts will be used to generate the video images")
 
-        for i, prompt in enumerate(st.session_state.image_prompts):
-            with st.expander(f"Scene {i + 1}", expanded=i == 0):
-                st.session_state.image_prompts[i] = st.text_area(
-                    f"Prompt {i + 1}",
-                    value=prompt,
-                    height=80,
-                    label_visibility="collapsed",
-                    key=f"prompt_{i}"
-                )
+    for i, prompt in enumerate(st.session_state.image_prompts):
+        with st.expander(f"Scene {i + 1}", expanded=i == 0):
+            st.session_state.image_prompts[i] = st.text_area(
+                f"Prompt {i + 1}",
+                value=prompt,
+                height=80,
+                label_visibility="collapsed",
+                key=f"prompt_{i}"
+            )
 
-        st.divider()
+    st.divider()
 
     # Approve Button
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        button_label = "Approve & Generate Portrait" if use_persona else "Approve & Generate Assets"
+        button_label = "Approve & Generate Hybrid Assets" if use_persona else "Approve & Generate Assets"
         if st.button(button_label, type="primary", use_container_width=True):
             generate_assets()
 
@@ -362,7 +369,7 @@ def render_script_review():
 # =============================================================================
 
 def generate_assets():
-    """Generate audio and images/animated portrait."""
+    """Generate audio, images, and optionally animated portrait for hybrid mode."""
     use_persona = st.session_state.get("use_persona", False)
 
     try:
@@ -377,8 +384,18 @@ def generate_assets():
 
         st.success(f"Audio generated: {audio_result.duration:.1f}s")
 
+        # Always generate background images (for both standard and hybrid mode)
+        with st.spinner("Generating background images..."):
+            image_paths = asset_manager.generate_images(
+                st.session_state.image_prompts,
+                use_mock=st.session_state.get("use_mock_images", True)
+            )
+            st.session_state.image_paths = image_paths
+
+        st.success(f"Generated {len(image_paths)} images")
+
         if use_persona:
-            # PERSONA MODE: Generate animated portrait
+            # HYBRID MODE: Also generate animated portrait
             with st.spinner("Generating animated portrait... This may take several minutes."):
                 animator = PortraitAnimator()
                 persona_path = animator.get_persona_path(st.session_state.selected_persona)
@@ -395,20 +412,8 @@ def generate_assets():
                 st.session_state.animated_video_path = animated_path
 
             st.success("Portrait animation complete!")
-            st.session_state.stage = "assets"
 
-        else:
-            # STANDARD MODE: Generate images
-            with st.spinner("Generating images..."):
-                image_paths = asset_manager.generate_images(
-                    st.session_state.image_prompts,
-                    use_mock=st.session_state.get("use_mock_images", True)
-                )
-                st.session_state.image_paths = image_paths
-
-            st.success(f"Generated {len(image_paths)} images")
-            st.session_state.stage = "assets"
-
+        st.session_state.stage = "assets"
         st.rerun()
 
     except (AssetManagerError, AnimatorError) as e:
@@ -420,7 +425,7 @@ def generate_assets():
 # =============================================================================
 
 def render_asset_review():
-    """Render the asset review stage with image grid or animated video preview."""
+    """Render the asset review stage with image grid and animated video preview."""
     st.header("Asset Review")
 
     use_persona = st.session_state.get("use_persona", False)
@@ -435,40 +440,44 @@ def render_asset_review():
 
     st.divider()
 
+    # Background Images (shown for both modes)
+    st.subheader("Background Images")
     if use_persona:
-        # Persona Mode: Show animated video preview
-        st.subheader("Animated Portrait Preview")
+        st.caption("Review background images - these will appear behind the talking head")
+    else:
+        st.caption("Review generated images and regenerate if needed")
+
+    cols = st.columns(3)
+    for i, img_path in enumerate(st.session_state.image_paths):
+        col_idx = i % 3
+        with cols[col_idx]:
+            if Path(img_path).exists():
+                st.image(img_path, caption=f"Scene {i + 1}", use_container_width=True)
+
+                # Regenerate button
+                if st.button(f"Regenerate", key=f"regen_{i}", use_container_width=True):
+                    regenerate_image(i)
+            else:
+                st.warning(f"Image {i + 1} not found")
+
+    # Animated Portrait Preview (only for hybrid mode)
+    if use_persona:
+        st.divider()
+        st.subheader("Talking Head Preview")
 
         if st.session_state.animated_video_path and Path(st.session_state.animated_video_path).exists():
             st.video(st.session_state.animated_video_path)
-            st.caption("This is the animated portrait that will be used in the final video")
+            st.caption("This talking head will be overlaid on the background images (bottom-right, circle crop)")
         else:
             st.warning("Animated video not found")
-
-    else:
-        # Standard Mode: Show image grid
-        st.subheader("Generated Images")
-        st.caption("Review generated images and regenerate if needed")
-
-        cols = st.columns(3)
-        for i, img_path in enumerate(st.session_state.image_paths):
-            col_idx = i % 3
-            with cols[col_idx]:
-                if Path(img_path).exists():
-                    st.image(img_path, caption=f"Scene {i + 1}", use_container_width=True)
-
-                    # Regenerate button
-                    if st.button(f"Regenerate", key=f"regen_{i}", use_container_width=True):
-                        regenerate_image(i)
-                else:
-                    st.warning(f"Image {i + 1} not found")
 
     st.divider()
 
     # Proceed to Render
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("Render Final Video", type="primary", use_container_width=True):
+        button_label = "Render Hybrid Video" if use_persona else "Render Final Video"
+        if st.button(button_label, type="primary", use_container_width=True):
             render_video()
 
 
@@ -514,32 +523,26 @@ def render_video():
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_filename = f"{safe_topic}_{timestamp}.mp4"
 
-        if use_persona:
-            # Persona mode: Add music to animated video
-            with st.spinner("Finalizing video..."):
-                enable_music = st.session_state.get("enable_music", True)
+        video_editor = VideoEditor()
 
-                if enable_music and settings.music_enabled:
-                    video_editor = VideoEditor()
-                    output_path = video_editor.add_music_to_video(
-                        video_path=st.session_state.animated_video_path,
-                        output_filename=output_filename
-                    )
-                else:
-                    # Just copy the animated video to output
-                    output_dir = Path(settings.output_dir)
-                    output_dir.mkdir(parents=True, exist_ok=True)
-                    output_path = output_dir / output_filename
-                    shutil.copy(st.session_state.animated_video_path, output_path)
-                    output_path = str(output_path)
+        if use_persona:
+            # Hybrid mode: Background images + Talking head overlay
+            with st.spinner("Rendering hybrid video... This may take a few minutes."):
+                output_path = video_editor.assemble_hybrid_video(
+                    audio_path=st.session_state.audio_result.file_path,
+                    image_paths=st.session_state.image_paths,
+                    talking_head_path=st.session_state.animated_video_path,
+                    output_filename=output_filename,
+                    enable_subtitles=st.session_state.get("enable_subtitles", True),
+                    enable_music=st.session_state.get("enable_music", True),
+                    use_chroma_key=st.session_state.get("use_chroma_key", False),
+                )
 
                 st.session_state.video_path = output_path
 
         else:
             # Standard mode: Assemble video from images
             with st.spinner("Rendering video... This may take a few minutes."):
-                video_editor = VideoEditor()
-
                 output_path = video_editor.assemble_video(
                     audio_path=st.session_state.audio_result.file_path,
                     image_paths=st.session_state.image_paths,
@@ -602,7 +605,8 @@ def render_video_preview():
         # Show mode used
         use_persona = st.session_state.get("use_persona", False)
         if use_persona:
-            st.info(f"Generated using Talking Head mode with persona: {st.session_state.selected_persona}")
+            chroma_key_str = " (chroma key)" if st.session_state.get("use_chroma_key", False) else " (circle crop)"
+            st.info(f"Generated using Hybrid mode with persona: {st.session_state.selected_persona}{chroma_key_str}")
 
     st.divider()
 
@@ -641,11 +645,11 @@ def main():
         st.markdown("""
         ### How it works:
 
-        1. **Select Mode** - Choose between Image Slideshow or Talking Head
+        1. **Select Mode** - Choose between Image Slideshow or Hybrid mode
         2. **Enter your Topic** - What should the video be about?
         3. **Generate Script** - AI creates a viral script
         4. **Review & Edit** - Fine-tune the script before generation
-        5. **Generate Assets** - Create audio and visuals
+        5. **Generate Assets** - Create audio, images, and optionally animated portrait
         6. **Render Video** - Combine everything into a final video
 
         ---
@@ -654,7 +658,7 @@ def main():
 
         **Image Slideshow**: Creates a video with multiple AI-generated images and Ken Burns effect.
 
-        **Talking Head**: Animates a single portrait image with lip-sync to the narration.
+        **Hybrid Mode**: Combines background images with an animated talking head overlay (circle crop or chroma key).
 
         ---
 
