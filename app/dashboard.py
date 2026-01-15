@@ -5,7 +5,9 @@ Web UI for video generation pipeline
 
 import os
 import sys
+import shutil
 from pathlib import Path
+from datetime import datetime
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -16,6 +18,7 @@ from app.config import settings
 from app.content_engine import ScriptGenerator, ScriptGeneratorError
 from app.asset_manager import AssetManager, AssetManagerError
 from app.video_editor import VideoEditor, VideoEditorError
+from app.animator import PortraitAnimator, AnimatorError
 
 
 # =============================================================================
@@ -83,6 +86,12 @@ def init_session_state():
     if "asset_manager" not in st.session_state:
         st.session_state.asset_manager = None
 
+    if "selected_persona" not in st.session_state:
+        st.session_state.selected_persona = None
+
+    if "animated_video_path" not in st.session_state:
+        st.session_state.animated_video_path = None
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -98,6 +107,17 @@ def apply_niche_settings(niche_name: str):
     settings.mascot_enabled = bool(preset["mascot_prompt"])
 
 
+def get_available_personas():
+    """Get list of available persona images."""
+    animator = PortraitAnimator()
+    return animator.get_available_personas()
+
+
+def has_animation_api():
+    """Check if animation API is configured."""
+    return bool(settings.hedra_api_key or settings.replicate_api_token)
+
+
 def reset_pipeline():
     """Reset the pipeline to start fresh."""
     st.session_state.stage = "config"
@@ -108,6 +128,8 @@ def reset_pipeline():
     st.session_state.image_paths = []
     st.session_state.audio_result = None
     st.session_state.video_path = None
+    st.session_state.selected_persona = None
+    st.session_state.animated_video_path = None
 
     # Cleanup temp files
     if st.session_state.asset_manager:
@@ -130,25 +152,64 @@ def render_sidebar():
 
         st.divider()
 
-        # Niche/Persona Selection
-        st.subheader("1. Select Niche")
-        selected_niche = st.selectbox(
-            "Topic/Niche",
-            options=list(NICHE_PRESETS.keys()),
-            help="Each niche has a different mascot and visual style"
-        )
-        apply_niche_settings(selected_niche)
+        # Video Mode Selection
+        st.subheader("1. Video Mode")
 
-        # Show current mascot preview
-        if settings.mascot_enabled:
-            with st.expander("Mascot Preview"):
-                st.caption(settings.mascot_prompt)
-                st.caption(f"Style: {settings.image_style}")
+        personas = get_available_personas()
+        has_api = has_animation_api()
+
+        video_mode = st.radio(
+            "Select mode",
+            options=["Image Slideshow", "Talking Head (Persona)"],
+            help="Slideshow uses multiple images. Talking Head animates a single portrait.",
+            disabled=not (personas and has_api),
+        )
+
+        use_persona = video_mode == "Talking Head (Persona)"
+        st.session_state.use_persona = use_persona
+
+        # Persona Selection (if talking head mode)
+        if use_persona and personas:
+            selected_persona = st.selectbox(
+                "Select Persona",
+                options=personas,
+                help="Choose a master image for the talking head"
+            )
+            st.session_state.selected_persona = selected_persona
+
+            # Show persona preview
+            animator = PortraitAnimator()
+            persona_path = animator.get_persona_path(selected_persona)
+            if persona_path and persona_path.exists():
+                st.image(str(persona_path), caption=selected_persona, width=150)
+        else:
+            st.session_state.selected_persona = None
+
+        if not has_api and personas:
+            st.warning("Configure HEDRA_API_KEY or REPLICATE_API_TOKEN for Talking Head mode")
 
         st.divider()
 
+        # Niche/Mascot Selection (only for slideshow mode)
+        if not use_persona:
+            st.subheader("2. Select Niche")
+            selected_niche = st.selectbox(
+                "Topic/Niche",
+                options=list(NICHE_PRESETS.keys()),
+                help="Each niche has a different mascot and visual style"
+            )
+            apply_niche_settings(selected_niche)
+
+            # Show current mascot preview
+            if settings.mascot_enabled:
+                with st.expander("Mascot Preview"):
+                    st.caption(settings.mascot_prompt)
+                    st.caption(f"Style: {settings.image_style}")
+
+            st.divider()
+
         # Video Topic Input
-        st.subheader("2. Video Topic")
+        st.subheader("3. Video Topic" if not use_persona else "2. Video Topic")
         video_topic = st.text_input(
             "Enter your topic",
             placeholder="e.g., The History of Bitcoin",
@@ -158,9 +219,15 @@ def render_sidebar():
         st.divider()
 
         # Generation Options
-        st.subheader("3. Options")
-        use_mock_images = st.checkbox("Use mock images", value=True, help="Use placeholder images instead of DALL-E")
-        enable_subtitles = st.checkbox("Enable subtitles", value=True, help="Add word-level subtitles")
+        st.subheader("4. Options" if not use_persona else "3. Options")
+
+        if not use_persona:
+            use_mock_images = st.checkbox("Use mock images", value=True, help="Use placeholder images instead of DALL-E")
+            enable_subtitles = st.checkbox("Enable subtitles", value=True, help="Add word-level subtitles")
+        else:
+            use_mock_images = True
+            enable_subtitles = False
+
         enable_music = st.checkbox("Enable background music", value=True, help="Add background music with ducking")
 
         st.divider()
@@ -220,6 +287,8 @@ def render_script_review():
     st.header("Script Review")
     st.caption("Review and edit the generated script before proceeding")
 
+    use_persona = st.session_state.get("use_persona", False)
+
     col1, col2 = st.columns([2, 1])
 
     with col1:
@@ -257,28 +326,34 @@ def render_script_review():
         est_duration = word_count / 2.5  # ~150 words per minute = 2.5 words per second
         st.metric("Est. Duration", f"{est_duration:.0f}s")
 
-    st.divider()
-
-    # Image Prompts Review
-    st.subheader("Image Prompts")
-    st.caption("These prompts will be used to generate the video images")
-
-    for i, prompt in enumerate(st.session_state.image_prompts):
-        with st.expander(f"Scene {i + 1}", expanded=i == 0):
-            st.session_state.image_prompts[i] = st.text_area(
-                f"Prompt {i + 1}",
-                value=prompt,
-                height=80,
-                label_visibility="collapsed",
-                key=f"prompt_{i}"
-            )
+        # Show mode
+        if use_persona:
+            st.info(f"Mode: Talking Head\nPersona: {st.session_state.selected_persona}")
 
     st.divider()
+
+    # Image Prompts Review (only for slideshow mode)
+    if not use_persona:
+        st.subheader("Image Prompts")
+        st.caption("These prompts will be used to generate the video images")
+
+        for i, prompt in enumerate(st.session_state.image_prompts):
+            with st.expander(f"Scene {i + 1}", expanded=i == 0):
+                st.session_state.image_prompts[i] = st.text_area(
+                    f"Prompt {i + 1}",
+                    value=prompt,
+                    height=80,
+                    label_visibility="collapsed",
+                    key=f"prompt_{i}"
+                )
+
+        st.divider()
 
     # Approve Button
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("Approve & Generate Assets", type="primary", use_container_width=True):
+        button_label = "Approve & Generate Portrait" if use_persona else "Approve & Generate Assets"
+        if st.button(button_label, type="primary", use_container_width=True):
             generate_assets()
 
 
@@ -287,7 +362,9 @@ def render_script_review():
 # =============================================================================
 
 def generate_assets():
-    """Generate audio and images."""
+    """Generate audio and images/animated portrait."""
+    use_persona = st.session_state.get("use_persona", False)
+
     try:
         with st.spinner("Generating audio..."):
             asset_manager = AssetManager()
@@ -300,18 +377,41 @@ def generate_assets():
 
         st.success(f"Audio generated: {audio_result.duration:.1f}s")
 
-        with st.spinner("Generating images..."):
-            image_paths = asset_manager.generate_images(
-                st.session_state.image_prompts,
-                use_mock=st.session_state.get("use_mock_images", True)
-            )
-            st.session_state.image_paths = image_paths
+        if use_persona:
+            # PERSONA MODE: Generate animated portrait
+            with st.spinner("Generating animated portrait... This may take several minutes."):
+                animator = PortraitAnimator()
+                persona_path = animator.get_persona_path(st.session_state.selected_persona)
 
-        st.success(f"Generated {len(image_paths)} images")
-        st.session_state.stage = "assets"
+                if not persona_path:
+                    st.error(f"Persona not found: {st.session_state.selected_persona}")
+                    return
+
+                animated_path = animator.animate_portrait(
+                    audio_path=audio_result.file_path,
+                    persona_image_path=str(persona_path),
+                    output_filename="animated_portrait.mp4"
+                )
+                st.session_state.animated_video_path = animated_path
+
+            st.success("Portrait animation complete!")
+            st.session_state.stage = "assets"
+
+        else:
+            # STANDARD MODE: Generate images
+            with st.spinner("Generating images..."):
+                image_paths = asset_manager.generate_images(
+                    st.session_state.image_prompts,
+                    use_mock=st.session_state.get("use_mock_images", True)
+                )
+                st.session_state.image_paths = image_paths
+
+            st.success(f"Generated {len(image_paths)} images")
+            st.session_state.stage = "assets"
+
         st.rerun()
 
-    except AssetManagerError as e:
+    except (AssetManagerError, AnimatorError) as e:
         st.error(f"Asset generation failed: {e}")
 
 
@@ -320,9 +420,10 @@ def generate_assets():
 # =============================================================================
 
 def render_asset_review():
-    """Render the asset review stage with image grid."""
+    """Render the asset review stage with image grid or animated video preview."""
     st.header("Asset Review")
-    st.caption("Review generated images and regenerate if needed")
+
+    use_persona = st.session_state.get("use_persona", False)
 
     # Audio Preview
     st.subheader("Audio Preview")
@@ -334,28 +435,40 @@ def render_asset_review():
 
     st.divider()
 
-    # Image Grid
-    st.subheader("Generated Images")
+    if use_persona:
+        # Persona Mode: Show animated video preview
+        st.subheader("Animated Portrait Preview")
 
-    cols = st.columns(3)
-    for i, img_path in enumerate(st.session_state.image_paths):
-        col_idx = i % 3
-        with cols[col_idx]:
-            if Path(img_path).exists():
-                st.image(img_path, caption=f"Scene {i + 1}", use_container_width=True)
+        if st.session_state.animated_video_path and Path(st.session_state.animated_video_path).exists():
+            st.video(st.session_state.animated_video_path)
+            st.caption("This is the animated portrait that will be used in the final video")
+        else:
+            st.warning("Animated video not found")
 
-                # Regenerate button
-                if st.button(f"Regenerate", key=f"regen_{i}", use_container_width=True):
-                    regenerate_image(i)
-            else:
-                st.warning(f"Image {i + 1} not found")
+    else:
+        # Standard Mode: Show image grid
+        st.subheader("Generated Images")
+        st.caption("Review generated images and regenerate if needed")
+
+        cols = st.columns(3)
+        for i, img_path in enumerate(st.session_state.image_paths):
+            col_idx = i % 3
+            with cols[col_idx]:
+                if Path(img_path).exists():
+                    st.image(img_path, caption=f"Scene {i + 1}", use_container_width=True)
+
+                    # Regenerate button
+                    if st.button(f"Regenerate", key=f"regen_{i}", use_container_width=True):
+                        regenerate_image(i)
+                else:
+                    st.warning(f"Image {i + 1} not found")
 
     st.divider()
 
     # Proceed to Render
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        if st.button("Render Video", type="primary", use_container_width=True):
+        if st.button("Render Final Video", type="primary", use_container_width=True):
             render_video()
 
 
@@ -391,35 +504,58 @@ def regenerate_image(index: int):
 
 def render_video():
     """Render the final video."""
+    use_persona = st.session_state.get("use_persona", False)
+
     try:
-        with st.spinner("Rendering video... This may take a few minutes."):
-            video_editor = VideoEditor()
+        # Generate output filename
+        topic = st.session_state.get("video_topic", "video")
+        safe_topic = "".join(c if c.isalnum() or c in " -_" else "" for c in topic)
+        safe_topic = safe_topic.strip().replace(" ", "_")[:30]
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"{safe_topic}_{timestamp}.mp4"
 
-            # Generate output filename
-            topic = st.session_state.get("video_topic", "video")
-            safe_topic = "".join(c if c.isalnum() or c in " -_" else "" for c in topic)
-            safe_topic = safe_topic.strip().replace(" ", "_")[:30]
+        if use_persona:
+            # Persona mode: Add music to animated video
+            with st.spinner("Finalizing video..."):
+                enable_music = st.session_state.get("enable_music", True)
 
-            from datetime import datetime
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"{safe_topic}_{timestamp}.mp4"
+                if enable_music and settings.music_enabled:
+                    video_editor = VideoEditor()
+                    output_path = video_editor.add_music_to_video(
+                        video_path=st.session_state.animated_video_path,
+                        output_filename=output_filename
+                    )
+                else:
+                    # Just copy the animated video to output
+                    output_dir = Path(settings.output_dir)
+                    output_dir.mkdir(parents=True, exist_ok=True)
+                    output_path = output_dir / output_filename
+                    shutil.copy(st.session_state.animated_video_path, output_path)
+                    output_path = str(output_path)
 
-            output_path = video_editor.assemble_video(
-                audio_path=st.session_state.audio_result.file_path,
-                image_paths=st.session_state.image_paths,
-                output_filename=output_filename,
-                hook_text=st.session_state.edited_hook,
-                enable_subtitles=st.session_state.get("enable_subtitles", True),
-                enable_music=st.session_state.get("enable_music", True),
-            )
+                st.session_state.video_path = output_path
 
-            st.session_state.video_path = output_path
-            st.session_state.stage = "render"
+        else:
+            # Standard mode: Assemble video from images
+            with st.spinner("Rendering video... This may take a few minutes."):
+                video_editor = VideoEditor()
 
+                output_path = video_editor.assemble_video(
+                    audio_path=st.session_state.audio_result.file_path,
+                    image_paths=st.session_state.image_paths,
+                    output_filename=output_filename,
+                    hook_text=st.session_state.edited_hook,
+                    enable_subtitles=st.session_state.get("enable_subtitles", True),
+                    enable_music=st.session_state.get("enable_music", True),
+                )
+
+                st.session_state.video_path = output_path
+
+        st.session_state.stage = "render"
         st.success("Video rendered successfully!")
         st.rerun()
 
-    except VideoEditorError as e:
+    except (VideoEditorError, AnimatorError) as e:
         st.error(f"Video rendering failed: {e}")
 
 
@@ -463,6 +599,11 @@ def render_video_preview():
             file_size = Path(st.session_state.video_path).stat().st_size / (1024 * 1024)
             st.metric("File Size", f"{file_size:.1f} MB")
 
+        # Show mode used
+        use_persona = st.session_state.get("use_persona", False)
+        if use_persona:
+            st.info(f"Generated using Talking Head mode with persona: {st.session_state.selected_persona}")
+
     st.divider()
 
     # Start Over
@@ -500,12 +641,20 @@ def main():
         st.markdown("""
         ### How it works:
 
-        1. **Select a Niche** - Choose a topic/persona from the sidebar
+        1. **Select Mode** - Choose between Image Slideshow or Talking Head
         2. **Enter your Topic** - What should the video be about?
-        3. **Generate Script** - AI creates a viral script with image prompts
+        3. **Generate Script** - AI creates a viral script
         4. **Review & Edit** - Fine-tune the script before generation
-        5. **Generate Assets** - Create audio narration and images
+        5. **Generate Assets** - Create audio and visuals
         6. **Render Video** - Combine everything into a final video
+
+        ---
+
+        ### Video Modes
+
+        **Image Slideshow**: Creates a video with multiple AI-generated images and Ken Burns effect.
+
+        **Talking Head**: Animates a single portrait image with lip-sync to the narration.
 
         ---
 
@@ -516,13 +665,13 @@ def main():
 
         # Show config status
         st.subheader("Configuration Status")
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
 
         with col1:
             if settings.openai_api_key:
-                st.success("OpenAI API: Connected")
+                st.success("OpenAI: Connected")
             else:
-                st.error("OpenAI API: Not configured")
+                st.error("OpenAI: Not configured")
 
         with col2:
             if settings.elevenlabs_api_key:
@@ -531,15 +680,17 @@ def main():
                 st.warning("ElevenLabs: Using OpenAI TTS")
 
         with col3:
-            music_dir = Path(settings.music_dir)
-            if music_dir.exists():
-                music_files = list(music_dir.glob("*.mp3")) + list(music_dir.glob("*.wav"))
-                if music_files:
-                    st.success(f"Music: {len(music_files)} tracks")
-                else:
-                    st.warning("Music: No tracks found")
+            if settings.hedra_api_key or settings.replicate_api_token:
+                st.success("Portrait Animation: Ready")
             else:
-                st.warning("Music: Directory missing")
+                st.warning("Portrait Animation: Not configured")
+
+        with col4:
+            personas = get_available_personas()
+            if personas:
+                st.success(f"Personas: {len(personas)} available")
+            else:
+                st.warning("Personas: None found")
 
     elif st.session_state.stage == "script":
         render_script_review()

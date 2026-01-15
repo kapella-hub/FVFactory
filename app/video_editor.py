@@ -570,6 +570,84 @@ class VideoEditor:
         # Composite text over video
         return CompositeVideoClip([video, text_clip])
 
+    def add_music_to_video(
+        self,
+        video_path: str,
+        output_filename: str,
+    ) -> str:
+        """
+        Add background music to an existing video file.
+
+        Used for persona mode to add music to animated portraits.
+
+        Args:
+            video_path: Path to the input video file
+            output_filename: Name of the output video file
+
+        Returns:
+            str: Path to the output video with music
+
+        Raises:
+            VideoEditorError: If processing fails
+        """
+        from moviepy import VideoFileClip
+
+        if not Path(video_path).exists():
+            raise VideoEditorError(f"Video file not found: {video_path}")
+
+        music_clip = None
+
+        try:
+            # Load the video
+            video = VideoFileClip(video_path)
+            video_duration = video.duration
+
+            # Get background music
+            music_path = self._get_random_music_file()
+            if music_path:
+                try:
+                    music_clip = self._prepare_background_music(music_path, video_duration)
+                except Exception as e:
+                    logger.warning(f"Failed to load music: {e}")
+                    music_clip = None
+
+            # Mix audio if music available
+            if music_clip and video.audio:
+                # Get original video audio
+                original_audio = video.audio.with_volume_scaled(settings.voice_volume)
+                # Composite with music
+                mixed_audio = CompositeAudioClip([music_clip, original_audio])
+                video = video.with_audio(mixed_audio)
+            elif music_clip:
+                # Video has no audio, just add music
+                video = video.with_audio(music_clip)
+
+            # Generate output path
+            output_path = self.output_dir / output_filename
+            if not output_path.suffix:
+                output_path = output_path.with_suffix(".mp4")
+
+            # Write video file
+            video.write_videofile(
+                str(output_path),
+                fps=self.FPS,
+                codec=self.CODEC,
+                audio_codec="aac",
+                temp_audiofile="temp-audio.m4a",
+                remove_temp=True,
+                logger="bar",
+            )
+
+            # Clean up
+            video.close()
+            if music_clip:
+                music_clip.close()
+
+            return str(output_path)
+
+        except Exception as e:
+            raise VideoEditorError(f"Failed to add music to video: {e}")
+
 
 def assemble_video(
     audio_path: str,

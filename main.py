@@ -1,18 +1,20 @@
 """
 FVFactory - Automated short-form video creation
 
-Pipeline: Topic -> Script -> Audio/Images -> MP4
+Pipeline: Topic -> Script -> Audio/Images or Animated Portrait -> MP4
 """
 
 import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 from app.config import settings
 from app.content_engine import ScriptGenerator, ScriptGeneratorError
 from app.asset_manager import AssetManager, AssetManagerError
 from app.video_editor import VideoEditor, VideoEditorError
+from app.animator import PortraitAnimator, AnimatorError
 
 # Configure logging
 logging.basicConfig(
@@ -48,6 +50,9 @@ def validate_config() -> bool:
     if not settings.leonardo_api_key and not settings.midjourney_api_key:
         logger.warning("No image API configured, will use mock images")
 
+    if not settings.hedra_api_key and not settings.replicate_api_token:
+        logger.warning("No portrait animation API configured (HEDRA_API_KEY or REPLICATE_API_TOKEN)")
+
     return True
 
 
@@ -66,7 +71,8 @@ def run_pipeline(
     topic: str,
     use_mock_images: bool = True,
     enable_subtitles: bool = True,
-    enable_music: bool = True
+    enable_music: bool = True,
+    persona: Optional[str] = None
 ) -> str:
     """
     Run the full video generation pipeline.
@@ -76,6 +82,7 @@ def run_pipeline(
         use_mock_images: If True, use placeholder images instead of DALL-E
         enable_subtitles: If True, generate word-level subtitles using Whisper
         enable_music: If True, add background music with ducking
+        persona: Optional persona image filename for talking head mode
 
     Returns:
         str: Path to the generated video file
@@ -98,9 +105,13 @@ def run_pipeline(
         print("=" * 50)
         print(f"\nHOOK: {script.hook}")
         print(f"\nBODY:\n{script.body}")
-        print(f"\nIMAGE PROMPTS:")
-        for i, prompt in enumerate(script.image_prompts, 1):
-            print(f"  {i}. {prompt}")
+
+        # Only show image prompts if not using persona
+        if not persona:
+            print(f"\nIMAGE PROMPTS:")
+            for i, prompt in enumerate(script.image_prompts, 1):
+                print(f"  {i}. {prompt}")
+
         print(f"\nKEYWORDS: {', '.join(script.keywords)}")
         print("=" * 50)
         print()
@@ -115,27 +126,69 @@ def run_pipeline(
 
         logger.info(f"Audio generated: {audio_result.duration:.1f} seconds")
 
-        # Step 3: Generate Images
-        logger.info("Generating images...")
-        image_paths = asset_manager.generate_images(
-            script.image_prompts,
-            use_mock=use_mock_images
-        )
-        logger.info(f"Generated {len(image_paths)} images")
-
-        # Step 4: Render Video (with subtitles and background music)
-        logger.info("Rendering video...")
-        video_editor = VideoEditor()
+        # Step 3: Generate visuals (images OR animated portrait)
         output_filename = generate_output_filename(topic)
 
-        output_path = video_editor.assemble_video(
-            audio_path=audio_result.file_path,
-            image_paths=image_paths,
-            output_filename=output_filename,
-            hook_text=script.hook,  # Fallback if subtitles disabled
-            enable_subtitles=enable_subtitles,
-            enable_music=enable_music,
-        )
+        if persona:
+            # PERSONA MODE: Use animated talking head
+            logger.info(f"Using persona mode with: {persona}")
+
+            animator = PortraitAnimator()
+            persona_path = animator.get_persona_path(persona)
+
+            if not persona_path:
+                raise AnimatorError(f"Persona not found: {persona}")
+
+            # Generate animated portrait
+            logger.info("Generating animated portrait...")
+            animated_video_path = animator.animate_portrait(
+                audio_path=audio_result.file_path,
+                persona_image_path=str(persona_path),
+                output_filename=f"animated_{output_filename}"
+            )
+
+            logger.info(f"Portrait animation complete: {animated_video_path}")
+
+            # For persona mode, we use the animated video directly
+            # Optionally add music overlay
+            if enable_music and settings.music_enabled:
+                logger.info("Adding background music to animated video...")
+                video_editor = VideoEditor()
+                output_path = video_editor.add_music_to_video(
+                    video_path=animated_video_path,
+                    output_filename=output_filename
+                )
+            else:
+                # Just copy/rename the animated video to output
+                output_dir = Path(settings.output_dir)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output_path = output_dir / output_filename
+
+                import shutil
+                shutil.copy(animated_video_path, output_path)
+                output_path = str(output_path)
+
+        else:
+            # STANDARD MODE: Generate images and compose video
+            logger.info("Generating images...")
+            image_paths = asset_manager.generate_images(
+                script.image_prompts,
+                use_mock=use_mock_images
+            )
+            logger.info(f"Generated {len(image_paths)} images")
+
+            # Step 4: Render Video (with subtitles and background music)
+            logger.info("Rendering video...")
+            video_editor = VideoEditor()
+
+            output_path = video_editor.assemble_video(
+                audio_path=audio_result.file_path,
+                image_paths=image_paths,
+                output_filename=output_filename,
+                hook_text=script.hook,  # Fallback if subtitles disabled
+                enable_subtitles=enable_subtitles,
+                enable_music=enable_music,
+            )
 
         logger.info(f"Video rendered successfully: {output_path}")
 
@@ -146,7 +199,7 @@ def run_pipeline(
 
         return output_path
 
-    except (ScriptGeneratorError, AssetManagerError, VideoEditorError) as e:
+    except (ScriptGeneratorError, AssetManagerError, VideoEditorError, AnimatorError) as e:
         logger.error(f"Pipeline failed: {e}")
         # Attempt cleanup even on failure
         if asset_manager:
@@ -157,12 +210,18 @@ def run_pipeline(
         raise
 
 
+def list_personas() -> list:
+    """List available personas."""
+    animator = PortraitAnimator()
+    return animator.get_available_personas()
+
+
 def main():
     """Main entry point for FVFactory."""
     print()
     print("=" * 50)
     print("  FVFactory - Short-form Video Generator")
-    print("  Pipeline: Topic -> Script -> Audio/Images -> MP4")
+    print("  Pipeline: Topic -> Script -> Audio/Visuals -> MP4")
     print("=" * 50)
     print()
 
@@ -186,24 +245,49 @@ def main():
     logger.info(f"Starting video generation for topic: '{topic}'")
     print()
 
-    # Ask about image generation mode
-    use_mock = True
-    if settings.openai_api_key:
+    # Check for available personas
+    personas = list_personas()
+    selected_persona = None
+
+    if personas and (settings.hedra_api_key or settings.replicate_api_token):
+        print("Available Personas (Talking Head Mode):")
+        print("  0. None (use image slideshow)")
+        for i, persona in enumerate(personas, 1):
+            print(f"  {i}. {persona}")
+
         try:
-            choice = input("Use mock images? (Y/n): ").strip().lower()
-            use_mock = choice != "n"
+            choice = input("Select persona (0 for none): ").strip()
+            if choice.isdigit():
+                idx = int(choice)
+                if 1 <= idx <= len(personas):
+                    selected_persona = personas[idx - 1]
+                    logger.info(f"Selected persona: {selected_persona}")
         except (KeyboardInterrupt, EOFError):
             print("\nCancelled.")
             sys.exit(0)
 
-    # Ask about subtitles
+        print()
+
+    # Standard mode options (only if not using persona)
+    use_mock = True
+    if not selected_persona:
+        if settings.openai_api_key:
+            try:
+                choice = input("Use mock images? (Y/n): ").strip().lower()
+                use_mock = choice != "n"
+            except (KeyboardInterrupt, EOFError):
+                print("\nCancelled.")
+                sys.exit(0)
+
+    # Ask about subtitles (only for standard mode - persona videos already have audio sync)
     enable_subs = True
-    try:
-        choice = input("Enable word-level subtitles? (Y/n): ").strip().lower()
-        enable_subs = choice != "n"
-    except (KeyboardInterrupt, EOFError):
-        print("\nCancelled.")
-        sys.exit(0)
+    if not selected_persona:
+        try:
+            choice = input("Enable word-level subtitles? (Y/n): ").strip().lower()
+            enable_subs = choice != "n"
+        except (KeyboardInterrupt, EOFError):
+            print("\nCancelled.")
+            sys.exit(0)
 
     # Ask about background music
     enable_music = True
@@ -221,7 +305,8 @@ def main():
             topic,
             use_mock_images=use_mock,
             enable_subtitles=enable_subs,
-            enable_music=enable_music
+            enable_music=enable_music,
+            persona=selected_persona
         )
 
         print()

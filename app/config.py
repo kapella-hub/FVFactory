@@ -18,9 +18,18 @@ class Settings(BaseSettings):
     leonardo_api_key: str = ""
     midjourney_api_key: str = ""
 
+    # Portrait Animation APIs
+    hedra_api_key: str = ""           # Hedra API for portrait animation
+    replicate_api_token: str = ""     # Replicate API (for LivePortrait model)
+
     # Output settings
     output_dir: str = "output"
     assets_dir: str = "assets"
+
+    # Persona settings (talking head mode)
+    personas_dir: str = "assets/personas"
+    use_persona: bool = False         # If True, use animated portrait instead of images
+    default_persona: str = ""         # Default persona image filename (e.g., "alex_master.png")
 
     # Mascot settings for visual branding consistency
     mascot_enabled: bool = True
