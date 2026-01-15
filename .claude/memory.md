@@ -4,7 +4,7 @@ This file stores progress and context for Claude across sessions.
 
 ## Current Progress
 
-**Status:** Full MVP with Talking Head mode - Phase 11 complete
+**Status:** Full MVP with Hybrid Compositor - Phase 12 complete
 
 ## Completed Work
 
@@ -19,6 +19,7 @@ This file stores progress and context for Claude across sessions.
 - [x] Background music with audio ducking
 - [x] Streamlit web dashboard (app/dashboard.py)
 - [x] Portrait animator module (app/animator.py) - Hedra & Replicate APIs
+- [x] Hybrid compositor - Background images + Talking head overlay
 
 ## Project Overview
 
@@ -30,7 +31,7 @@ This file stores progress and context for Claude across sessions.
 
 ## Current Task
 
-None - Full MVP complete with CLI, Web UI, and Talking Head mode
+None - Full MVP complete with CLI, Web UI, and Hybrid Compositor
 
 ## Completed Modules
 
@@ -77,8 +78,14 @@ None - Full MVP complete with CLI, Web UI, and Talking Head mode
   - `_mix_audio()` - Combines voice + music with CompositeAudioClip
   - Audio ducking: Music at 10%, Voice at 100%
 - Output: 1080x1920 vertical HD, 24fps, libx264 codec
-- **Persona Mode Support:**
-  - `add_music_to_video()` - Adds background music to animated portrait videos
+- **Hybrid Compositor (Phase 12):**
+  - `assemble_hybrid_video()` - Professional multi-layer composition
+  - Layer 1: Background images with Ken Burns effect
+  - Layer 2: Talking head overlay (bottom-right, 30% screen width)
+  - Layer 3: Word-level subtitles on top
+  - Circle crop: `_apply_circle_crop()` for round talking head overlay
+  - Chroma key: `_apply_chroma_key()` for green screen removal
+  - Audio from talking head video mixed with background music
 
 ### Portrait Animator (app/animator.py)
 - `PortraitAnimator` class for audio-driven portrait animation
@@ -98,26 +105,26 @@ None - Full MVP complete with CLI, Web UI, and Talking Head mode
 
 ### Streamlit Dashboard (app/dashboard.py)
 - **Sidebar Configuration:**
-  - **Video Mode Selection:** Image Slideshow vs Talking Head (Persona)
-  - Persona dropdown with preview (if talking head mode)
-  - Niche/Mascot dropdown with preset mascots (if slideshow mode)
+  - **Video Mode Selection:** Image Slideshow vs Hybrid (Images + Talking Head)
+  - Persona dropdown with preview + chroma key option (if hybrid mode)
+  - Niche/Mascot dropdown with preset mascots
   - Video topic input field
   - Options: mock images, subtitles, music
   - Generate Script button
 - **Script Review Stage:**
   - Editable hook and body text areas
-  - Editable image prompts
+  - Editable image prompts (always shown for both modes)
   - Character count and estimated duration
   - Approve & Generate Assets button
 - **Asset Review Stage:**
   - Audio preview player
-  - Image grid (3 columns)
-  - Regenerate button per image
+  - Background images grid (3 columns) with regenerate buttons
+  - Talking head preview (if hybrid mode)
   - Render Video button
 - **Video Preview Stage:**
   - Video player
   - Download button
-  - Video details (resolution, FPS, file size)
+  - Video details (resolution, FPS, file size, mode used)
 - **Niche Presets:**
   - Default Robot, Finance Guru, Tech Explainer
   - History Buff, Science Explainer, No Mascot
@@ -183,4 +190,5 @@ streamlit run app/dashboard.py
 - Dynamic audio ducking based on voice detection
 - User authentication for multi-user support
 - Additional portrait animation providers
-- Green screen/background replacement for personas
+- Talking head position options (corners, center)
+- Custom overlay sizes and shapes
