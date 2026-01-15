@@ -9,3 +9,4 @@ openai-whisper
 setuptools-rust
 torch
 streamlit
+replicate

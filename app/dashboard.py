@@ -396,7 +396,7 @@ def generate_assets():
 
         if use_persona:
             # HYBRID MODE: Also generate animated portrait
-            with st.spinner("Generating animated portrait... This may take several minutes."):
+            with st.spinner("Generating animated portrait with SadTalker... This may take several minutes."):
                 animator = PortraitAnimator()
                 persona_path = animator.get_persona_path(st.session_state.selected_persona)
 
@@ -409,9 +409,15 @@ def generate_assets():
                     persona_image_path=str(persona_path),
                     output_filename="animated_portrait.mp4"
                 )
-                st.session_state.animated_video_path = animated_path
 
-            st.success("Portrait animation complete!")
+                if animated_path:
+                    st.session_state.animated_video_path = animated_path
+                    st.success("Portrait animation complete!")
+                else:
+                    # Content filter blocked the request
+                    st.session_state.animated_video_path = None
+                    st.session_state.use_persona = False  # Fall back to standard mode
+                    st.warning("Portrait animation blocked by content filter. Falling back to standard image slideshow mode.")
 
         st.session_state.stage = "assets"
         st.rerun()
@@ -514,6 +520,10 @@ def regenerate_image(index: int):
 def render_video():
     """Render the final video."""
     use_persona = st.session_state.get("use_persona", False)
+    animated_path = st.session_state.get("animated_video_path")
+
+    # Check if hybrid mode is possible (persona selected AND animation succeeded)
+    use_hybrid = use_persona and animated_path and Path(animated_path).exists()
 
     try:
         # Generate output filename
@@ -525,13 +535,13 @@ def render_video():
 
         video_editor = VideoEditor()
 
-        if use_persona:
+        if use_hybrid:
             # Hybrid mode: Background images + Talking head overlay
             with st.spinner("Rendering hybrid video... This may take a few minutes."):
                 output_path = video_editor.assemble_hybrid_video(
                     audio_path=st.session_state.audio_result.file_path,
                     image_paths=st.session_state.image_paths,
-                    talking_head_path=st.session_state.animated_video_path,
+                    talking_head_path=animated_path,
                     output_filename=output_filename,
                     enable_subtitles=st.session_state.get("enable_subtitles", True),
                     enable_music=st.session_state.get("enable_music", True),

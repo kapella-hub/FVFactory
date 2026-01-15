@@ -137,6 +137,10 @@ def run_pipeline(
         )
         logger.info(f"Generated {len(image_paths)} images")
 
+        # Check if hybrid mode is requested and possible
+        animated_video_path = None
+        use_hybrid_mode = False
+
         if persona:
             # HYBRID MODE: Background images + Talking head overlay
             logger.info(f"Using hybrid mode with persona: {persona}")
@@ -147,16 +151,21 @@ def run_pipeline(
             if not persona_path:
                 raise AnimatorError(f"Persona not found: {persona}")
 
-            # Generate animated portrait
-            logger.info("Generating animated portrait...")
+            # Generate animated portrait (may return None if content filter blocks)
+            logger.info("Generating animated portrait with SadTalker...")
             animated_video_path = animator.animate_portrait(
                 audio_path=audio_result.file_path,
                 persona_image_path=str(persona_path),
                 output_filename=f"animated_{output_filename}"
             )
 
-            logger.info(f"Portrait animation complete: {animated_video_path}")
+            if animated_video_path:
+                logger.info(f"Portrait animation complete: {animated_video_path}")
+                use_hybrid_mode = True
+            else:
+                logger.warning("Portrait animation failed (content filter), falling back to standard mode")
 
+        if use_hybrid_mode and animated_video_path:
             # Render hybrid video (background images + talking head overlay)
             logger.info("Rendering hybrid video...")
             video_editor = VideoEditor()
