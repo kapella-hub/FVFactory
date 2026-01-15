@@ -4,7 +4,7 @@ This file stores progress and context for Claude across sessions.
 
 ## Current Progress
 
-**Status:** Full MVP with Hybrid Compositor - Phase 12 complete
+**Status:** Full MVP with SadTalker Animation - Phase 13 complete
 
 ## Completed Work
 
@@ -91,12 +91,15 @@ None - Full MVP complete with CLI, Web UI, and Hybrid Compositor
 - `PortraitAnimator` class for audio-driven portrait animation
 - **Two Animation APIs:**
   - Hedra API (primary) - Full portrait animation service
-  - Replicate LivePortrait (fallback) - Uses fofr/live-portrait model
-- **Workflow:**
-  - Upload audio and image to API
-  - Create generation job
-  - Poll for completion (up to 10 minutes)
-  - Download generated video
+  - Replicate SadTalker (fallback) - Audio-driven lip-sync model
+- **SadTalker Settings (Phase 13):**
+  - Model: `cjwbw/sadtalker`
+  - `still=True` - Reduces head movement for stable focus
+  - `enhancer="gfpgan"` - Makes face sharp, not blurry
+  - Uses `replicate` Python library for simpler API calls
+- **Content Filter Handling:**
+  - Returns `None` if content filter blocks realistic faces
+  - Callers fall back to standard slideshow mode gracefully
 - **Persona Management:**
   - `get_available_personas()` - Lists images in assets/personas/
   - `get_persona_path()` - Returns full path to persona image
@@ -167,6 +170,7 @@ openai-whisper
 setuptools-rust
 torch
 streamlit
+replicate
 ```
 
 ## Usage
