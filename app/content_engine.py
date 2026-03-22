@@ -34,6 +34,13 @@ class ScriptOutput(BaseModel):
         description="Keywords for metadata and discoverability"
     )
 
+    # V2 fields (optional, backward compatible)
+    hook_variants: List[str] = Field(default=[], description="3 alternative hook options")
+    hook_viral_score: int = Field(default=0, description="1-10 scroll-stopping score for the hook")
+    motion_prompts: List[str] = Field(default=[], description="5 camera/motion descriptions for image-to-video")
+    pacing_hints: List[str] = Field(default=[], description="5 pacing values: fast, normal, slow, dramatic_pause")
+    emoji_subtitles: List[str] = Field(default=[], description="Key phrases with contextual emojis for subtitles")
+
     @field_validator("image_prompts")
     @classmethod
     def validate_image_prompts_count(cls, v: List[str]) -> List[str]:
@@ -62,6 +69,21 @@ You MUST respond with a valid JSON object containing:
 Make the content informative yet entertaining. Use simple language.
 Each image prompt should be detailed enough for an AI to generate a compelling visual."""
 
+    V2_INSTRUCTION = """
+
+ADDITIONAL REQUIRED FIELDS:
+- "hook_variants": 3 alternative hook options (list of strings)
+- "hook_viral_score": Rate the main hook 1-10 on scroll-stopping potential
+- "motion_prompts": Exactly 5 camera/motion descriptions for image-to-video generation.
+  Each should describe how the camera moves or what animates in the scene.
+  Examples: "slow zoom in on the subject, particles floating upward",
+  "dramatic pan left revealing the landscape", "static shot with subtle parallax"
+- "pacing_hints": Exactly 5 pacing values, one per scene. Use: "fast" for exciting moments,
+  "normal" for standard pacing, "slow" for emotional moments, "dramatic_pause" for reveals.
+- "emoji_subtitles": 3-5 key phrases from the script with contextual emojis added.
+  Example: "Bitcoin crashed 📉😱", "Scientists discovered 🔬🧬"
+"""
+
     MASCOT_INSTRUCTION = """
 
 IMPORTANT - MASCOT CHARACTER REQUIREMENT:
@@ -84,7 +106,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
         self.client = OpenAI(api_key=settings.openai_api_key)
         self.model = "gpt-4o"
 
-    def _build_system_prompt(self) -> str:
+    def _build_system_prompt(self, enable_v2: bool = False) -> str:
         """Build the system prompt, optionally including mascot instructions."""
         prompt = self.BASE_SYSTEM_PROMPT
 
@@ -94,9 +116,12 @@ DO NOT just mention the character - describe what they are DOING in each scene."
             )
             prompt += mascot_section
 
+        if enable_v2:
+            prompt += self.V2_INSTRUCTION
+
         return prompt
 
-    def generate_script(self, topic: str) -> ScriptOutput:
+    def generate_script(self, topic: str, enable_v2: bool = False) -> ScriptOutput:
         """
         Generate a viral TikTok script for the given topic.
 
@@ -113,7 +138,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
             raise ScriptGeneratorError("Topic cannot be empty")
 
         user_prompt = f"Create a viral TikTok script about: {topic}"
-        system_prompt = self._build_system_prompt()
+        system_prompt = self._build_system_prompt(enable_v2=enable_v2)
 
         try:
             response = self.client.chat.completions.create(
