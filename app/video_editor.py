@@ -23,6 +23,8 @@ from moviepy import (
 import numpy as np
 
 from app.config import settings
+from app.subtitle_styles import SubtitleRenderer
+from app.sfx import SFXMixer
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +75,23 @@ class VideoEditor:
     # Chroma key settings (for green screen removal)
     CHROMA_KEY_COLOR = [0, 177, 64]  # Standard green screen RGB
     CHROMA_KEY_THRESHOLD = 100  # Color similarity threshold
+
+    # Dynamic pacing weights
+    PACING_WEIGHTS = {
+        "fast": 0.7,
+        "normal": 1.0,
+        "slow": 1.3,
+        "dramatic_pause": 1.5,
+    }
+
+    # Color grading presets
+    COLOR_GRADES = {
+        "tech": {"contrast": 1.1, "saturation": 1.2, "blue_shift": 10},
+        "finance": {"contrast": 1.05, "saturation": 0.9, "warmth": 15},
+        "history": {"contrast": 1.0, "saturation": 0.8, "sepia": 0.3},
+        "science": {"contrast": 1.1, "saturation": 1.3, "brightness": 5},
+        "default": {"contrast": 1.05, "saturation": 1.1},
+    }
 
     def __init__(self):
         self.output_dir = Path(settings.output_dir)
@@ -363,6 +382,97 @@ class VideoEditor:
 
         return clips
 
+    def _calculate_paced_durations(
+        self,
+        total_duration: float,
+        num_scenes: int,
+        pacing_hints: Optional[List[str]] = None,
+    ) -> List[float]:
+        """Calculate per-scene durations based on pacing hints."""
+        if not pacing_hints or len(pacing_hints) != num_scenes:
+            return [total_duration / num_scenes] * num_scenes
+
+        weights = [self.PACING_WEIGHTS.get(h, 1.0) for h in pacing_hints]
+        total_weight = sum(weights)
+        return [(w / total_weight) * total_duration for w in weights]
+
+    def _apply_color_grade(self, frame: np.ndarray, grade_name: str) -> np.ndarray:
+        """Apply color grading to a video frame."""
+        grade = self.COLOR_GRADES.get(grade_name, None)
+        if not grade:
+            return frame
+
+        result = frame.astype(np.float32)
+
+        if "contrast" in grade:
+            mean = result.mean()
+            result = (result - mean) * grade["contrast"] + mean
+
+        if "saturation" in grade:
+            gray = np.mean(result, axis=2, keepdims=True)
+            result = gray + (result - gray) * grade["saturation"]
+
+        if "blue_shift" in grade:
+            result[:, :, 2] = result[:, :, 2] + grade["blue_shift"]
+
+        if "warmth" in grade:
+            result[:, :, 0] = result[:, :, 0] + grade["warmth"]
+            result[:, :, 2] = result[:, :, 2] - grade["warmth"] * 0.5
+
+        if "brightness" in grade:
+            result = result + grade["brightness"]
+
+        if "sepia" in grade:
+            sepia_amount = grade["sepia"]
+            gray = np.mean(result, axis=2, keepdims=True)
+            sepia_frame = np.stack([
+                gray[:, :, 0] * 1.2,
+                gray[:, :, 0] * 1.0,
+                gray[:, :, 0] * 0.8,
+            ], axis=2)
+            result = result * (1 - sepia_amount) + sepia_frame * sepia_amount
+
+        return np.clip(result, 0, 255).astype(np.uint8)
+
+    def _create_karaoke_clips(
+        self,
+        segments: List[SubtitleSegment],
+        renderer: SubtitleRenderer,
+    ) -> List:
+        """Create karaoke-style subtitle overlay clips."""
+        clips = []
+
+        for segment in segments:
+            words = segment.text.split()
+            if not words:
+                continue
+
+            duration = segment.end - segment.start
+            if duration <= 0:
+                continue
+
+            word_duration = duration / len(words)
+
+            for word_idx in range(len(words)):
+                word_start = segment.start + word_idx * word_duration
+                word_end = word_start + word_duration
+
+                try:
+                    frame = renderer.render_subtitle_frame(words, active_index=word_idx)
+
+                    subtitle_clip = (
+                        ImageClip(frame, is_mask=False)
+                        .with_duration(word_end - word_start)
+                        .with_start(word_start)
+                        .with_position(("center", self.HEIGHT - 350))
+                    )
+                    clips.append(subtitle_clip)
+                except Exception as e:
+                    logger.debug(f"Subtitle frame failed: {e}")
+                    continue
+
+        return clips
+
     def assemble_video(
         self,
         audio_path: str,
@@ -371,6 +481,13 @@ class VideoEditor:
         hook_text: Optional[str] = None,
         enable_subtitles: bool = True,
         enable_music: bool = True,
+        # V2 parameters
+        motion_clip_paths: Optional[List[str]] = None,
+        pacing_hints: Optional[List[str]] = None,
+        subtitle_style: str = "bold_impact",
+        color_grade: Optional[str] = None,
+        enable_sfx: bool = True,
+        enable_intro: bool = False,
     ) -> str:
         """
         Assemble a video from audio and images with Ken Burns effect, subtitles, and music.
@@ -407,32 +524,59 @@ class VideoEditor:
             voice_audio = AudioFileClip(audio_path)
             audio_duration = voice_audio.duration
 
-            # Calculate duration per image
-            duration_per_image = audio_duration / len(image_paths)
+            # Calculate paced durations per scene
+            scene_durations = self._calculate_paced_durations(
+                audio_duration, len(image_paths), pacing_hints
+            )
 
-            # Create image clips with Ken Burns effect
+            # Create video clips with Ken Burns effect or motion clips + color grading
             video_clips = []
-            for i, img_path in enumerate(image_paths):
-                clip = self._create_ken_burns_clip(img_path, duration_per_image)
+            scene_timestamps = [0.0]
+            cumulative = 0.0
+
+            for i, duration in enumerate(scene_durations):
+                if motion_clip_paths and i < len(motion_clip_paths) and motion_clip_paths[i]:
+                    clip = VideoFileClip(motion_clip_paths[i]).with_duration(duration)
+                    clip = clip.resized((self.WIDTH, self.HEIGHT))
+                else:
+                    clip = self._create_ken_burns_clip(image_paths[i], duration)
+
+                if color_grade:
+                    clip = clip.image_transform(
+                        lambda frame, grade=color_grade: self._apply_color_grade(frame, grade)
+                    )
+
                 video_clips.append(clip)
+                cumulative += duration
+                scene_timestamps.append(cumulative)
 
-            # Concatenate all image clips
-            video = concatenate_videoclips(video_clips, method="compose")
+            # Use cross-fade transitions if available
+            if len(video_clips) > 1 and settings.crossfade_duration > 0:
+                from moviepy.video.fx import CrossFadeIn
+                crossfade = settings.crossfade_duration
+                for i in range(1, len(video_clips)):
+                    video_clips[i] = video_clips[i].with_start(
+                        sum(scene_durations[:i]) - crossfade * i
+                    ).with_effects([CrossFadeIn(crossfade)])
+                video = CompositeVideoClip(video_clips, size=(self.WIDTH, self.HEIGHT))
+                video = video.with_duration(audio_duration)
+            else:
+                video = concatenate_videoclips(video_clips, method="compose")
 
-            # Generate and add subtitles if enabled
+            # Generate and add karaoke subtitles if enabled
             if enable_subtitles:
-                logger.info("Generating subtitles...")
+                logger.info("Generating karaoke subtitles...")
                 try:
                     subtitle_segments = self.generate_subtitles(audio_path)
-                    subtitle_clips = self._create_subtitle_clips(subtitle_segments)
-
+                    renderer = SubtitleRenderer(
+                        style=subtitle_style, width=self.WIDTH, height=self.HEIGHT
+                    )
+                    subtitle_clips = self._create_karaoke_clips(subtitle_segments, renderer)
                     if subtitle_clips:
-                        logger.info(f"Adding {len(subtitle_clips)} subtitle overlays...")
+                        logger.info(f"Adding {len(subtitle_clips)} karaoke subtitle overlays...")
                         video = CompositeVideoClip([video] + subtitle_clips)
                 except Exception as e:
-                    logger.warning(f"Subtitle generation failed, continuing without: {e}")
-
-            # Legacy hook overlay (if subtitles disabled and hook provided)
+                    logger.warning(f"Subtitle generation failed: {e}")
             elif hook_text:
                 video = self._add_hook_overlay(video, hook_text)
 
@@ -448,8 +592,29 @@ class VideoEditor:
                         logger.warning(f"Failed to load music, continuing without: {e}")
                         music_clip = None
 
-            # Mix audio tracks (voice + music)
-            final_audio = self._mix_audio(voice_audio, music_clip)
+            # Build SFX track if enabled
+            sfx_clip = None
+            if enable_sfx and settings.enable_sfx:
+                try:
+                    sfx_mixer = SFXMixer()
+                    sfx_clip = sfx_mixer.build_sfx_track(
+                        scene_timestamps=scene_timestamps,
+                        total_duration=audio_duration,
+                    )
+                except Exception as e:
+                    logger.warning(f"SFX generation failed: {e}")
+
+            # Mix all audio tracks (voice + music + sfx)
+            audio_tracks = [voice_audio.with_volume_scaled(settings.voice_volume)]
+            if music_clip:
+                audio_tracks.append(music_clip)
+            if sfx_clip:
+                audio_tracks.append(sfx_clip)
+
+            if len(audio_tracks) > 1:
+                final_audio = CompositeAudioClip(audio_tracks)
+            else:
+                final_audio = audio_tracks[0]
 
             # Set mixed audio to video
             video = video.with_audio(final_audio)
