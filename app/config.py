@@ -46,5 +46,51 @@ class Settings(BaseSettings):
     music_volume: float = 0.1      # 10% volume for background music
     voice_volume: float = 1.0      # 100% volume for voiceover
 
+    # === V2 Settings ===
+
+    # Replicate models
+    flux_model: str = "black-forest-labs/flux-1.1-pro"
+    minimax_model: str = "minimax/image-to-video"
+
+    # ElevenLabs v2
+    elevenlabs_model: str = "eleven_multilingual_v2"
+    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel
+
+    # Subtitle styling
+    subtitle_style: str = "bold_impact"
+
+    # Transitions
+    crossfade_duration: float = 0.8  # seconds
+
+    # SFX
+    enable_sfx: bool = True
+    sfx_dir: str = "assets/sfx"
+
+    # Motion clips
+    enable_motion: bool = True
+
+    # Intro/Outro
+    enable_intro: bool = False
+    channel_name: str = ""
+    logo_path: str = ""
+
+    # Color grading
+    color_grade: str = ""  # niche name or empty for no grading
+    niche: str = ""
+
+    # Parallel generation
+    max_parallel_workers: int = 3
+
+    # Cost tracking (overridable via .env)
+    cost_flux_image: float = 0.03
+    cost_minimax_video: float = 0.10
+    cost_elevenlabs_per_1k_chars: float = 0.01
+    cost_openai_gpt4o: float = 0.005
+    cost_openai_tts_per_1k_chars: float = 0.015
+
+    # Trend Scout
+    reddit_subreddits: str = "todayilearned,technology,science,explainlikeimfive"
+    trend_count: int = 5
+
 
 settings = Settings()
