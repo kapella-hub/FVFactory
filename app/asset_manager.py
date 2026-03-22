@@ -6,10 +6,16 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
 from openai import OpenAI
 from moviepy import AudioFileClip
+
+try:
+    import replicate
+except Exception:  # pragma: no cover
+    replicate = None  # type: ignore[assignment]
 
 from app.config import settings
 
@@ -87,7 +93,7 @@ class AssetManager:
         if settings.elevenlabs_api_key:
             try:
                 return self._generate_audio_elevenlabs(
-                    text, voice_id or self.DEFAULT_VOICE_ID, output_path
+                    text, voice_id or settings.elevenlabs_voice_id, output_path
                 )
             except Exception as e:
                 logger.warning(f"ElevenLabs failed, falling back to OpenAI TTS: {e}")
@@ -116,7 +122,7 @@ class AssetManager:
 
         payload = {
             "text": text,
-            "model_id": "eleven_monolingual_v1",
+            "model_id": settings.elevenlabs_model,
             "voice_settings": {
                 "stability": 0.5,
                 "similarity_boost": 0.75
@@ -169,7 +175,7 @@ class AssetManager:
 
         Args:
             prompts: List of image description prompts
-            use_mock: If True, generate placeholder images. If False, use DALL-E 3.
+            use_mock: If True, generate placeholder images. If False, use Flux 1.1 Pro.
 
         Returns:
             List of file paths to generated images
@@ -180,21 +186,26 @@ class AssetManager:
         if not prompts:
             raise AssetManagerError("Prompts list cannot be empty")
 
-        file_paths = []
+        file_paths = [""] * len(prompts)
 
-        for i, prompt in enumerate(prompts):
-            output_path = self.TEMP_DIR / f"image_{i}.png"
-
-            # Enhance prompt with style keywords for consistency
-            styled_prompt = self._enhance_prompt_with_style(prompt)
-            logger.debug(f"Image {i+1} prompt: {styled_prompt[:100]}...")
-
-            if use_mock:
+        if use_mock:
+            for i, prompt in enumerate(prompts):
+                output_path = self.TEMP_DIR / f"image_{i}.png"
+                styled_prompt = self._enhance_prompt_with_style(prompt)
                 self._generate_mock_image(styled_prompt, output_path, i)
-            else:
-                self._generate_image_dalle(styled_prompt, output_path)
+                file_paths[i] = str(output_path)
+        else:
+            def generate_one(args):
+                i, prompt = args
+                output_path = self.TEMP_DIR / f"image_{i}.png"
+                styled_prompt = self._enhance_prompt_with_style(prompt)
+                self._generate_image_flux(styled_prompt, output_path)
+                return i, str(output_path)
 
-            file_paths.append(str(output_path))
+            with ThreadPoolExecutor(max_workers=settings.max_parallel_workers) as executor:
+                results = executor.map(generate_one, enumerate(prompts))
+                for i, path in results:
+                    file_paths[i] = path
 
         return file_paths
 
@@ -250,35 +261,31 @@ class AssetManager:
 
         img.save(output_path, "PNG")
 
-    def _generate_image_dalle(self, prompt: str, output_path: Path) -> None:
-        """Generate image using OpenAI DALL-E 3 with style consistency"""
-        if not self.openai_client:
-            raise AssetManagerError("OpenAI API key not configured for DALL-E")
-
-        # Build enhanced prompt for vertical video format
-        # Style keywords are already added by _enhance_prompt_with_style
+    def _generate_image_flux(self, prompt: str, output_path: Path) -> None:
+        """Generate image using Flux 1.1 Pro on Replicate."""
         enhanced_prompt = (
             f"{prompt}. "
             "Vertical composition suitable for TikTok/Shorts (9:16 aspect ratio). "
             "High quality, consistent lighting."
         )
 
-        logger.info(f"DALL-E prompt: {enhanced_prompt[:100]}...")
+        logger.info(f"Flux prompt: {enhanced_prompt[:100]}...")
 
-        response = self.openai_client.images.generate(
-            model="dall-e-3",
-            prompt=enhanced_prompt,
-            size="1024x1792",  # Closest to 9:16 available in DALL-E 3
-            quality="standard",
-            n=1
+        output = replicate.run(
+            settings.flux_model,
+            input={
+                "prompt": enhanced_prompt,
+                "aspect_ratio": "9:16",
+                "output_format": "png",
+                "safety_tolerance": 2,
+            }
         )
 
-        image_url = response.data[0].url
-
-        # Download and save the image
+        # Output may be a URL string, FileOutput, or list
+        image_url = str(output[0]) if isinstance(output, list) else str(output)
         img_response = requests.get(image_url)
         if img_response.status_code != 200:
-            raise AssetManagerError("Failed to download DALL-E image")
+            raise AssetManagerError(f"Failed to download Flux image: {img_response.status_code}")
 
         with open(output_path, "wb") as f:
             f.write(img_response.content)
