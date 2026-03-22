@@ -4,6 +4,7 @@ FVFactory - Automated short-form video creation
 Pipeline: Topic -> Script -> Audio/Images or Animated Portrait -> MP4
 """
 
+import argparse
 import logging
 import sys
 from datetime import datetime
@@ -14,6 +15,10 @@ from app.content_engine import ScriptGenerator, ScriptGeneratorError
 from app.asset_manager import AssetManager, AssetManagerError
 from app.video_editor import VideoEditor, VideoEditorError
 from app.animator import PortraitAnimator, AnimatorError
+from app.trend_scout import TrendScout
+from app.motion_gen import MotionGenerator
+from app.cost_tracker import CostTracker
+from app.metadata_gen import MetadataGenerator
 
 # Configure logging
 logging.basicConfig(
@@ -68,11 +73,15 @@ def generate_output_filename(topic: str) -> str:
 
 def run_pipeline(
     topic: str,
-    use_mock_images: bool = True,
+    use_mock_images: bool = False,
     enable_subtitles: bool = True,
     enable_music: bool = True,
     persona: Optional[str] = None,
     use_chroma_key: bool = False,
+    # V2 parameters
+    enable_motion: bool = True,
+    subtitle_style: str = "bold_impact",
+    enable_sfx: bool = True,
 ) -> str:
     """
     Run the full video generation pipeline.
@@ -84,6 +93,9 @@ def run_pipeline(
         enable_music: If True, add background music with ducking
         persona: Optional persona image filename for hybrid/talking head mode
         use_chroma_key: If True, use chroma key for green screen personas
+        enable_motion: If True, generate motion clips via Minimax
+        subtitle_style: Subtitle preset name (default bold_impact)
+        enable_sfx: If True, enable sound effects
 
     Returns:
         str: Path to the generated video file
@@ -97,7 +109,8 @@ def run_pipeline(
         # Step 1: Generate Script
         logger.info("Generating script...")
         script_gen = ScriptGenerator()
-        script = script_gen.generate_script(topic)
+        # Use v2 script generation when motion is enabled
+        script = script_gen.generate_script(topic, enable_v2=enable_motion)
 
         logger.info("Script generated successfully!")
         print()
@@ -136,6 +149,17 @@ def run_pipeline(
             use_mock=use_mock_images
         )
         logger.info(f"Generated {len(image_paths)} images")
+
+        # Generate motion clips if enabled
+        motion_clip_paths = None
+        if enable_motion and script.motion_prompts and not use_mock_images:
+            logger.info("Generating motion clips...")
+            motion_gen = MotionGenerator()
+            motion_clip_paths = motion_gen.generate_all_clips(
+                image_paths, script.motion_prompts
+            )
+            success = sum(1 for c in motion_clip_paths if c is not None)
+            logger.info(f"Motion clips: {success}/{len(motion_clip_paths)} generated")
 
         # Check if hybrid mode is requested and possible
         animated_video_path = None
@@ -189,12 +213,61 @@ def run_pipeline(
                 audio_path=audio_result.file_path,
                 image_paths=image_paths,
                 output_filename=output_filename,
-                hook_text=script.hook,  # Fallback if subtitles disabled
+                hook_text=script.hook,
                 enable_subtitles=enable_subtitles,
                 enable_music=enable_music,
+                # V2 params
+                motion_clip_paths=motion_clip_paths,
+                pacing_hints=script.pacing_hints if script.pacing_hints else None,
+                subtitle_style=subtitle_style,
+                color_grade=settings.color_grade if settings.color_grade else None,
+                enable_sfx=enable_sfx,
             )
 
         logger.info(f"Video rendered successfully: {output_path}")
+
+        # Cost tracking
+        video_id = output_filename.replace(".mp4", "")
+        tracker = CostTracker()
+        tracker.log_cost(video_id, "openai_gpt4o")
+
+        if settings.elevenlabs_api_key:
+            chars = len(full_narration)
+            tracker.log_cost(video_id, "elevenlabs_tts", quantity=max(1, chars // 1000))
+        elif settings.openai_api_key:
+            chars = len(full_narration)
+            tracker.log_cost(video_id, "openai_tts", quantity=max(1, chars // 1000))
+
+        if not use_mock_images:
+            tracker.log_cost(video_id, "flux_image", quantity=len(image_paths))
+
+        if motion_clip_paths:
+            success_count = sum(1 for c in motion_clip_paths if c is not None)
+            if success_count > 0:
+                tracker.log_cost(video_id, "minimax_video", quantity=success_count)
+
+        tracker.save()
+        total_cost = tracker.get_video_cost(video_id)
+        logger.info(f"Total cost for this video: ${total_cost:.2f}")
+
+        # Generate metadata
+        logger.info("Generating metadata...")
+        meta_gen = MetadataGenerator()
+        metadata = meta_gen.generate_metadata(
+            topic=topic,
+            hook=script.hook,
+            keywords=script.keywords,
+            niche=settings.niche,
+        )
+        meta_gen.save_metadata(video_id, metadata)
+
+        # Generate thumbnail
+        logger.info("Generating thumbnail...")
+        meta_gen.generate_thumbnail(
+            video_path=output_path,
+            video_id=video_id,
+            title=metadata.get("title_tiktok", topic),
+        )
 
         # Step 5: Cleanup temporary assets
         logger.info("Cleaning up temporary files...")
@@ -220,20 +293,71 @@ def list_personas() -> list:
     return animator.get_available_personas()
 
 
-def main():
-    """Main entry point for FVFactory."""
-    print()
-    print("=" * 50)
-    print("  FVFactory - Short-form Video Generator")
-    print("  Pipeline: Topic -> Script -> Audio/Visuals -> MP4")
-    print("=" * 50)
-    print()
+def parse_args(argv=None):
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="FVFactory v2 - Short-form Video Generator"
+    )
 
-    # Validate configuration
-    if not validate_config():
-        logger.error("Configuration validation failed. Check your .env file.")
-        sys.exit(1)
+    parser.add_argument("--auto", action="store_true",
+                        help="Auto mode (discover trend, generate, render)")
+    parser.add_argument("--batch", type=int, default=None,
+                        help="Batch mode (generate N videos)")
+    parser.add_argument("--series", type=str, default=None,
+                        help="Series mode topic")
+    parser.add_argument("--parts", type=int, default=3,
+                        help="Number of parts for series (default 3)")
+    parser.add_argument("--niche", type=str, default=None,
+                        help="Niche filter")
+    parser.add_argument("--topic", type=str, default=None,
+                        help="Provide topic directly")
+    parser.add_argument("--no-motion", action="store_true",
+                        help="Skip Minimax, use Ken Burns")
+    parser.add_argument("--subtitle-style", type=str, default="bold_impact",
+                        help="Subtitle preset (default bold_impact)")
+    parser.add_argument("--no-sfx", action="store_true",
+                        help="Disable SFX")
+    parser.add_argument("--no-music", action="store_true",
+                        help="Disable music")
+    parser.add_argument("--mock", action="store_true",
+                        help="Use mock images")
 
+    return parser.parse_args(argv)
+
+
+def run_auto_mode(args):
+    """Run in auto mode: discover trend, generate, render."""
+    count = args.batch or 1
+
+    for i in range(count):
+        if args.topic:
+            topic = args.topic
+        else:
+            scout = TrendScout()
+            topics = scout.discover_topics(niche=args.niche, count=1)
+            if not topics:
+                logger.error("No trending topics found")
+                continue
+            topic = topics[0].title
+
+        logger.info(f"[{i+1}/{count}] Auto generating: {topic}")
+
+        try:
+            run_pipeline(
+                topic=topic,
+                use_mock_images=args.mock,
+                enable_music=not args.no_music,
+                enable_motion=not args.no_motion,
+                subtitle_style=args.subtitle_style,
+                enable_sfx=not args.no_sfx,
+            )
+        except Exception as e:
+            logger.error(f"Failed: {e}")
+            continue
+
+
+def run_interactive_mode(args):
+    """Run in interactive mode with user prompts."""
     # Get topic from user
     try:
         topic = input("Enter video topic: ").strip()
@@ -278,8 +402,8 @@ def main():
         print()
 
     # Image generation options
-    use_mock = True
-    if settings.openai_api_key:
+    use_mock = args.mock
+    if not use_mock and settings.openai_api_key:
         try:
             choice = input("Use mock images? (Y/n): ").strip().lower()
             use_mock = choice != "n"
@@ -297,13 +421,14 @@ def main():
         sys.exit(0)
 
     # Ask about background music
-    enable_music = True
-    try:
-        choice = input("Enable background music? (Y/n): ").strip().lower()
-        enable_music = choice != "n"
-    except (KeyboardInterrupt, EOFError):
-        print("\nCancelled.")
-        sys.exit(0)
+    enable_music = not args.no_music
+    if enable_music:
+        try:
+            choice = input("Enable background music? (Y/n): ").strip().lower()
+            enable_music = choice != "n"
+        except (KeyboardInterrupt, EOFError):
+            print("\nCancelled.")
+            sys.exit(0)
 
     print()
 
@@ -315,6 +440,9 @@ def main():
             enable_music=enable_music,
             persona=selected_persona,
             use_chroma_key=use_chroma_key,
+            enable_motion=not args.no_motion,
+            subtitle_style=args.subtitle_style,
+            enable_sfx=not args.no_sfx,
         )
 
         print()
@@ -328,6 +456,27 @@ def main():
     except Exception as e:
         logger.error(f"Video generation failed: {e}")
         sys.exit(1)
+
+
+def main():
+    """Main entry point for FVFactory."""
+    args = parse_args()
+
+    print()
+    print("=" * 50)
+    print("  FVFactory v2 - Short-form Video Generator")
+    print("  Pipeline: Topic -> Script -> Audio/Visuals -> MP4")
+    print("=" * 50)
+    print()
+
+    if not validate_config():
+        logger.error("Configuration validation failed. Check your .env file.")
+        sys.exit(1)
+
+    if args.auto or args.batch:
+        run_auto_mode(args)
+    else:
+        run_interactive_mode(args)
 
 
 if __name__ == "__main__":
