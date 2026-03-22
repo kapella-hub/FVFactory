@@ -10,3 +10,4 @@ setuptools-rust
 torch
 streamlit
 replicate
+pytrends
