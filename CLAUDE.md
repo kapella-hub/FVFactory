@@ -27,21 +27,25 @@ Never hand off work until all requirements are validated and code runs successfu
 
 ## Project Overview
 
-FVFactory is an automated short-form video creation system (TikTok/Shorts).
+FVFactory v2 is a professional-grade automated short-form video creation system (TikTok/Shorts).
 
-**Pipeline:** Topic -> Script -> Audio/Images -> MP4
+**Pipeline:** Topic (auto or manual) -> Script (with motion prompts) -> Audio/Images/Motion Clips -> MP4
 
 **APIs Used:**
-- OpenAI - Script generation
-- ElevenLabs - Text-to-speech
-- Leonardo/Midjourney - Image generation
+- OpenAI GPT-4o - Script generation + metadata
+- ElevenLabs Multilingual v2 - Text-to-speech (OpenAI TTS fallback)
+- Replicate Flux - Image generation
+- Replicate Minimax - Image-to-video motion clips
+- Whisper (local) - Word-level transcription for subtitles
 
 ## Project Structure
 
 ```
 /app        - Application modules
-/output     - Generated videos
-/assets     - Static assets (fonts, images)
+/output     - Generated videos, metadata, thumbnails
+/assets     - Static assets (fonts, music, SFX, personas)
+/tests      - Unit tests
+/docs       - Specs and plans
 ```
 
 ## Development Environment
@@ -53,20 +57,34 @@ FVFactory is an automated short-form video creation system (TikTok/Shorts).
 ## Commands
 
 ```bash
-# Activate virtual environment (Windows)
-.venv\Scripts\activate
-
-# Run the application
+# Interactive mode
 python main.py
+
+# Auto mode (discover trend, generate, render)
+python main.py --auto
+
+# Auto with niche filter
+python main.py --auto --niche tech
+
+# Batch mode (5 videos)
+python main.py --batch 5 --niche finance
+
+# Series mode
+python main.py --series "History of Money" --parts 3
+
+# Options
+python main.py --auto --no-motion --subtitle-style neon_glow
+python main.py --auto --mock  # Use mock images (free)
+python main.py --auto --no-sfx --no-music
+
+# Streamlit dashboard
+streamlit run app/dashboard.py
+
+# Run tests
+python -m pytest tests/ -v
 
 # Install dependencies
 pip install -r requirements.txt
-
-# Docker build
-docker build -t fvfactory .
-
-# Docker run
-docker run --env-file .env -v ./output:/workspace/output fvfactory
 ```
 
 ## Configuration
