@@ -222,6 +222,8 @@ def run_pipeline(
                 subtitle_style=subtitle_style,
                 color_grade=settings.color_grade if settings.color_grade else None,
                 enable_sfx=enable_sfx,
+                title=topic,
+                scene_texts=script.scene_texts if script.scene_texts else None,
             )
 
         logger.info(f"Video rendered successfully: {output_path}")

@@ -25,8 +25,8 @@ class ScriptOutput(BaseModel):
     image_prompts: List[str] = Field(
         ...,
         min_length=5,
-        max_length=5,
-        description="Exactly 5 distinct, highly visual descriptions for AI image generation"
+        max_length=10,
+        description="5-8 distinct, highly visual descriptions for AI image generation"
     )
     keywords: List[str] = Field(
         ...,
@@ -37,15 +37,16 @@ class ScriptOutput(BaseModel):
     # V2 fields (optional, backward compatible)
     hook_variants: List[str] = Field(default=[], description="3 alternative hook options")
     hook_viral_score: int = Field(default=0, description="1-10 scroll-stopping score for the hook")
-    motion_prompts: List[str] = Field(default=[], description="5 camera/motion descriptions for image-to-video")
-    pacing_hints: List[str] = Field(default=[], description="5 pacing values: fast, normal, slow, dramatic_pause")
+    motion_prompts: List[str] = Field(default=[], description="Camera/motion descriptions, one per image_prompt")
+    pacing_hints: List[str] = Field(default=[], description="Pacing values, one per image_prompt")
+    scene_texts: List[str] = Field(default=[], description="Narration text segments, one per image_prompt")
     emoji_subtitles: List[str] = Field(default=[], description="Key phrases with contextual emojis for subtitles")
 
     @field_validator("image_prompts")
     @classmethod
     def validate_image_prompts_count(cls, v: List[str]) -> List[str]:
-        if len(v) != 5:
-            raise ValueError("Exactly 5 image prompts are required")
+        if len(v) < 5 or len(v) > 10:
+            raise ValueError("Between 5 and 10 image prompts are required")
         return v
 
 
@@ -62,24 +63,39 @@ Your scripts are engaging, punchy, and optimized for short-form video.
 
 You MUST respond with a valid JSON object containing:
 - "hook": A catchy opening line for the first 3 seconds that stops scrollers
-- "body": The main content (30-40 seconds reading time), conversational and engaging
-- "image_prompts": Exactly 5 distinct, highly visual scene descriptions for AI image generation that match the script flow
+- "body": The main content (90-120 seconds reading time), conversational, engaging, and in-depth
+- "image_prompts": Exactly 8 distinct, highly visual scene descriptions for AI image generation that match the script flow
 - "keywords": Relevant keywords for metadata and discoverability
 
 Make the content informative yet entertaining. Use simple language.
-Each image prompt should be detailed enough for an AI to generate a compelling visual."""
+
+CRITICAL IMAGE PROMPT RULES:
+- Every image prompt MUST describe a photorealistic scene. NO cartoons, illustrations, vector art, or anime.
+- All prompts must share the SAME visual style: cinematic, realistic, natural lighting, muted tones.
+- Describe real-world scenes, objects, and environments. Think National Geographic or documentary footage.
+- Include specific details: lighting direction, camera angle, environment, textures.
+- NEVER use words like "cartoon", "illustration", "vector", "animated", "cute character", or "art style".
+- CRITICAL: First write "scene_texts" to split the narration into segments. Then write EACH image_prompt to directly visualize the EXACT content of its corresponding scene_text. If scene_text[2] says "the Mariana Trench is deeper than Mount Everest", image_prompt[2] MUST show the Mariana Trench — NOT a generic ocean scene.
+- Think of each image as a frame from a documentary. A viewer watching the video on mute should be able to understand the topic from the visuals alone.
+- Be extremely specific and literal. If the narration mentions "a blue whale", show a blue whale. If it mentions "coral reef", show a coral reef. Never use abstract or symbolic imagery.
+Each image prompt should be detailed enough for an AI to generate a compelling photorealistic visual."""
 
     V2_INSTRUCTION = """
 
 ADDITIONAL REQUIRED FIELDS:
 - "hook_variants": 3 alternative hook options (list of strings)
 - "hook_viral_score": Rate the main hook 1-10 on scroll-stopping potential
-- "motion_prompts": Exactly 5 camera/motion descriptions for image-to-video generation.
+- "motion_prompts": One camera/motion description per image prompt (same count as image_prompts).
   Each should describe how the camera moves or what animates in the scene.
   Examples: "slow zoom in on the subject, particles floating upward",
   "dramatic pan left revealing the landscape", "static shot with subtle parallax"
-- "pacing_hints": Exactly 5 pacing values, one per scene. Use: "fast" for exciting moments,
+- "pacing_hints": One pacing value per scene (same count as image_prompts). Use: "fast" for exciting moments,
   "normal" for standard pacing, "slow" for emotional moments, "dramatic_pause" for reveals.
+- "scene_texts": Split the full narration (hook + body) into segments, one per image prompt.
+  Each segment is the EXACT text that should be spoken while that scene's image is shown.
+  The segments must join together to form the complete narration (hook + body).
+  This is CRITICAL for syncing visuals to narration. Example for 3 scenes:
+  ["Did you know the ocean holds secrets?", "First, 80% is unexplored...", "Finally, the deepest point..."]
 - "emoji_subtitles": 3-5 key phrases from the script with contextual emojis added.
   Example: "Bitcoin crashed 📉😱", "Scientists discovered 🔬🧬"
 """

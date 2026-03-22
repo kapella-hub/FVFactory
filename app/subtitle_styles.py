@@ -136,6 +136,37 @@ class SubtitleRenderer:
             total_width += w + space_w
             max_height = max(max_height, h)
 
+        # If text is too wide, scale everything down to fit with margin
+        max_text_width = self.width - self.PADDING * 2
+        if total_width > max_text_width:
+            scale = max_text_width / total_width
+            scaled_font_size = max(20, int(self.preset["font_size"] * scale))
+            scaled_active_size = max(20, int(scaled_font_size * self.preset.get("active_scale", 1.0)))
+            scaled_font = self._load_font(self.preset["font"], scaled_font_size)
+            scaled_active_font = self._load_font(self.preset["font"], scaled_active_size)
+
+            # Recalculate with scaled fonts
+            text_parts = []
+            total_width = 0
+            max_height = 0
+            for i, word in enumerate(words):
+                font = scaled_active_font if i == active_index else scaled_font
+                word_upper = word.upper()
+                bbox = font.getbbox(word_upper)
+                w = bbox[2] - bbox[0]
+                h = bbox[3] - bbox[1]
+                space_w = font.getbbox(" ")[2] if i < len(words) - 1 else 0
+                text_parts.append({
+                    "text": word_upper,
+                    "font": font,
+                    "width": w,
+                    "height": h,
+                    "color": active_color if i == active_index else inactive_color,
+                    "is_active": i == active_index,
+                })
+                total_width += w + space_w
+                max_height = max(max_height, h)
+
         # Create transparent image
         bar_height = max_height + self.PADDING * 2
         img = Image.new("RGBA", (self.width, bar_height), (0, 0, 0, 0))

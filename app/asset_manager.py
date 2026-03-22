@@ -12,12 +12,8 @@ import requests
 from openai import OpenAI
 from moviepy import AudioFileClip
 
-try:
-    import replicate
-except Exception:  # pragma: no cover
-    replicate = None  # type: ignore[assignment]
-
 from app.config import settings
+from app.replicate_api import replicate_run
 
 logger = logging.getLogger(__name__)
 
@@ -195,17 +191,15 @@ class AssetManager:
                 self._generate_mock_image(styled_prompt, output_path, i)
                 file_paths[i] = str(output_path)
         else:
-            def generate_one(args):
-                i, prompt = args
+            # Sequential generation with delay to respect rate limits
+            import time
+            for i, prompt in enumerate(prompts):
                 output_path = self.TEMP_DIR / f"image_{i}.png"
                 styled_prompt = self._enhance_prompt_with_style(prompt)
                 self._generate_image_flux(styled_prompt, output_path)
-                return i, str(output_path)
-
-            with ThreadPoolExecutor(max_workers=settings.max_parallel_workers) as executor:
-                results = executor.map(generate_one, enumerate(prompts))
-                for i, path in results:
-                    file_paths[i] = path
+                file_paths[i] = str(output_path)
+                if i < len(prompts) - 1:
+                    time.sleep(12)  # Respect Replicate rate limits (6 req/min)
 
         return file_paths
 
@@ -271,9 +265,9 @@ class AssetManager:
 
         logger.info(f"Flux prompt: {enhanced_prompt[:100]}...")
 
-        output = replicate.run(
+        output = replicate_run(
             settings.flux_model,
-            input={
+            {
                 "prompt": enhanced_prompt,
                 "aspect_ratio": "9:16",
                 "output_format": "png",
@@ -281,8 +275,8 @@ class AssetManager:
             }
         )
 
-        # Output may be a URL string, FileOutput, or list
-        image_url = str(output[0]) if isinstance(output, list) else str(output)
+        # Output is a URL string
+        image_url = output if isinstance(output, str) else str(output)
         img_response = requests.get(image_url)
         if img_response.status_code != 200:
             raise AssetManagerError(f"Failed to download Flux image: {img_response.status_code}")

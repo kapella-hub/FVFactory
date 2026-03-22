@@ -387,14 +387,31 @@ class VideoEditor:
         total_duration: float,
         num_scenes: int,
         pacing_hints: Optional[List[str]] = None,
+        scene_texts: Optional[List[str]] = None,
     ) -> List[float]:
-        """Calculate per-scene durations based on pacing hints."""
-        if not pacing_hints or len(pacing_hints) != num_scenes:
-            return [total_duration / num_scenes] * num_scenes
+        """
+        Calculate per-scene durations based on scene_texts word counts.
+        Falls back to pacing_hints weights, then equal splits.
 
-        weights = [self.PACING_WEIGHTS.get(h, 1.0) for h in pacing_hints]
-        total_weight = sum(weights)
-        return [(w / total_weight) * total_duration for w in weights]
+        scene_texts is the best signal — each scene's duration is proportional
+        to how many words of narration go with it.
+        """
+        # Best: use word count from scene_texts
+        if scene_texts and len(scene_texts) == num_scenes:
+            word_counts = [max(len(t.split()), 1) for t in scene_texts]
+            total_words = sum(word_counts)
+            durations = [(wc / total_words) * total_duration for wc in word_counts]
+            logger.info(f"Scene durations (word-based): {[f'{d:.1f}s' for d in durations]}")
+            return durations
+
+        # Fallback: pacing hints
+        if pacing_hints and len(pacing_hints) == num_scenes:
+            weights = [self.PACING_WEIGHTS.get(h, 1.0) for h in pacing_hints]
+            total_weight = sum(weights)
+            return [(w / total_weight) * total_duration for w in weights]
+
+        # Last resort: equal splits
+        return [total_duration / num_scenes] * num_scenes
 
     def _apply_color_grade(self, frame: np.ndarray, grade_name: str) -> np.ndarray:
         """Apply color grading to a video frame."""
@@ -438,8 +455,9 @@ class VideoEditor:
         self,
         segments: List[SubtitleSegment],
         renderer: SubtitleRenderer,
+        skip_until: float = 0.0,
     ) -> List:
-        """Create karaoke-style subtitle overlay clips."""
+        """Create karaoke-style subtitle overlay clips. Skips subtitles before skip_until seconds."""
         clips = []
 
         for segment in segments:
@@ -451,11 +469,19 @@ class VideoEditor:
             if duration <= 0:
                 continue
 
+            # Skip subtitles that overlap with title card
+            if segment.end <= skip_until:
+                continue
+
             word_duration = duration / len(words)
 
             for word_idx in range(len(words)):
                 word_start = segment.start + word_idx * word_duration
                 word_end = word_start + word_duration
+
+                # Skip individual words that fall within title period
+                if word_start < skip_until:
+                    continue
 
                 try:
                     frame = renderer.render_subtitle_frame(words, active_index=word_idx)
@@ -473,6 +499,88 @@ class VideoEditor:
 
         return clips
 
+    TITLE_DURATION = 4.0  # seconds the title is shown
+
+    def _create_title_overlay(self, title: str, duration: float = 4.0) -> ImageClip:
+        """
+        Create a bold title overlay on a semi-transparent dark backdrop.
+        Cyan/teal text to contrast with yellow subtitles. No fade-in (visible from frame 1).
+        """
+        from PIL import Image, ImageDraw, ImageFont
+        from moviepy.video.fx import CrossFadeOut
+
+        img = Image.new("RGBA", (self.WIDTH, self.HEIGHT), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        # Full-width dark overlay band
+        overlay_top = self.HEIGHT // 4
+        overlay_bottom = self.HEIGHT * 3 // 4
+        draw.rectangle(
+            [0, overlay_top, self.WIDTH, overlay_bottom],
+            fill=(0, 0, 0, 190),
+        )
+
+        # Load bold font — try Impact first (bolder than Arial)
+        font_size = 82
+        font = None
+        for font_name in ["Impact", "Arial-Bold", "/System/Library/Fonts/Helvetica.ttc",
+                          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]:
+            try:
+                font = ImageFont.truetype(font_name, font_size)
+                break
+            except OSError:
+                continue
+        if font is None:
+            font = ImageFont.load_default()
+
+        # Word-wrap title
+        words = title.upper().split()
+        lines = []
+        current_line = []
+        max_width = self.WIDTH - 140
+
+        for word in words:
+            test_line = " ".join(current_line + [word])
+            bbox = font.getbbox(test_line)
+            if bbox[2] - bbox[0] > max_width and current_line:
+                lines.append(" ".join(current_line))
+                current_line = [word]
+            else:
+                current_line.append(word)
+        if current_line:
+            lines.append(" ".join(current_line))
+
+        # Draw centered text — CYAN color (#00E5FF) to contrast yellow subtitles
+        line_height = font_size + 16
+        total_height = len(lines) * line_height
+        y_start = (self.HEIGHT - total_height) // 2
+
+        text_color = (0, 229, 255, 255)  # Bright cyan
+        stroke_color = (0, 0, 0, 255)
+
+        for i, line in enumerate(lines):
+            bbox = font.getbbox(line)
+            text_w = bbox[2] - bbox[0]
+            x = (self.WIDTH - text_w) // 2
+            y = y_start + i * line_height
+
+            # Thick stroke for visibility
+            for dx in range(-4, 5):
+                for dy in range(-4, 5):
+                    if dx * dx + dy * dy <= 16:
+                        draw.text((x + dx, y + dy), line, font=font, fill=stroke_color)
+            draw.text((x, y), line, font=font, fill=text_color)
+
+        frame = np.array(img)
+
+        title_clip = (
+            ImageClip(frame)
+            .with_duration(duration)
+            .with_effects([CrossFadeOut(1.0)])
+        )
+
+        return title_clip
+
     def assemble_video(
         self,
         audio_path: str,
@@ -488,6 +596,8 @@ class VideoEditor:
         color_grade: Optional[str] = None,
         enable_sfx: bool = True,
         enable_intro: bool = False,
+        title: Optional[str] = None,
+        scene_texts: Optional[List[str]] = None,
     ) -> str:
         """
         Assemble a video from audio and images with Ken Burns effect, subtitles, and music.
@@ -524,9 +634,9 @@ class VideoEditor:
             voice_audio = AudioFileClip(audio_path)
             audio_duration = voice_audio.duration
 
-            # Calculate paced durations per scene
+            # Calculate paced durations per scene (word-count based when scene_texts available)
             scene_durations = self._calculate_paced_durations(
-                audio_duration, len(image_paths), pacing_hints
+                audio_duration, len(image_paths), pacing_hints, scene_texts
             )
 
             # Create video clips with Ken Burns effect or motion clips + color grading
@@ -536,8 +646,15 @@ class VideoEditor:
 
             for i, duration in enumerate(scene_durations):
                 if motion_clip_paths and i < len(motion_clip_paths) and motion_clip_paths[i]:
-                    clip = VideoFileClip(motion_clip_paths[i]).with_duration(duration)
-                    clip = clip.resized((self.WIDTH, self.HEIGHT))
+                    raw_clip = VideoFileClip(motion_clip_paths[i])
+                    raw_clip = raw_clip.resized((self.WIDTH, self.HEIGHT))
+                    # Slow down the clip to fill the scene duration
+                    # e.g., 5.6s clip for 10s scene = 0.56x speed
+                    if raw_clip.duration and raw_clip.duration < duration:
+                        speed_factor = raw_clip.duration / duration
+                        clip = raw_clip.with_speed_scaled(speed_factor)
+                    else:
+                        clip = raw_clip.with_duration(duration)
                 else:
                     clip = self._create_ken_burns_clip(image_paths[i], duration)
 
@@ -563,6 +680,17 @@ class VideoEditor:
             else:
                 video = concatenate_videoclips(video_clips, method="compose")
 
+            # Add title overlay on top of first scene
+            if title:
+                logger.info(f"Adding title overlay: {title[:50]}...")
+                try:
+                    title_overlay = self._create_title_overlay(title, duration=4.0)
+                    title_overlay = title_overlay.with_start(0)
+                    video = CompositeVideoClip([video, title_overlay], size=(self.WIDTH, self.HEIGHT))
+                    video = video.with_duration(audio_duration)
+                except Exception as e:
+                    logger.warning(f"Title overlay failed: {e}")
+
             # Generate and add karaoke subtitles if enabled
             if enable_subtitles:
                 logger.info("Generating karaoke subtitles...")
@@ -571,7 +699,10 @@ class VideoEditor:
                     renderer = SubtitleRenderer(
                         style=subtitle_style, width=self.WIDTH, height=self.HEIGHT
                     )
-                    subtitle_clips = self._create_karaoke_clips(subtitle_segments, renderer)
+                    skip_time = self.TITLE_DURATION if title else 0.0
+                    subtitle_clips = self._create_karaoke_clips(
+                        subtitle_segments, renderer, skip_until=skip_time
+                    )
                     if subtitle_clips:
                         logger.info(f"Adding {len(subtitle_clips)} karaoke subtitle overlays...")
                         video = CompositeVideoClip([video] + subtitle_clips)

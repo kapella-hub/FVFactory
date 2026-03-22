@@ -1,0 +1,380 @@
+{
+  "schema_version": 1,
+  "videos": {
+    "3_Mind-Blowing_Facts_About_the_20260321_221449": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        }
+      ],
+      "total": 0.015
+    },
+    "3_Mind-Blowing_Facts_About_the_20260321_222121": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        }
+      ],
+      "total": 0.015
+    },
+    "3_Mind-Blowing_Facts_About_the_20260321_222352": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        }
+      ],
+      "total": 0.015
+    },
+    "3_Mind-Blowing_Facts_About_the_20260321_223049": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 5,
+          "unit_cost": 0.03,
+          "cost": 0.15
+        }
+      ],
+      "total": 0.165
+    },
+    "3_Mind-Blowing_Facts_About_the_20260321_223849": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 5,
+          "unit_cost": 0.03,
+          "cost": 0.15
+        }
+      ],
+      "total": 0.165
+    },
+    "3_Mind-Blowing_Facts_About_the_20260321_224440": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 5,
+          "unit_cost": 0.03,
+          "cost": 0.15
+        }
+      ],
+      "total": 0.165
+    },
+    "3_Mind-Blowing_Facts_About_the_20260321_225056": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 5,
+          "unit_cost": 0.03,
+          "cost": 0.15
+        }
+      ],
+      "total": 0.165
+    },
+    "3_Mind-Blowing_Facts_About_the_20260321_225716": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 5,
+          "unit_cost": 0.03,
+          "cost": 0.15
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 5,
+          "unit_cost": 0.1,
+          "cost": 0.5
+        }
+      ],
+      "total": 0.665
+    },
+    "3_Mind-Blowing_Facts_About_the_20260321_232153": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 8,
+          "unit_cost": 0.03,
+          "cost": 0.24
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 7,
+          "unit_cost": 0.1,
+          "cost": 0.7
+        }
+      ],
+      "total": 0.955
+    },
+    "3_Mind-Blowing_Facts_About_the_20260322_053555": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 8,
+          "unit_cost": 0.03,
+          "cost": 0.24
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 8,
+          "unit_cost": 0.1,
+          "cost": 0.8
+        }
+      ],
+      "total": 1.055
+    },
+    "3_Mind-Blowing_Facts_About_the_20260322_062057": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 8,
+          "unit_cost": 0.03,
+          "cost": 0.24
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 7,
+          "unit_cost": 0.1,
+          "cost": 0.7
+        }
+      ],
+      "total": 0.955
+    },
+    "3_Mind-Blowing_Facts_About_the_20260322_070814": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 8,
+          "unit_cost": 0.03,
+          "cost": 0.24
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 8,
+          "unit_cost": 0.1,
+          "cost": 0.8
+        }
+      ],
+      "total": 1.055
+    },
+    "3_Mind-Blowing_Facts_About_the_20260322_074342": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 8,
+          "unit_cost": 0.03,
+          "cost": 0.24
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 8,
+          "unit_cost": 0.1,
+          "cost": 0.8
+        }
+      ],
+      "total": 1.055
+    },
+    "Why_Ancient_Rome_Fell_-_The_Re_20260322_082520": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 8,
+          "unit_cost": 0.03,
+          "cost": 0.24
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 8,
+          "unit_cost": 0.1,
+          "cost": 0.8
+        }
+      ],
+      "total": 1.055
+    },
+    "Why_Ancient_Rome_Fell_-_The_Re_20260322_085906": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 8,
+          "unit_cost": 0.03,
+          "cost": 0.24
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 8,
+          "unit_cost": 0.1,
+          "cost": 0.8
+        }
+      ],
+      "total": 1.055
+    }
+  }
+}

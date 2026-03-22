@@ -8,11 +8,7 @@ from typing import List, Optional
 import requests
 
 from app.config import settings
-
-try:
-    import replicate
-except Exception:  # pragma: no cover
-    replicate = None  # type: ignore[assignment]
+from app.replicate_api import replicate_run
 
 logger = logging.getLogger(__name__)
 
@@ -34,22 +30,17 @@ class MotionGenerator:
         try:
             logger.info(f"Generating motion clip {index}: {motion_prompt[:50]}...")
 
-            with open(image_path, "rb") as img_file:
-                output = replicate.run(
-                    settings.minimax_model,
-                    input={
-                        "image": img_file,
-                        "prompt": motion_prompt,
-                    }
-                )
+            output = replicate_run(
+                settings.minimax_model,
+                {
+                    "first_frame_image": image_path,  # replicate_api converts file paths to data URIs
+                    "prompt": motion_prompt,
+                },
+                timeout=600,  # Motion clips can take a while
+            )
 
-            # Extract video URL from output
-            if hasattr(output, "output") and hasattr(output.output, "url"):
-                video_url = output.output.url
-            elif isinstance(output, str):
-                video_url = output
-            else:
-                video_url = str(output)
+            # Output is a URL string
+            video_url = output if isinstance(output, str) else str(output)
 
             # Download the video
             output_path = self.temp_dir / f"motion_{index}.mp4"
