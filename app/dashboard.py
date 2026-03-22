@@ -93,6 +93,15 @@ def init_session_state():
     if "use_chroma_key" not in st.session_state:
         st.session_state.use_chroma_key = False
 
+    if "motion_prompts" not in st.session_state:
+        st.session_state.motion_prompts = []
+
+    if "pacing_hints" not in st.session_state:
+        st.session_state.pacing_hints = []
+
+    if "motion_clip_paths" not in st.session_state:
+        st.session_state.motion_clip_paths = None
+
 
 # =============================================================================
 # UTILITY FUNCTIONS
@@ -132,6 +141,9 @@ def reset_pipeline():
     st.session_state.selected_persona = None
     st.session_state.animated_video_path = None
     st.session_state.use_chroma_key = False
+    st.session_state.motion_prompts = []
+    st.session_state.pacing_hints = []
+    st.session_state.motion_clip_paths = None
 
     # Cleanup temp files
     if st.session_state.asset_manager:
@@ -237,6 +249,26 @@ def render_sidebar():
 
         st.divider()
 
+        # V2 Options
+        st.subheader("5. V2 Enhancements")
+
+        subtitle_style = st.selectbox(
+            "Subtitle Style",
+            options=["bold_impact", "clean_minimal", "neon_glow", "fire"],
+            help="Karaoke-style subtitle preset"
+        )
+        st.session_state.subtitle_style = subtitle_style
+
+        enable_motion = st.checkbox("Enable motion clips", value=True,
+                                     help="Generate Minimax image-to-video clips (costs ~$0.10/clip)")
+        st.session_state.enable_motion = enable_motion
+
+        enable_sfx = st.checkbox("Enable sound effects", value=True,
+                                  help="Add whoosh, riser, and impact sounds")
+        st.session_state.enable_sfx = enable_sfx
+
+        st.divider()
+
         # Generate Script Button
         generate_disabled = not video_topic or not settings.openai_api_key
         if st.button("Generate Script", type="primary", disabled=generate_disabled, use_container_width=True):
@@ -268,12 +300,14 @@ def generate_script(topic: str):
     try:
         with st.spinner("Generating script..."):
             generator = ScriptGenerator()
-            script = generator.generate_script(topic)
+            script = generator.generate_script(topic, enable_v2=True)
 
             st.session_state.script = script
             st.session_state.edited_hook = script.hook
             st.session_state.edited_body = script.body
             st.session_state.image_prompts = list(script.image_prompts)
+            st.session_state.motion_prompts = list(script.motion_prompts)
+            st.session_state.pacing_hints = list(script.pacing_hints)
             st.session_state.stage = "script"
 
         st.success("Script generated!")
@@ -393,6 +427,20 @@ def generate_assets():
             st.session_state.image_paths = image_paths
 
         st.success(f"Generated {len(image_paths)} images")
+
+        # Generate motion clips if enabled
+        if st.session_state.get("enable_motion", True) and st.session_state.get("motion_prompts"):
+            with st.spinner("Generating motion clips... This may take several minutes."):
+                from app.motion_gen import MotionGenerator
+                motion_gen = MotionGenerator()
+                motion_clips = motion_gen.generate_all_clips(
+                    image_paths,
+                    st.session_state.get("motion_prompts", []),
+                )
+                st.session_state.motion_clip_paths = motion_clips
+
+            success = sum(1 for c in motion_clips if c is not None)
+            st.success(f"Motion clips: {success}/{len(motion_clips)} generated")
 
         if use_persona:
             # HYBRID MODE: Also generate animated portrait
@@ -560,6 +608,12 @@ def render_video():
                     hook_text=st.session_state.edited_hook,
                     enable_subtitles=st.session_state.get("enable_subtitles", True),
                     enable_music=st.session_state.get("enable_music", True),
+                    # V2 params
+                    motion_clip_paths=st.session_state.get("motion_clip_paths"),
+                    pacing_hints=st.session_state.get("pacing_hints"),
+                    subtitle_style=st.session_state.get("subtitle_style", "bold_impact"),
+                    color_grade=st.session_state.get("color_grade"),
+                    enable_sfx=st.session_state.get("enable_sfx", True),
                 )
 
                 st.session_state.video_path = output_path
@@ -611,6 +665,17 @@ def render_video_preview():
         with col3:
             file_size = Path(st.session_state.video_path).stat().st_size / (1024 * 1024)
             st.metric("File Size", f"{file_size:.1f} MB")
+
+        # Cost estimate
+        try:
+            from app.cost_tracker import CostTracker
+            tracker = CostTracker()
+            video_id = Path(st.session_state.video_path).stem
+            cost = tracker.get_video_cost(video_id)
+            if cost > 0:
+                st.metric("Estimated Cost", f"${cost:.2f}")
+        except Exception:
+            pass
 
         # Show mode used
         use_persona = st.session_state.get("use_persona", False)
