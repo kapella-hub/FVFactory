@@ -600,17 +600,21 @@ def render_grid(videos: list[dict], costs: dict):
 
 def _copyable_field(label: str, value: str, key: str, multiline: bool = False):
     """Render a text field with a Copy button that works over HTTP."""
+    import streamlit.components.v1 as components
+    import html as html_mod
+    import json as json_mod
+
     if multiline:
         st.text_area(label, value=value, key=key, height=120)
     else:
         st.text_input(label, value=value, key=key)
 
-    # JS copy using a hidden textarea fallback for HTTP (no clipboard API needed)
-    escaped = value.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
-    st.markdown(f"""
-    <button onclick="
+    # Use components.html for JS — st.markdown escapes scripts
+    val_json = json_mod.dumps(value)
+    components.html(f"""
+    <button id="btn_{key}" onclick="
         var ta = document.createElement('textarea');
-        ta.value = `{escaped}`;
+        ta.value = {val_json};
         ta.style.position = 'fixed';
         ta.style.left = '-9999px';
         document.body.appendChild(ta);
@@ -618,21 +622,18 @@ def _copyable_field(label: str, value: str, key: str, multiline: bool = False):
         document.execCommand('copy');
         document.body.removeChild(ta);
         this.textContent = 'Copied!';
-        setTimeout(() => this.textContent = 'Copy', 1500);
+        setTimeout(function(){{ document.getElementById('btn_{key}').textContent = 'Copy'; }}, 1500);
     " style="
-        font-family: 'Outfit', sans-serif;
-        font-size: 0.7rem;
+        font-family: sans-serif;
+        font-size: 12px;
         color: #a1a1aa;
         background: rgba(255,255,255,0.04);
-        border: 1px solid rgba(255,255,255,0.08);
+        border: 1px solid rgba(255,255,255,0.1);
         border-radius: 6px;
-        padding: 0.25rem 0.75rem;
+        padding: 4px 14px;
         cursor: pointer;
-        margin-top: -0.5rem;
-        margin-bottom: 0.5rem;
-        display: inline-block;
     ">Copy</button>
-    """, unsafe_allow_html=True)
+    """, height=36)
 
 
 # =============================================================================
