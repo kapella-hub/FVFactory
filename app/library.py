@@ -662,36 +662,26 @@ def render_detail(video: dict, costs: dict):
         with tab_yt:
             st.markdown('<div class="plat-header"><span class="plat-dot plat-dot-yt"></span><span class="plat-name">YouTube Shorts</span></div>', unsafe_allow_html=True)
 
-            st.markdown('<div class="field-label">Title</div>', unsafe_allow_html=True)
-            st.code(video["title_yt"], language=None)
-
-            st.markdown('<div class="field-label">Description</div>', unsafe_allow_html=True)
-            st.code(build_youtube_description(video), language=None)
-
-            st.markdown('<div class="field-label">Tags</div>', unsafe_allow_html=True)
-            st.code(", ".join(h.lstrip("#") for h in video["hashtags"]), language=None)
+            vid = video["id"]
+            st.text_input("Title", value=video["title_yt"], key=f"yt_title_{vid}", disabled=False, label_visibility="visible")
+            st.text_area("Description", value=build_youtube_description(video), key=f"yt_desc_{vid}", height=120)
+            st.text_input("Tags", value=", ".join(h.lstrip("#") for h in video["hashtags"]), key=f"yt_tags_{vid}")
 
         with tab_tt:
             st.markdown('<div class="plat-header"><span class="plat-dot plat-dot-tt"></span><span class="plat-name">TikTok</span></div>', unsafe_allow_html=True)
 
-            st.markdown('<div class="field-label">Caption</div>', unsafe_allow_html=True)
-            st.code(build_tiktok_caption(video), language=None)
+            st.text_area("Caption", value=build_tiktok_caption(video), key=f"tt_cap_{vid}", height=100)
 
             if video["hashtags"]:
-                st.markdown('<div class="field-label">Hashtags</div>', unsafe_allow_html=True)
-                tags = "".join(f'<span class="tag">{h}</span>' for h in video["hashtags"][:10])
-                st.markdown(f'<div class="tag-row">{tags}</div>', unsafe_allow_html=True)
+                st.text_input("Hashtags", value=" ".join(video["hashtags"][:10]), key=f"tt_tags_{vid}")
 
         with tab_ig:
             st.markdown('<div class="plat-header"><span class="plat-dot plat-dot-ig"></span><span class="plat-name">Instagram Reels</span></div>', unsafe_allow_html=True)
 
-            st.markdown('<div class="field-label">Caption</div>', unsafe_allow_html=True)
-            st.code(build_instagram_caption(video), language=None)
+            st.text_area("Caption", value=build_instagram_caption(video), key=f"ig_cap_{vid}", height=150)
 
             if video["hashtags"]:
-                st.markdown('<div class="field-label">Hashtags</div>', unsafe_allow_html=True)
-                tags = "".join(f'<span class="tag">{h}</span>' for h in video["hashtags"][:30])
-                st.markdown(f'<div class="tag-row">{tags}</div>', unsafe_allow_html=True)
+                st.text_input("Hashtags", value=" ".join(video["hashtags"][:30]), key=f"ig_tags_{vid}")
 
         with tab_perf:
             render_performance_tab(video)
