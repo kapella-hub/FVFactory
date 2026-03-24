@@ -140,7 +140,7 @@ def _call_openai_api(prompt: str, system: Optional[str] = None,
         "model": "gpt-5.4-mini-2026-03-17",
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
+        "max_completion_tokens": max_tokens,
     }
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
