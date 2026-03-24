@@ -595,6 +595,47 @@ def render_grid(videos: list[dict], costs: dict):
 
 
 # =============================================================================
+# HELPERS
+# =============================================================================
+
+def _copyable_field(label: str, value: str, key: str, multiline: bool = False):
+    """Render a text field with a Copy button that works over HTTP."""
+    if multiline:
+        st.text_area(label, value=value, key=key, height=120)
+    else:
+        st.text_input(label, value=value, key=key)
+
+    # JS copy using a hidden textarea fallback for HTTP (no clipboard API needed)
+    escaped = value.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+    st.markdown(f"""
+    <button onclick="
+        var ta = document.createElement('textarea');
+        ta.value = `{escaped}`;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        this.textContent = 'Copied!';
+        setTimeout(() => this.textContent = 'Copy', 1500);
+    " style="
+        font-family: 'Outfit', sans-serif;
+        font-size: 0.7rem;
+        color: #a1a1aa;
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 6px;
+        padding: 0.25rem 0.75rem;
+        cursor: pointer;
+        margin-top: -0.5rem;
+        margin-bottom: 0.5rem;
+        display: inline-block;
+    ">Copy</button>
+    """, unsafe_allow_html=True)
+
+
+# =============================================================================
 # RENDER: DETAIL VIEW
 # =============================================================================
 
@@ -663,25 +704,25 @@ def render_detail(video: dict, costs: dict):
             st.markdown('<div class="plat-header"><span class="plat-dot plat-dot-yt"></span><span class="plat-name">YouTube Shorts</span></div>', unsafe_allow_html=True)
 
             vid = video["id"]
-            st.text_input("Title", value=video["title_yt"], key=f"yt_title_{vid}", disabled=False, label_visibility="visible")
-            st.text_area("Description", value=build_youtube_description(video), key=f"yt_desc_{vid}", height=120)
-            st.text_input("Tags", value=", ".join(h.lstrip("#") for h in video["hashtags"]), key=f"yt_tags_{vid}")
+            _copyable_field("Title", video["title_yt"], f"yt_title_{vid}")
+            _copyable_field("Description", build_youtube_description(video), f"yt_desc_{vid}", multiline=True)
+            _copyable_field("Tags", ", ".join(h.lstrip("#") for h in video["hashtags"]), f"yt_tags_{vid}")
 
         with tab_tt:
             st.markdown('<div class="plat-header"><span class="plat-dot plat-dot-tt"></span><span class="plat-name">TikTok</span></div>', unsafe_allow_html=True)
 
-            st.text_area("Caption", value=build_tiktok_caption(video), key=f"tt_cap_{vid}", height=100)
+            _copyable_field("Caption", build_tiktok_caption(video), f"tt_cap_{vid}", multiline=True)
 
             if video["hashtags"]:
-                st.text_input("Hashtags", value=" ".join(video["hashtags"][:10]), key=f"tt_tags_{vid}")
+                _copyable_field("Hashtags", " ".join(video["hashtags"][:10]), f"tt_tags_{vid}")
 
         with tab_ig:
             st.markdown('<div class="plat-header"><span class="plat-dot plat-dot-ig"></span><span class="plat-name">Instagram Reels</span></div>', unsafe_allow_html=True)
 
-            st.text_area("Caption", value=build_instagram_caption(video), key=f"ig_cap_{vid}", height=150)
+            _copyable_field("Caption", build_instagram_caption(video), f"ig_cap_{vid}", multiline=True)
 
             if video["hashtags"]:
-                st.text_input("Hashtags", value=" ".join(video["hashtags"][:30]), key=f"ig_tags_{vid}")
+                _copyable_field("Hashtags", " ".join(video["hashtags"][:30]), f"ig_tags_{vid}")
 
         with tab_perf:
             render_performance_tab(video)
