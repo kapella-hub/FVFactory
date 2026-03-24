@@ -54,7 +54,36 @@ class Settings(BaseSettings):
 
     # ElevenLabs v2
     elevenlabs_model: str = "eleven_multilingual_v2"
-    elevenlabs_voice_id: str = "21m00Tcm4TlvDq8ikWAM"  # Rachel
+    elevenlabs_voice_id: str = "pqHfZKP75CvOlQylNhV4"  # Bill (default)
+
+    # Voice presets: name -> ElevenLabs voice ID
+    # Use --voice <name> to select, or "auto" to pick based on niche
+    voice_presets: dict = {
+        "bill": "pqHfZKP75CvOlQylNhV4",       # Deep, confident elder - stoicism, philosophy
+        "george": "JBFqnCBsd6RMkjVDRZzb",      # Warm British narrator - general, history
+        "daniel": "onwK4e9ZLuTAKqWW03F9",      # Authoritative British - science, tech, finance
+        "josh": "TxGEqnHWrfWFTfGW9XjX",        # Energetic young - trending, pop culture, gaming
+        "rachel": "21m00Tcm4TlvDq8ikWAM",      # Clear female - health, lifestyle, education
+    }
+
+    # Niche -> voice preset mapping for auto voice selection
+    voice_niche_map: dict = {
+        "stoicism": "bill",
+        "philosophy": "bill",
+        "self-improvement": "bill",
+        "motivation": "bill",
+        "history": "george",
+        "science": "daniel",
+        "tech": "daniel",
+        "technology": "daniel",
+        "finance": "daniel",
+        "crypto": "daniel",
+        "gaming": "josh",
+        "entertainment": "josh",
+        "pop culture": "josh",
+        "health": "rachel",
+        "lifestyle": "rachel",
+    }
 
     # Subtitle styling
     subtitle_style: str = "bold_impact"
@@ -91,6 +120,12 @@ class Settings(BaseSettings):
     # Trend Scout
     reddit_subreddits: str = "todayilearned,technology,science,explainlikeimfive"
     trend_count: int = 5
+
+    # YouTube
+    youtube_client_secrets: str = "client_secrets.json"
+    youtube_token_path: str = "youtube_token.json"
+    youtube_privacy: str = "public"  # public, unlisted, or private
+    youtube_api_key: str = ""  # API key for reading public video stats (no OAuth needed)
 
 
 settings = Settings()

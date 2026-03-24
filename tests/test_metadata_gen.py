@@ -7,27 +7,21 @@ from app.metadata_gen import MetadataGenerator
 
 
 def test_generate_metadata_returns_dict():
-    mock_response = MagicMock()
-    mock_response.choices = [MagicMock()]
-    mock_response.choices[0].message.content = json.dumps({
+    mock_data = {
         "title_tiktok": "You Won't Believe This!",
         "title_youtube": "The Shocking Truth About Bitcoin",
         "description": "In this video we explore...",
         "hashtags": ["#bitcoin", "#crypto", "#finance"],
         "best_posting_time": "Tuesday 6-8 PM EST",
-    })
+    }
 
-    mock_client = MagicMock()
-    mock_client.chat.completions.create.return_value = mock_response
-
-    gen = MetadataGenerator()
-    gen.client = mock_client
-
-    result = gen.generate_metadata(
-        topic="Bitcoin price history",
-        hook="Did you know Bitcoin was once worth $0?",
-        keywords=["bitcoin", "crypto"],
-    )
+    with patch("app.metadata_gen.generate_json", return_value=mock_data):
+        gen = MetadataGenerator()
+        result = gen.generate_metadata(
+            topic="Bitcoin price history",
+            hook="Did you know Bitcoin was once worth $0?",
+            keywords=["bitcoin", "crypto"],
+        )
 
     assert "title_tiktok" in result
     assert "hashtags" in result
@@ -51,16 +45,15 @@ def test_save_metadata_creates_file():
         assert saved["title_tiktok"] == "Test Title"
 
 
-def test_fallback_metadata_when_no_client():
+def test_fallback_metadata_when_llm_fails():
     with tempfile.TemporaryDirectory() as tmpdir:
-        gen = MetadataGenerator(output_dir=tmpdir)
-        gen.client = None
-
-        result = gen.generate_metadata(
-            topic="Test Topic",
-            hook="Test Hook",
-            keywords=["keyword1", "keyword2"],
-        )
+        with patch("app.metadata_gen.generate_json", side_effect=Exception("LLM unavailable")):
+            gen = MetadataGenerator(output_dir=tmpdir)
+            result = gen.generate_metadata(
+                topic="Test Topic",
+                hook="Test Hook",
+                keywords=["keyword1", "keyword2"],
+            )
 
         assert result["title_tiktok"] == "Test Topic"
         assert "#keyword1" in result["hashtags"]

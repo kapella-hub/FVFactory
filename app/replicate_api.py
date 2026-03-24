@@ -43,10 +43,14 @@ def replicate_run(model: str, input_data: dict, timeout: int = 300) -> Any:
     # Convert any file paths in input to data URIs
     processed_input = {}
     for key, value in input_data.items():
-        if isinstance(value, str) and Path(value).exists():
-            processed_input[key] = _file_to_url(value)
-        else:
-            processed_input[key] = value
+        if isinstance(value, str) and len(value) < 260:
+            try:
+                if Path(value).exists():
+                    processed_input[key] = _file_to_url(value)
+                    continue
+            except OSError:
+                pass
+        processed_input[key] = value
 
     # Create prediction
     url = f"{REPLICATE_API_BASE}/models/{model}/predictions"

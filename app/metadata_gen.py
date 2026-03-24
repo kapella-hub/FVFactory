@@ -6,10 +6,10 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 import numpy as np
-from openai import OpenAI
 from PIL import Image, ImageDraw, ImageFont
 
 from app.config import settings
+from app.llm import generate_json
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +24,6 @@ class MetadataGenerator:
         self.metadata_dir.mkdir(parents=True, exist_ok=True)
         self.thumbnail_dir.mkdir(parents=True, exist_ok=True)
 
-        self.client = None
-        if settings.openai_api_key:
-            self.client = OpenAI(api_key=settings.openai_api_key)
-
     def generate_metadata(
         self,
         topic: str,
@@ -35,10 +31,7 @@ class MetadataGenerator:
         keywords: List[str],
         niche: str = "",
     ) -> Dict:
-        """Generate platform-optimized metadata using GPT."""
-        if not self.client:
-            return self._fallback_metadata(topic, hook, keywords)
-
+        """Generate platform-optimized metadata."""
         prompt = f"""Generate social media metadata for a short-form video.
 Topic: {topic}
 Hook: {hook}
@@ -53,16 +46,7 @@ Return JSON with:
 - "best_posting_time": Recommended posting time"""
 
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"},
-                temperature=0.7,
-                max_tokens=500,
-            )
-            content = response.choices[0].message.content
-            return json.loads(content)
-
+            return generate_json(prompt, temperature=0.7, max_tokens=500)
         except Exception as e:
             logger.warning(f"Metadata generation failed, using fallback: {e}")
             return self._fallback_metadata(topic, hook, keywords)

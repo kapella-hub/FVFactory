@@ -1,0 +1,27 @@
+services:
+  # Always-on Streamlit library UI
+  library:
+    build: .
+    container_name: fvfactory-library
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./output:/workspace/output
+      - ./.env:/workspace/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["streamlit", "run", "app/library.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
+
+  # On-demand video generation (run with: docker compose run --rm generator ./daily.sh)
+  generator:
+    build: .
+    container_name: fvfactory-generator
+    volumes:
+      - ./output:/workspace/output
+      - ./.env:/workspace/.env:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    profiles:
+      - generate
+    command: ["./daily.sh"]

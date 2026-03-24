@@ -1,14 +1,15 @@
 """
-Content Engine - Script and concept generation using OpenAI
+Content Engine - Script and concept generation
+Uses Claude CLI (via app.llm) with OpenAI API fallback.
 """
 
 import json
 from typing import List
 
-from openai import OpenAI, APIError, APIConnectionError, RateLimitError
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
+from app.llm import generate_json
 
 
 class ScriptOutput(BaseModel):
@@ -20,13 +21,13 @@ class ScriptOutput(BaseModel):
     )
     body: str = Field(
         ...,
-        description="Main content, approximately 30-40 seconds reading time"
+        description="Main content, 25-85 seconds reading time depending on topic depth"
     )
     image_prompts: List[str] = Field(
         ...,
         min_length=5,
-        max_length=10,
-        description="5-8 distinct, highly visual descriptions for AI image generation"
+        max_length=20,
+        description="5-14 distinct, highly visual descriptions for AI image generation"
     )
     keywords: List[str] = Field(
         ...,
@@ -45,8 +46,8 @@ class ScriptOutput(BaseModel):
     @field_validator("image_prompts")
     @classmethod
     def validate_image_prompts_count(cls, v: List[str]) -> List[str]:
-        if len(v) < 5 or len(v) > 10:
-            raise ValueError("Between 5 and 10 image prompts are required")
+        if len(v) < 5 or len(v) > 20:
+            raise ValueError("Between 5 and 20 image prompts are required")
         return v
 
 
@@ -63,11 +64,13 @@ Your scripts are engaging, punchy, and optimized for short-form video.
 
 You MUST respond with a valid JSON object containing:
 - "hook": A catchy opening line for the first 3 seconds that stops scrollers
-- "body": The main content (90-120 seconds reading time), conversational, engaging, and in-depth
-- "image_prompts": Exactly 8 distinct, highly visual scene descriptions for AI image generation that match the script flow
+- "body": The main content. Length should match the topic — say what needs to be said, then stop. Target 30-90 seconds of reading time (the full video including hook should be 30s minimum, 90s maximum). Short punchy topics can be 30-45s. Deep explanations can go up to 90s. Never pad with filler.
+- "image_prompts": Visual scene descriptions for AI image generation. Use as many as the content needs — typically 5-14 scenes. Shorter videos need fewer scenes (5-7), longer ones need more (10-14). Each scene should last 3-8 seconds of narration.
 - "keywords": Relevant keywords for metadata and discoverability
 
-Make the content informative yet entertaining. Use simple language.
+Make the content sound sophisticated and knowledgeable — like a well-read expert sharing insights.
+Use clear, articulate language. Avoid slang or overly casual phrasing.
+The tone should be authoritative yet accessible, like a documentary narrator or a TED talk.
 
 CRITICAL IMAGE PROMPT RULES:
 - Every image prompt MUST describe a photorealistic scene. NO cartoons, illustrations, vector art, or anime.
@@ -75,9 +78,11 @@ CRITICAL IMAGE PROMPT RULES:
 - Describe real-world scenes, objects, and environments. Think National Geographic or documentary footage.
 - Include specific details: lighting direction, camera angle, environment, textures.
 - NEVER use words like "cartoon", "illustration", "vector", "animated", "cute character", or "art style".
+- NEVER reference specific named people, celebrities, actors, or public figures in image prompts. AI image generators CANNOT render recognizable people — the result will be random strangers and look wrong. Instead, describe the CONCEPT, SCENE, or OBJECT. Example: instead of "Tom Holland and Zendaya on a red carpet", write "a superhero in a red and blue suit swinging between skyscrapers at night". Instead of "Marcus Aurelius writing", write "an ancient Roman emperor in golden armor writing at a marble desk by candlelight".
 - CRITICAL: First write "scene_texts" to split the narration into segments. Then write EACH image_prompt to directly visualize the EXACT content of its corresponding scene_text. If scene_text[2] says "the Mariana Trench is deeper than Mount Everest", image_prompt[2] MUST show the Mariana Trench — NOT a generic ocean scene.
 - Think of each image as a frame from a documentary. A viewer watching the video on mute should be able to understand the topic from the visuals alone.
 - Be extremely specific and literal. If the narration mentions "a blue whale", show a blue whale. If it mentions "coral reef", show a coral reef. Never use abstract or symbolic imagery.
+- Focus on OBJECTS, PLACES, CONCEPTS, and ACTIONS — not people's faces. Wide shots, aerial views, close-ups of objects, environments, and symbolic imagery work best.
 Each image prompt should be detailed enough for an AI to generate a compelling photorealistic visual."""
 
     V2_INSTRUCTION = """
@@ -115,13 +120,6 @@ Example: If discussing "Bitcoin crashed", the prompt should be:
 
 DO NOT just mention the character - describe what they are DOING in each scene."""
 
-    def __init__(self):
-        if not settings.openai_api_key:
-            raise ScriptGeneratorError("OPENAI_API_KEY is not configured")
-
-        self.client = OpenAI(api_key=settings.openai_api_key)
-        self.model = "gpt-4o"
-
     def _build_system_prompt(self, enable_v2: bool = False) -> str:
         """Build the system prompt, optionally including mascot instructions."""
         prompt = self.BASE_SYSTEM_PROMPT
@@ -157,27 +155,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
         system_prompt = self._build_system_prompt(enable_v2=enable_v2)
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.8,
-                max_tokens=1500
-            )
-
-            content = response.choices[0].message.content
-
-            if not content:
-                raise ScriptGeneratorError("Empty response from OpenAI")
-
-            # Parse JSON response
-            try:
-                data = json.loads(content)
-            except json.JSONDecodeError as e:
-                raise ScriptGeneratorError(f"Invalid JSON response: {e}")
+            data = generate_json(user_prompt, system=system_prompt, temperature=0.8, max_tokens=3000)
 
             # Validate with Pydantic
             try:
@@ -187,9 +165,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
 
             return script
 
-        except APIConnectionError as e:
-            raise ScriptGeneratorError(f"Failed to connect to OpenAI: {e}")
-        except RateLimitError as e:
-            raise ScriptGeneratorError(f"OpenAI rate limit exceeded: {e}")
-        except APIError as e:
-            raise ScriptGeneratorError(f"OpenAI API error: {e}")
+        except ValueError as e:
+            raise ScriptGeneratorError(f"Invalid response: {e}")
+        except Exception as e:
+            raise ScriptGeneratorError(f"Script generation failed: {e}")

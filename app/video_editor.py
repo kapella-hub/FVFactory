@@ -505,9 +505,15 @@ class VideoEditor:
         """
         Create a bold title overlay on a semi-transparent dark backdrop.
         Cyan/teal text to contrast with yellow subtitles. No fade-in (visible from frame 1).
+        Dynamically reduces font size to fit within 3 lines max.
         """
         from PIL import Image, ImageDraw, ImageFont
         from moviepy.video.fx import CrossFadeOut
+
+        # Strip emojis and clean up the title for overlay
+        clean_title = title.encode("ascii", "ignore").decode("ascii").strip()
+        if not clean_title:
+            clean_title = title
 
         img = Image.new("RGBA", (self.WIDTH, self.HEIGHT), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
@@ -520,35 +526,46 @@ class VideoEditor:
             fill=(0, 0, 0, 190),
         )
 
-        # Load bold font — try Impact first (bolder than Arial)
-        font_size = 82
-        font = None
-        for font_name in ["Impact", "Arial-Bold", "/System/Library/Fonts/Helvetica.ttc",
-                          "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]:
-            try:
-                font = ImageFont.truetype(font_name, font_size)
-                break
-            except OSError:
-                continue
-        if font is None:
-            font = ImageFont.load_default()
-
-        # Word-wrap title
-        words = title.upper().split()
-        lines = []
-        current_line = []
+        # Try decreasing font sizes until the title fits in 3 lines max
         max_width = self.WIDTH - 140
+        max_lines = 3
+        font = None
+        lines = []
 
-        for word in words:
-            test_line = " ".join(current_line + [word])
-            bbox = font.getbbox(test_line)
-            if bbox[2] - bbox[0] > max_width and current_line:
+        for font_size in [82, 70, 60, 50, 42]:
+            font = None
+            for font_name in ["Impact", "Arial-Bold", "/System/Library/Fonts/Helvetica.ttc",
+                              "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"]:
+                try:
+                    font = ImageFont.truetype(font_name, font_size)
+                    break
+                except OSError:
+                    continue
+            if font is None:
+                font = ImageFont.load_default()
+
+            # Word-wrap title
+            words = clean_title.upper().split()
+            lines = []
+            current_line = []
+            for word in words:
+                test_line = " ".join(current_line + [word])
+                bbox = font.getbbox(test_line)
+                if bbox[2] - bbox[0] > max_width and current_line:
+                    lines.append(" ".join(current_line))
+                    current_line = [word]
+                else:
+                    current_line.append(word)
+            if current_line:
                 lines.append(" ".join(current_line))
-                current_line = [word]
-            else:
-                current_line.append(word)
-        if current_line:
-            lines.append(" ".join(current_line))
+
+            if len(lines) <= max_lines:
+                break
+
+        # If still too many lines, truncate and add ellipsis
+        if len(lines) > max_lines:
+            lines = lines[:max_lines]
+            lines[-1] = lines[-1][:30] + "..."
 
         # Draw centered text — CYAN color (#00E5FF) to contrast yellow subtitles
         line_height = font_size + 16

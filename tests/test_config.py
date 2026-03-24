@@ -7,9 +7,14 @@ def test_v2_settings_have_defaults():
     assert s.flux_model == "black-forest-labs/flux-1.1-pro"
     assert s.minimax_model == "minimax/image-to-video"
     assert s.elevenlabs_model == "eleven_multilingual_v2"
-    assert s.elevenlabs_voice_id == "21m00Tcm4TlvDq8ikWAM"
+    assert s.elevenlabs_voice_id == "pqHfZKP75CvOlQylNhV4"  # Bill
     assert s.subtitle_style == "bold_impact"
     assert s.crossfade_duration == 0.8
+    assert s.youtube_client_secrets == "client_secrets.json"
+    assert s.youtube_token_path == "youtube_token.json"
+    assert s.youtube_privacy == "public"
+    assert "bill" in s.voice_presets
+    assert "stoicism" in s.voice_niche_map
     assert s.enable_sfx is True
     assert s.enable_motion is True
     assert s.enable_intro is False

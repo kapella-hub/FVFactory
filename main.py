@@ -19,6 +19,7 @@ from app.trend_scout import TrendScout
 from app.motion_gen import MotionGenerator
 from app.cost_tracker import CostTracker
 from app.metadata_gen import MetadataGenerator
+from app.uploader import YouTubeUploader, UploaderError
 
 # Configure logging
 logging.basicConfig(
@@ -71,6 +72,30 @@ def generate_output_filename(topic: str) -> str:
     return f"{safe_topic}_{timestamp}.mp4"
 
 
+def resolve_voice(voice: Optional[str] = None, niche: Optional[str] = None) -> Optional[str]:
+    """Resolve a voice preset name or 'auto' to an ElevenLabs voice ID.
+
+    Returns None to use the default from config.
+    """
+    if not voice:
+        return None
+
+    if voice == "auto":
+        # Pick voice based on niche
+        niche_key = (niche or "").lower().strip()
+        preset = settings.voice_niche_map.get(niche_key, "george")  # george as safe default
+        voice_id = settings.voice_presets.get(preset)
+        logger.info(f"Auto-selected voice '{preset}' for niche '{niche_key}'")
+        return voice_id
+
+    # Direct preset name
+    if voice.lower() in settings.voice_presets:
+        return settings.voice_presets[voice.lower()]
+
+    # Assume it's a raw ElevenLabs voice ID
+    return voice
+
+
 def run_pipeline(
     topic: str,
     use_mock_images: bool = False,
@@ -82,6 +107,9 @@ def run_pipeline(
     enable_motion: bool = True,
     subtitle_style: str = "bold_impact",
     enable_sfx: bool = True,
+    voice: Optional[str] = None,
+    upload: bool = False,
+    niche: Optional[str] = None,
 ) -> str:
     """
     Run the full video generation pipeline.
@@ -135,7 +163,7 @@ def run_pipeline(
 
         # Combine hook and body for narration
         full_narration = f"{script.hook} {script.body}"
-        audio_result = asset_manager.generate_audio(full_narration)
+        audio_result = asset_manager.generate_audio(full_narration, voice_id=voice)
 
         logger.info(f"Audio generated: {audio_result.duration:.1f} seconds")
 
@@ -222,7 +250,7 @@ def run_pipeline(
                 subtitle_style=subtitle_style,
                 color_grade=settings.color_grade if settings.color_grade else None,
                 enable_sfx=enable_sfx,
-                title=topic,
+                title=script.hook,
                 scene_texts=script.scene_texts if script.scene_texts else None,
             )
 
@@ -270,6 +298,19 @@ def run_pipeline(
             video_id=video_id,
             title=metadata.get("title_tiktok", topic),
         )
+
+        # Upload to YouTube if requested
+        if upload:
+            try:
+                yt_uploader = YouTubeUploader()
+                video_url = yt_uploader.upload(
+                    video_path=output_path,
+                    video_id=video_id,
+                    niche=niche,
+                )
+                logger.info(f"YouTube upload complete: {video_url}")
+            except UploaderError as e:
+                logger.error(f"YouTube upload failed: {e}")
 
         # Step 5: Cleanup temporary assets
         logger.info("Cleaning up temporary files...")
@@ -323,6 +364,10 @@ def parse_args(argv=None):
                         help="Disable music")
     parser.add_argument("--mock", action="store_true",
                         help="Use mock images")
+    parser.add_argument("--voice", type=str, default=None,
+                        help="Voice preset (bill, george, daniel, josh, rachel, auto) or ElevenLabs voice ID")
+    parser.add_argument("--upload", action="store_true",
+                        help="Upload to YouTube after rendering")
 
     return parser.parse_args(argv)
 
@@ -344,6 +389,9 @@ def run_auto_mode(args):
 
         logger.info(f"[{i+1}/{count}] Auto generating: {topic}")
 
+        # Resolve voice (supports "auto" to pick based on niche)
+        voice_id = resolve_voice(args.voice, niche=args.niche)
+
         try:
             run_pipeline(
                 topic=topic,
@@ -352,6 +400,9 @@ def run_auto_mode(args):
                 enable_motion=not args.no_motion,
                 subtitle_style=args.subtitle_style,
                 enable_sfx=not args.no_sfx,
+                voice=voice_id,
+                upload=args.upload,
+                niche=args.niche,
             )
         except Exception as e:
             logger.error(f"Failed: {e}")

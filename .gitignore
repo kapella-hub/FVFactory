@@ -24,10 +24,15 @@ ENV/
 # Environment variables
 .env
 
+# YouTube OAuth credentials
+client_secrets.json
+youtube_token.json
+
 # Output files
 output/*.mp4
 output/*.avi
 output/*.mov
+output/tracking.json
 
 # Temp files
 assets/temp/*.mp3
