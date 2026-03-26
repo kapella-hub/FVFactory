@@ -28,6 +28,12 @@ class MotionGenerator:
         Returns path to clip, or None on failure (caller uses Ken Burns fallback).
         """
         try:
+            # Route to local provider if configured
+            if settings.motion_provider == "local" or (
+                settings.provider_mode == "local" and settings.motion_provider != "replicate"
+            ):
+                return self._generate_local(image_path, motion_prompt, index)
+
             logger.info(f"Generating motion clip {index}: {motion_prompt[:50]}...")
 
             output = replicate_run(
@@ -59,6 +65,20 @@ class MotionGenerator:
 
         except Exception as e:
             logger.warning(f"Motion clip {index} generation failed (non-fatal): {e}")
+            return None
+
+    def _generate_local(self, image_path: str, motion_prompt: str, index: int) -> str | None:
+        """Generate motion clip using local Wan2.1 model."""
+        from app.local_video_gen import LocalVideoGenerator
+        output_path = str(self.temp_dir / f"motion_{index:03d}.mp4")
+        try:
+            gen = LocalVideoGenerator(model_size=settings.wan_model_size)
+            gen.generate(image_path, motion_prompt, output_path)
+            gen.unload()
+            logger.info("Local motion clip %d saved: %s", index, output_path)
+            return output_path
+        except Exception as e:
+            logger.warning("Local video gen failed for scene %d: %s", index, e)
             return None
 
     def generate_all_clips(

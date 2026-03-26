@@ -15,10 +15,16 @@ def test_generate_motion_clip():
         fake_image = Path(tmpdir) / "input.png"
         fake_image.write_bytes(b"fake_png")
 
-        with patch("app.motion_gen.replicate") as mock_replicate:
-            mock_replicate.run.return_value = "https://replicate.delivery/fake/video.mp4"
-            with patch("app.motion_gen.requests.get", return_value=mock_video_response):
-                result = gen.generate_motion_clip(str(fake_image), "slow zoom in")
+        mock_settings = MagicMock()
+        mock_settings.motion_provider = "replicate"
+        mock_settings.provider_mode = "api"
+        mock_settings.minimax_model = "minimax/test"
+        mock_settings.max_parallel_workers = 2
+
+        with patch("app.motion_gen.settings", mock_settings):
+            with patch("app.motion_gen.replicate_run", return_value="https://replicate.delivery/fake/video.mp4") as mock_run:
+                with patch("app.motion_gen.requests.get", return_value=mock_video_response):
+                    result = gen.generate_motion_clip(str(fake_image), "slow zoom in")
 
         assert result is not None
         assert Path(result).suffix == ".mp4"
@@ -30,9 +36,15 @@ def test_generate_motion_clip_failure_returns_none():
         fake_image = Path(tmpdir) / "input.png"
         fake_image.write_bytes(b"fake_png")
 
-        with patch("app.motion_gen.replicate") as mock_replicate:
-            mock_replicate.run.side_effect = Exception("API error")
-            result = gen.generate_motion_clip(str(fake_image), "zoom in")
+        mock_settings = MagicMock()
+        mock_settings.motion_provider = "replicate"
+        mock_settings.provider_mode = "api"
+        mock_settings.minimax_model = "minimax/test"
+        mock_settings.max_parallel_workers = 2
+
+        with patch("app.motion_gen.settings", mock_settings):
+            with patch("app.motion_gen.replicate_run", side_effect=Exception("API error")):
+                result = gen.generate_motion_clip(str(fake_image), "zoom in")
 
         assert result is None
 
