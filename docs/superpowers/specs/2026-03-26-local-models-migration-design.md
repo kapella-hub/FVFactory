@@ -7,7 +7,7 @@
 
 ## 1. Goals
 
-1. Replace expensive API services (Replicate Flux, Replicate Minimax, OpenAI LLM) with local models and Claude CLI
+1. Replace expensive API services (Replicate Flux, Replicate Minimax) with local models; formalize existing Claude CLI usage with provider abstraction
 2. Add a Python-based job scheduler for automated video generation, configurable from the UI
 3. Overhaul the UI from Streamlit to FastAPI + vanilla HTML/JS with full configuration management
 4. Maintain the ability to switch back to API providers via config
@@ -22,25 +22,23 @@
 
 ## 3. Provider Migration
 
-### 3.1 Script Generation: OpenAI GPT → Claude CLI
+### 3.1 Script Generation: Formalize Existing Claude CLI Usage
 
-**Current:** `app/llm.py` calls OpenAI `chat.completions.create()` with `gpt-5.4-mini`.
+**Current:** `app/llm.py` already uses Claude CLI as the primary provider via `_call_claude_cli()`, with OpenAI API as fallback via `_call_openai_api()`. This works but uses a function-based approach without a formal provider abstraction.
 
-**New:** Subprocess call to `claude -p "<prompt>"` with `--output-format json` where needed.
-
-**Implementation:**
-- Add `ClaudeCLIProvider` class in `app/llm.py` alongside existing `OpenAIProvider`
-- Provider selected by `settings.llm_provider` (`claude_cli` | `openai`)
-- Claude CLI invoked via `subprocess.run(["claude", "-p", prompt], capture_output=True, text=True, timeout=120)`
-- System prompts prepended to the user prompt as context
-- JSON output parsed from stdout; retry once on parse failure
-- Timeout: 120 seconds per call (configurable)
+**Changes:**
+- Refactor `app/llm.py` to use a `Protocol`-based provider pattern (see Section 3.5)
+- Add `settings.llm_provider` config (`claude_cli` | `openai`) to make priority explicit and configurable from the UI
+- Keep existing fallback behavior as default
+- Update `app/content_engine.py` and `app/metadata_gen.py` (consumers of `llm.generate()`) if interface changes
 
 **Affected files:**
-- `app/llm.py` — Add provider abstraction + Claude CLI provider
+- `app/llm.py` — Refactor to provider pattern
+- `app/content_engine.py` — Update if LLM interface changes
+- `app/metadata_gen.py` — Update if LLM interface changes
 - `app/config.py` — Add `llm_provider` setting
 
-**Risk:** Claude CLI output format may vary. Mitigation: validate JSON structure, retry with explicit "respond only with JSON" instruction on failure.
+**Risk:** Claude CLI output format may vary across versions. Mitigation: validate JSON structure, retry with explicit "respond only with JSON" instruction on failure. Document expected CLI version.
 
 ### 3.2 Image Generation: Replicate Flux 1.1 Pro → FLUX.2 Klein 4B (Local)
 
@@ -77,10 +75,15 @@
 
 **New:** Local inference via Hugging Face `diffusers` with Wan2.1 14B image-to-video model.
 
-**Model:** `Wan-AI/Wan2.1-I2V-14B-720P`
+**Model:** `Wan-AI/Wan2.1-I2V-14B-720P` (opt-in, see risk note below)
 - ~40GB memory with FP8 quantization and offloading
-- Fits in 48GB unified memory with aggressive memory management
+- 48GB unified memory is tight — macOS uses 3-5GB, Python/FastAPI another 1-2GB
 - Expect 15-30 minutes per clip (speed not a concern per user)
+
+**Default model:** `Wan-AI/Wan2.1-I2V-1.3B-720P`
+- ~8GB memory, runs comfortably with headroom
+- Lower quality than 14B but significantly better than Ken Burns
+- Recommended default for 48GB systems
 
 **Implementation:**
 - New file: `app/local_video_gen.py`
@@ -104,9 +107,38 @@
 - `torch.mps.empty_cache()` between clips
 - Attention slicing enabled
 
-**Risk:** 14B model on 48GB is tight. Mitigation: automatic fallback to Ken Burns effect if OOM occurs. Config option to use 1.3B model instead (`settings.wan_model_size`: `14b` | `1.3b`).
+**Risk:** 14B model on 48GB is extremely tight and may not work reliably. macOS + Python + FastAPI consume ~6GB, leaving ~42GB — barely enough for the 14B model with offloading. FP8 quantization on MPS is also not guaranteed to work. **Default to 1.3B; make 14B opt-in via `settings.wan_model_size: "14b" | "1.3b"` (default: `1.3b`).** Fallback chain: Wan → Ken Burns effect on OOM.
 
-### 3.4 Unchanged Components
+**MPS compatibility note:** If MPS fails for either model, fall back to CPU inference (slower but functional). MPS testing is a Phase 2 gate.
+
+### 3.4 Provider Interface Contracts
+
+All providers implement a `Protocol` so switching between local and API is type-safe:
+
+```python
+class LLMProvider(Protocol):
+    def generate(self, prompt: str, system: str | None = None,
+                 temperature: float = 0.7, max_tokens: int = 1500,
+                 json_mode: bool = False) -> str: ...
+
+class ImageProvider(Protocol):
+    def generate(self, prompt: str, width: int, height: int,
+                 output_path: str) -> str: ...
+
+class VideoProvider(Protocol):
+    def generate(self, image_path: str, prompt: str,
+                 output_path: str, duration: float = 5.0) -> str: ...
+```
+
+A convenience setting `settings.provider_mode` (`local` | `api` | `mixed`) sets all three providers at once. Individual `settings.llm_provider`, `settings.image_provider`, `settings.motion_provider` override when in `mixed` mode.
+
+### 3.5 Additional Affected Files
+
+- **`app/cost_tracker.py`** — Add `$0.00` cost entries for local providers. Track compute time instead of API cost for local runs. Dashboard "cost savings" metric compares local compute time against equivalent API cost.
+- **`app/generator_worker.py`** — Already handles background generation for the library. Scheduler and FastAPI integration should build on this rather than duplicating.
+- **`main.py` `validate_config()`** — Currently requires `openai_api_key` as mandatory. Must be updated: only require keys for the selected providers (e.g., no OpenAI key needed when `llm_provider=claude_cli` and `image_provider=local`).
+
+### 3.6 Unchanged Components
 
 | Component | Status | Notes |
 |---|---|---|
@@ -126,9 +158,9 @@ A Python-based scheduler that runs video generation jobs on configurable schedul
 
 ### 4.2 Scheduler Engine
 
-**Library:** `APScheduler` (Advanced Python Scheduler) v3.x
+**Library:** `APScheduler` (Advanced Python Scheduler) v3.x (pinned `<4.0` — v4 has incompatible async-first API)
 - Supports cron-style scheduling
-- Persistent job store via SQLite (survives restarts)
+- Persistent job store via SQLite with WAL mode enabled (survives restarts, safe concurrent reads from UI)
 - Thread-based executor (one job at a time to avoid memory contention with local models)
 
 ### 4.3 Data Model
@@ -351,6 +383,37 @@ Starts FastAPI on `http://localhost:8000`. Opens browser automatically.
 
 `main.py` CLI continues to work for headless/scripted use. The web UI calls the same pipeline code — no duplication.
 
+### 7.4 Async Execution Strategy
+
+The video generation pipeline (`run_pipeline()`) is synchronous and long-running (10-30+ minutes with local models). It must not block the FastAPI event loop.
+
+**Approach:** `asyncio.to_thread()` wraps `run_pipeline()` calls in a thread pool. Local model inference (PyTorch) releases the GIL during GPU/MPS operations, so the FastAPI server remains responsive for WebSocket updates and API requests during generation.
+
+For scheduler jobs, APScheduler's `ThreadPoolExecutor` handles this naturally (jobs already run in their own thread).
+
+Progress is reported via a callback function injected into `run_pipeline()` that sends updates through the WebSocket manager.
+
+### 7.5 WebSocket Message Format
+
+```json
+{
+  "type": "progress" | "complete" | "error" | "job_status",
+  "job_id": "uuid",
+  "stage": "script" | "images" | "audio" | "motion" | "assembly",
+  "progress": 0.0-1.0,
+  "message": "Generating image 3/14...",
+  "timestamp": "ISO8601"
+}
+```
+
+### 7.6 SPA Routing
+
+FastAPI serves `index.html` for all non-`/api/` and non-`/ws/` paths (catch-all route). Client-side History API handles navigation without page reloads.
+
+### 7.7 Streamlit Deprecation
+
+The existing Streamlit apps (`app/dashboard.py`, `app/library.py`) will be removed once the FastAPI UI is complete. The `streamlit` dependency will be dropped from `requirements.txt`.
+
 ## 8. New Dependencies
 
 ```
@@ -366,46 +429,74 @@ uvicorn>=0.34.0
 websockets>=14.0
 
 # Scheduler
-apscheduler>=3.10.0
+apscheduler>=3.10.0,<4.0
 
-# Database (scheduler persistence)
+# Database (scheduler persistence — direct async queries for job history UI)
 aiosqlite>=0.20.0
 ```
 
-## 9. Migration Strategy
+## 9. Model Management
 
-### Phase 1: Provider Abstraction
+### 9.1 First-Run Setup
+
+On first launch with local providers, the UI shows a "Model Setup" screen:
+- Lists required models with download sizes
+- Download progress bars
+- Models download to `~/.cache/huggingface/` (standard HF cache)
+- Settings page shows which models are cached and allows re-downloading
+
+### 9.2 Memory Fragmentation Mitigation
+
+MPS does not manage memory as aggressively as CUDA. After several generations, fragmented memory can cause OOM even when theoretical memory is sufficient.
+
+- `torch.mps.empty_cache()` between every generation
+- Restart the model process every N generations (configurable, default 10) to fully reclaim memory
+- Generation subprocess isolation: for the 14B Wan model, run inference in a child process via `multiprocessing` so memory is fully returned to OS on completion
+
+## 10. Migration Strategy
+
+### Phase 1: Provider Abstraction + Config
+- Define `Protocol` interfaces for LLM, Image, Video providers
 - Refactor `llm.py`, `asset_manager.py`, `motion_gen.py` with provider pattern
-- Add config flags for provider selection
+- Add config flags (`provider_mode`, individual provider settings)
+- Update `validate_config()` to only require keys for selected providers
+- Update `cost_tracker.py` for local provider entries
 - Existing API behavior unchanged (default providers = API)
 
 ### Phase 2: Local Model Providers
-- Implement `local_image_gen.py` (FLUX.2 Klein 4B)
-- Implement `local_video_gen.py` (Wan2.1 14B)
-- Implement Claude CLI provider in `llm.py`
-- Add model download/cache management
+- Implement `local_image_gen.py` (FLUX.2 Klein 4B via diffusers + MPS)
+- Implement `local_video_gen.py` (Wan2.1 1.3B default, 14B opt-in)
+- **MPS compatibility gate:** Test both models on Apple Silicon before proceeding. If MPS fails, implement CPU fallback.
+- Model download management (first-run detection, cache status)
+- Memory fragmentation mitigation (subprocess isolation for 14B)
 
 ### Phase 3: FastAPI Server + UI
-- Build FastAPI server with API routes
-- Build frontend SPA (HTML/CSS/JS)
-- Implement all settings pages
-- Wire up WebSocket for real-time progress
+- Build FastAPI server with API routes, WebSocket manager
+- Build frontend SPA (HTML/CSS/JS) — all 5 pages
+- Implement settings pages with full config management
+- Wire `run_pipeline()` via `asyncio.to_thread()` for async execution
+- SPA catch-all route for client-side routing
+- Remove Streamlit apps and dependency
 
 ### Phase 4: Scheduler
-- Implement APScheduler integration
+- Implement APScheduler integration with SQLite job store (WAL mode)
 - Build scheduler UI (job list, cron builder, history)
-- SQLite persistence for jobs and history
+- Build on existing `generator_worker.py` for job execution
+- Single-threaded executor with coalesce
 
 ### Phase 5: Integration Testing
 - End-to-end test: scheduled job → local models → video output
 - Memory profiling on M5 Pro with 48GB
 - Fallback testing (OOM → Ken Burns, provider switching)
+- MPS stress test: 10+ consecutive generations to verify memory stability
 
-## 10. Open Questions
+## 11. Open Questions
 
 1. **Model warm-up strategy:** Keep models loaded in memory between jobs (faster, uses ~40GB constantly) or load/unload per job (slower, frees memory between runs)?
    - **Recommendation:** Load on demand, unload after idle timeout (5 min). Balances memory and speed.
 
-2. **Wan2.1 14B feasibility:** May OOM on 48GB with other processes running. Need to test early and have 1.3B fallback ready.
+2. **Wan2.1 14B feasibility:** Likely too tight on 48GB for reliable use. Default to 1.3B, test 14B early in Phase 2 and only enable if proven stable.
 
 3. **Claude CLI rate limits:** Unknown if there are per-minute limits on `claude -p` calls. Need to test with batch generation.
+
+4. **FLUX.2 Klein 4B model availability:** Verify the model identifier `black-forest-labs/FLUX.2-klein-4B` exists on Hugging Face. If not available, fall back to `black-forest-labs/FLUX.1-dev` or `FLUX.1-schnell`.
