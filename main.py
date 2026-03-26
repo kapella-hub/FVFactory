@@ -34,12 +34,25 @@ logger = logging.getLogger(__name__)
 
 
 def validate_config() -> bool:
-    """Validate that required API keys are configured."""
+    """Validate that required API keys are configured for selected providers."""
     errors = []
 
-    if not settings.openai_api_key:
-        errors.append("OPENAI_API_KEY is required for script generation")
+    # LLM: only need OpenAI key if using OpenAI provider
+    if settings.llm_provider == "openai" or settings.provider_mode == "api":
+        if not settings.openai_api_key:
+            errors.append("OPENAI_API_KEY is required when llm_provider=openai")
 
+    # Image: only need Replicate key if using Replicate provider
+    if settings.image_provider == "replicate" or settings.provider_mode == "api":
+        if not settings.replicate_api_token:
+            errors.append("REPLICATE_API_TOKEN is required when image_provider=replicate")
+
+    # Motion: only need Replicate key if using Replicate provider
+    if settings.motion_provider == "replicate" or settings.provider_mode == "api":
+        if not settings.replicate_api_token:
+            errors.append("REPLICATE_API_TOKEN is required when motion_provider=replicate")
+
+    # TTS: always needs at least one TTS key
     if not settings.elevenlabs_api_key and not settings.openai_api_key:
         errors.append("ELEVENLABS_API_KEY or OPENAI_API_KEY required for audio")
 
@@ -47,16 +60,6 @@ def validate_config() -> bool:
         for error in errors:
             logger.error(error)
         return False
-
-    # Warnings (non-fatal)
-    if not settings.elevenlabs_api_key:
-        logger.warning("ELEVENLABS_API_KEY not set, will use OpenAI TTS fallback")
-
-    if not settings.leonardo_api_key and not settings.midjourney_api_key:
-        logger.warning("No image API configured, will use mock images")
-
-    if not settings.hedra_api_key and not settings.replicate_api_token:
-        logger.warning("No portrait animation API configured (HEDRA_API_KEY or REPLICATE_API_TOKEN)")
 
     return True
 
@@ -368,6 +371,12 @@ def parse_args(argv=None):
                         help="Voice preset (bill, george, daniel, josh, rachel, auto) or ElevenLabs voice ID")
     parser.add_argument("--upload", action="store_true",
                         help="Upload to YouTube after rendering")
+    parser.add_argument("--local", action="store_true",
+                        help="Use all local models (no API calls for LLM/image/video)")
+    parser.add_argument("--api", action="store_true",
+                        help="Use all API models (original behavior)")
+    parser.add_argument("--serve", action="store_true",
+                        help="Start the FastAPI web server")
 
     return parser.parse_args(argv)
 
@@ -514,6 +523,18 @@ def run_interactive_mode(args):
 def main():
     """Main entry point for FVFactory."""
     args = parse_args()
+
+    # Provider mode override from CLI flags
+    if args.local:
+        settings.provider_mode = "local"
+    elif args.api:
+        settings.provider_mode = "api"
+
+    # Web server mode
+    if args.serve:
+        from app.web.server import start_server
+        start_server()
+        sys.exit(0)
 
     print()
     print("=" * 50)
