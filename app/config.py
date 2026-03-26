@@ -127,5 +127,28 @@ class Settings(BaseSettings):
     youtube_privacy: str = "public"  # public, unlisted, or private
     youtube_api_key: str = ""  # API key for reading public video stats (no OAuth needed)
 
+    # === V3 Settings: Provider Configuration ===
+
+    # Provider mode: "local" (all local), "api" (all API), "mixed" (per-provider)
+    provider_mode: str = "local"
+
+    # Individual provider selection (used when provider_mode="mixed" or to override)
+    llm_provider: str = "claude_cli"        # "claude_cli" | "openai"
+    image_provider: str = "local"           # "local" | "replicate"
+    motion_provider: str = "local"          # "local" | "replicate"
+
+    # Local model settings
+    wan_model_size: str = "1.3b"            # "1.3b" | "14b"
+    flux_local_model: str = "black-forest-labs/FLUX.1-schnell"
+    claude_cli_timeout: int = 120           # seconds
+
+    # Data directory (scheduler DB, config.json)
+    data_dir: str = "data"
+
+    # Local provider cost tracking (compute time in seconds)
+    cost_local_image: float = 0.0
+    cost_local_video: float = 0.0
+    cost_claude_cli: float = 0.0
+
 
 settings = Settings()

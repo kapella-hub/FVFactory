@@ -39,3 +39,23 @@ def test_v1_settings_unchanged():
     assert s.elevenlabs_api_key == "test2"
     assert s.output_dir == "output"
     assert s.mascot_enabled is True
+
+
+def test_provider_settings_defaults():
+    """New provider settings have correct defaults."""
+    from app.config import Settings
+    s = Settings(openai_api_key="test", elevenlabs_api_key="test")
+    assert s.provider_mode == "local"
+    assert s.llm_provider == "claude_cli"
+    assert s.image_provider == "local"
+    assert s.motion_provider == "local"
+    assert s.wan_model_size == "1.3b"
+    assert s.data_dir == "data"
+    assert s.claude_cli_timeout == 120
+
+
+def test_provider_mode_api():
+    """provider_mode 'api' should be readable."""
+    from app.config import Settings
+    s = Settings(openai_api_key="test", provider_mode="api")
+    assert s.provider_mode == "api"
