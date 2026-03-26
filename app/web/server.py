@@ -70,6 +70,18 @@ async def root():
     return {"status": "FVFactory API running", "docs": "/docs"}
 
 
+# SPA catch-all: serve index.html for client-side routes
+@app.get("/{path:path}")
+async def spa_fallback(path: str):
+    # Don't intercept API or static file requests
+    if path.startswith("api/") or path.startswith("static/"):
+        return {"error": "Not found"}
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index)
+    return {"error": "Not found"}
+
+
 def start_server(host: str = "0.0.0.0", port: int = 8000):
     import webbrowser
     webbrowser.open(f"http://localhost:{port}")

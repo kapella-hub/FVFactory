@@ -1,0 +1,107 @@
+/* ============================================
+   FVFactory Design Tokens
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ---- Colors ---- */
+  --bg-deep:       #0a0a0f;
+  --bg-card:       #12121a;
+  --bg-surface:    #1a1a2e;
+  --bg-hover:      #222240;
+  --bg-input:      #0f0f18;
+
+  --accent-cyan:   #00e5ff;
+  --accent-purple: #7c3aed;
+  --accent-green:  #10b981;
+  --accent-yellow: #f59e0b;
+  --accent-red:    #ef4444;
+  --accent-orange: #f97316;
+
+  --text-primary:   #f0f0f5;
+  --text-secondary: #9ca3af;
+  --text-muted:     #6b7280;
+  --text-inverse:   #0a0a0f;
+
+  --border-subtle:  rgba(255, 255, 255, 0.06);
+  --border-medium:  rgba(255, 255, 255, 0.10);
+  --border-strong:  rgba(255, 255, 255, 0.15);
+
+  /* ---- Cyan shades ---- */
+  --cyan-dim:    rgba(0, 229, 255, 0.08);
+  --cyan-glow:   rgba(0, 229, 255, 0.15);
+  --cyan-medium: rgba(0, 229, 255, 0.25);
+
+  /* ---- Purple shades ---- */
+  --purple-dim:  rgba(124, 58, 237, 0.10);
+  --purple-glow: rgba(124, 58, 237, 0.20);
+
+  /* ---- Typography ---- */
+  --font-sans:  'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:  'JetBrains Mono', 'Fira Code', monospace;
+
+  --text-xs:    0.75rem;
+  --text-sm:    0.8125rem;
+  --text-base:  0.875rem;
+  --text-md:    1rem;
+  --text-lg:    1.125rem;
+  --text-xl:    1.25rem;
+  --text-2xl:   1.5rem;
+  --text-3xl:   2rem;
+
+  --weight-light:    300;
+  --weight-normal:   400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  --leading-tight:  1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.75;
+
+  /* ---- Spacing ---- */
+  --space-1:  0.25rem;
+  --space-2:  0.5rem;
+  --space-3:  0.75rem;
+  --space-4:  1rem;
+  --space-5:  1.25rem;
+  --space-6:  1.5rem;
+  --space-8:  2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+
+  /* ---- Borders ---- */
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-xl:   12px;
+  --radius-2xl:  16px;
+  --radius-full: 9999px;
+
+  /* ---- Shadows ---- */
+  --shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md:  0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-lg:  0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-xl:  0 16px 48px rgba(0, 0, 0, 0.6);
+  --shadow-glow-cyan:   0 0 20px rgba(0, 229, 255, 0.15);
+  --shadow-glow-purple: 0 0 20px rgba(124, 58, 237, 0.15);
+
+  /* ---- Layout ---- */
+  --sidebar-collapsed: 60px;
+  --sidebar-expanded:  220px;
+  --topbar-height:     52px;
+
+  /* ---- Transitions ---- */
+  --transition-fast:   150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow:   400ms ease;
+
+  /* ---- Z-index ---- */
+  --z-sidebar:  100;
+  --z-topbar:   200;
+  --z-modal:    500;
+  --z-toast:    600;
+  --z-tooltip:  700;
+}
