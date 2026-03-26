@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment variables
+.env
+
+# YouTube OAuth credentials
+client_secrets.json
+youtube_token.json
+
+# Output files
+output/
+
+
+# Temp files
+assets/temp/
+temp-audio.m4a
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Whisper model cache
+*.pt
+
+# Logs
+*.log
+
+# Screenshots and misc images
+*.png
+!assets/**/*.png
+
+# Playwright MCP
+.playwright-mcp/
+
+# Pytest cache
+.pytest_cache/

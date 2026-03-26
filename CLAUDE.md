@@ -1,0 +1,92 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Session Persistence
+
+At the start of each session, read `.claude/memory.md` to restore context from previous sessions. Before ending a session or when completing significant work, update `.claude/memory.md` with current progress, pending tasks, and any important notes.
+
+## Implementation Planning
+
+For large or complex prompts:
+
+1. **Create a plan first** - Break down the work into discrete steps before writing any code
+2. **Document the plan** - Write the implementation plan to `.claude/memory.md`
+3. **Follow the plan** - Work through each step systematically, marking items complete as you go
+4. **Update as needed** - If the plan needs adjustment during implementation, update it
+
+## Task Completion Requirements
+
+Before marking any task as complete:
+
+1. **Run the code** - Execute the application or relevant tests to verify it works without errors
+2. **Validate all requirements** - Review the original prompt and confirm every requested feature/change was implemented
+3. **Test functionality** - Verify the implemented features behave as expected
+
+Never hand off work until all requirements are validated and code runs successfully.
+
+## Project Overview
+
+FVFactory v2 is a professional-grade automated short-form video creation system (TikTok/Shorts).
+
+**Pipeline:** Topic (auto or manual) -> Script (with motion prompts) -> Audio/Images/Motion Clips -> MP4
+
+**APIs Used:**
+- OpenAI GPT-4o - Script generation + metadata
+- ElevenLabs Multilingual v2 - Text-to-speech (OpenAI TTS fallback)
+- Replicate Flux - Image generation
+- Replicate Minimax - Image-to-video motion clips
+- Whisper (local) - Word-level transcription for subtitles
+
+## Project Structure
+
+```
+/app        - Application modules
+/output     - Generated videos, metadata, thumbnails
+/assets     - Static assets (fonts, music, SFX, personas)
+/tests      - Unit tests
+/docs       - Specs and plans
+```
+
+## Development Environment
+
+- Python 3.14 (Docker: 3.12-slim)
+- Virtual environment: `.venv/`
+- IDE: PyCharm
+
+## Commands
+
+```bash
+# Interactive mode
+python main.py
+
+# Auto mode (discover trend, generate, render)
+python main.py --auto
+
+# Auto with niche filter
+python main.py --auto --niche tech
+
+# Batch mode (5 videos)
+python main.py --batch 5 --niche finance
+
+# Series mode
+python main.py --series "History of Money" --parts 3
+
+# Options
+python main.py --auto --no-motion --subtitle-style neon_glow
+python main.py --auto --mock  # Use mock images (free)
+python main.py --auto --no-sfx --no-music
+
+# Streamlit dashboard
+streamlit run app/dashboard.py
+
+# Run tests
+python -m pytest tests/ -v
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+## Configuration
+
+Copy `.env.example` to `.env` and add your API keys.
