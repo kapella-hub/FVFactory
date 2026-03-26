@@ -15,26 +15,35 @@ def test_generate_image_flux_downloads_to_path():
         manager.TEMP_DIR = Path(tmpdir)
         output_path = Path(tmpdir) / "test_image.png"
 
-        with patch("app.asset_manager.replicate") as mock_replicate:
-            mock_replicate.run.return_value = "https://replicate.delivery/fake/image.png"
+        with patch("app.asset_manager.replicate_run", return_value="https://replicate.delivery/fake/image.png") as mock_run:
             with patch("app.asset_manager.requests.get", return_value=mock_img_response):
                 manager._generate_image_flux("a cute robot", output_path)
 
         assert output_path.exists()
         assert output_path.read_bytes() == b"fake_png_data"
-        mock_replicate.run.assert_called_once()
-        call_args = mock_replicate.run.call_args
+        mock_run.assert_called_once()
+        call_args = mock_run.call_args
         assert "flux" in call_args[0][0].lower()
 
 
 def test_generate_images_uses_flux_not_dalle():
+    from app.config import settings
+
     manager = AssetManager()
 
-    with patch.object(manager, "_generate_image_flux") as mock_flux:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager.TEMP_DIR = Path(tmpdir)
-            manager.generate_images(["prompt1"], use_mock=False)
-        mock_flux.assert_called_once()
+    original_provider = settings.image_provider
+    original_mode = settings.provider_mode
+    try:
+        settings.image_provider = "replicate"
+        settings.provider_mode = "api"
+        with patch.object(manager, "_generate_image_flux") as mock_flux:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                manager.TEMP_DIR = Path(tmpdir)
+                manager.generate_images(["prompt1"], use_mock=False)
+            mock_flux.assert_called_once()
+    finally:
+        settings.image_provider = original_provider
+        settings.provider_mode = original_mode
 
 
 def test_generate_images_mock_still_works():

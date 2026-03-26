@@ -190,6 +190,10 @@ class AssetManager:
                 styled_prompt = self._enhance_prompt_with_style(prompt)
                 self._generate_mock_image(styled_prompt, output_path, i)
                 file_paths[i] = str(output_path)
+        elif settings.image_provider == "local" or (
+            settings.provider_mode == "local" and settings.image_provider != "replicate"
+        ):
+            return self._generate_images_local(prompts)
         else:
             # Sequential generation with delay to respect rate limits
             import time
@@ -254,6 +258,18 @@ class AssetManager:
         draw.text((x, y), text, fill="white", font=font)
 
         img.save(output_path, "PNG")
+
+    def _generate_images_local(self, prompts: list[str]) -> list[str]:
+        """Generate images using local FLUX model."""
+        from app.local_image_gen import LocalImageGenerator
+
+        gen = LocalImageGenerator(model_id=settings.flux_local_model)
+        try:
+            enhanced = [self._enhance_prompt_with_style(p) for p in prompts]
+            paths = gen.generate_batch(enhanced, self.IMAGE_WIDTH, self.IMAGE_HEIGHT, str(self.TEMP_DIR))
+            return paths
+        finally:
+            gen.unload()
 
     def _generate_image_flux(self, prompt: str, output_path: Path) -> None:
         """Generate image using Flux 1.1 Pro on Replicate."""
