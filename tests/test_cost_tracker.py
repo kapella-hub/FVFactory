@@ -54,3 +54,11 @@ def test_unknown_cost_item_raises():
             assert False, "Should have raised ValueError"
         except ValueError:
             pass
+
+
+def test_local_provider_costs_are_zero():
+    """Local providers should have $0.00 cost."""
+    tracker = CostTracker()
+    assert tracker.unit_costs["local_image"] == 0.0
+    assert tracker.unit_costs["local_video"] == 0.0
+    assert tracker.unit_costs["claude_cli"] == 0.0
