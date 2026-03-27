@@ -47,19 +47,35 @@ class LocalImageGenerator:
             return "cuda"
         return "cpu"
 
+    @staticmethod
+    def _snap_to_16(value: int) -> int:
+        """Round down to nearest multiple of 16 (required by FLUX)."""
+        return (value // 16) * 16
+
     def generate(self, prompt: str, width: int, height: int,
                  output_path: str) -> str:
-        """Generate a single image."""
+        """Generate a single image. Generates at reduced resolution then upscales."""
         import torch
-        logger.info("Generating image: %s", prompt[:80])
+        from PIL import Image
+
+        # Generate at ~half resolution for speed, then upscale
+        # 768x1344 is 9:16, divisible by 16, ~4x faster than 1080x1920
+        gen_w = min(self._snap_to_16(width), 768)
+        gen_h = self._snap_to_16(int(gen_w * (height / width)))
+
+        logger.info("Generating image (%dx%d -> %dx%d): %s", gen_w, gen_h, width, height, prompt[:80])
         result = self.pipe(
             prompt=prompt,
-            width=width,
-            height=height,
+            width=gen_w,
+            height=gen_h,
             num_inference_steps=4,
             guidance_scale=0.0,
         )
-        result.images[0].save(output_path)
+        img = result.images[0]
+        # Upscale to target resolution
+        if gen_w != width or gen_h != height:
+            img = img.resize((width, height), Image.LANCZOS)
+        img.save(output_path)
         if self.device == "mps":
             torch.mps.empty_cache()
         logger.info("Image saved: %s", output_path)
