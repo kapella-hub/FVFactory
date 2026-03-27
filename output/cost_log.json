@@ -375,6 +375,64 @@
         }
       ],
       "total": 1.055
+    },
+    "Why_Ancient_Rome_Fell_-_The_Re_20260322_093233": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 8,
+          "unit_cost": 0.03,
+          "cost": 0.24
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 8,
+          "unit_cost": 0.1,
+          "cost": 0.8
+        }
+      ],
+      "total": 1.055
+    },
+    "Why_Ancient_Rome_Fell_-_The_Re_20260322_135612": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 14,
+          "unit_cost": 0.03,
+          "cost": 0.42
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 14,
+          "unit_cost": 0.1,
+          "cost": 1.4
+        }
+      ],
+      "total": 1.835
     }
   }
 }

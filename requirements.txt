@@ -8,7 +8,6 @@ Pillow
 openai-whisper
 setuptools-rust
 torch
-streamlit
 replicate
 pytrends
 google-api-python-client
