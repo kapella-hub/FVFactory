@@ -49,3 +49,9 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Data directory (scheduler DB, runtime config)
+data/
+
+# Screenshot artifacts
+library-*.png
