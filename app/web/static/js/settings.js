@@ -97,6 +97,7 @@ const SettingsPage = (() => {
         </div>
 
         <div style="display:flex;gap:var(--space-8);flex-wrap:wrap;margin-top:var(--space-2)">
+          ${settingToggle('cinematic_enabled', 'Cinematic Engine', config.cinematic_enabled !== false)}
           ${settingToggle('enable_motion', 'Motion', config.enable_motion !== false)}
           ${settingToggle('enable_sfx', 'SFX', config.enable_sfx !== false)}
           ${settingToggle('music_enabled', 'Music', config.music_enabled !== false)}

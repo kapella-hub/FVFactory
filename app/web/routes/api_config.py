@@ -36,6 +36,7 @@ async def get_config():
         "video_style": settings.video_style,
         "video_duration": settings.video_duration,
         "subtitle_style": settings.subtitle_style,
+        "cinematic_enabled": settings.cinematic_enabled,
         "enable_motion": settings.enable_motion,
         "enable_sfx": settings.enable_sfx,
         "music_enabled": settings.music_enabled,
