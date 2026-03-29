@@ -125,21 +125,14 @@ DO NOT just mention the character - describe what they are DOING in each scene."
         prompt = self.BASE_SYSTEM_PROMPT
 
         # Override the photorealistic-only rule for non-photorealistic styles
-        if video_style == "cartoon":
+        if video_style != "photorealistic" and video_style in self.STYLE_GUIDE:
+            style_label = video_style.replace("_", " ").upper()
             prompt = prompt.replace(
                 "Every image prompt MUST describe a photorealistic scene. NO cartoons, illustrations, vector art, or anime.",
-                "Every image prompt MUST describe a colorful CARTOON scene with bold outlines and bright colors."
+                f"Every image prompt MUST describe a {style_label} style scene."
             ).replace(
                 'NEVER use words like "cartoon", "illustration", "vector", "animated", "cute character", or "art style".',
-                'ALWAYS include "cartoon style, vibrant colors, bold outlines" in every image prompt.'
-            )
-        elif video_style == "illustration":
-            prompt = prompt.replace(
-                "Every image prompt MUST describe a photorealistic scene. NO cartoons, illustrations, vector art, or anime.",
-                "Every image prompt MUST describe an ILLUSTRATION style scene with artistic hand-drawn aesthetics."
-            ).replace(
-                'NEVER use words like "cartoon", "illustration", "vector", "animated", "cute character", or "art style".',
-                'ALWAYS include "illustration style, hand-drawn, artistic, painted textures" in every image prompt.'
+                f"ALWAYS use style-specific keywords for {style_label} in every image prompt."
             )
 
         if settings.mascot_enabled and settings.mascot_prompt:
@@ -169,10 +162,45 @@ DO NOT just mention the character - describe what they are DOING in each scene."
             "exaggerated proportions, playful composition. Think Pixar or modern animated explainer videos. "
             "Include words like 'cartoon style', '3D animated', 'vibrant colors', 'fun exaggerated' in every prompt."
         ),
-        "illustration": (
-            "Every image prompt MUST describe a hand-drawn ILLUSTRATION style scene. Watercolor, ink, sketch, "
-            "or digital painting aesthetic. Soft textures, artistic brushstrokes, stylized compositions. "
-            "Include words like 'illustration style', 'hand-drawn', 'artistic', 'painted' in every prompt."
+        "anime": (
+            "Every image prompt MUST describe an ANIME style scene. Use Japanese animation aesthetics — "
+            "large expressive eyes, dynamic action lines, dramatic lighting, cel-shaded colors, detailed backgrounds. "
+            "Think Studio Ghibli or Makoto Shinkai. Include 'anime style', 'cel-shaded', 'Japanese animation' in every prompt."
+        ),
+        "stop_motion": (
+            "Every image prompt MUST describe a STOP-MOTION ANIMATION style scene. Miniature handcrafted look — "
+            "clay figures, felt textures, wooden props, visible fingerprints on clay, tiny detailed sets. "
+            "Think Aardman (Wallace & Gromit) or Laika studios. Include 'stop motion', 'claymation', 'miniature set' in every prompt."
+        ),
+        "pixel_art": (
+            "Every image prompt MUST describe a PIXEL ART style scene. Retro 16-bit or 32-bit aesthetic — "
+            "chunky pixels, limited color palette, dithering effects, nostalgic video game look. "
+            "Include 'pixel art', 'retro 16-bit', '8-bit style', 'video game aesthetic' in every prompt."
+        ),
+        "comic_book": (
+            "Every image prompt MUST describe a COMIC BOOK style scene. Bold ink outlines, halftone dots, "
+            "dramatic shadows, speech-bubble-ready compositions, dynamic panel-like framing. "
+            "Think Marvel/DC comics or graphic novels. Include 'comic book style', 'ink outlines', 'halftone dots' in every prompt."
+        ),
+        "watercolor": (
+            "Every image prompt MUST describe a WATERCOLOR PAINTING style scene. Soft translucent washes, "
+            "bleeding edges, visible paper texture, delicate brushwork, pastel and muted tones. "
+            "Include 'watercolor painting', 'soft washes', 'paper texture', 'delicate brushwork' in every prompt."
+        ),
+        "3d_render": (
+            "Every image prompt MUST describe a 3D RENDERED scene. Clean CGI look — smooth surfaces, "
+            "volumetric lighting, subsurface scattering, global illumination, Blender/Unreal Engine quality. "
+            "Include '3D render', 'CGI', 'volumetric lighting', 'octane render' in every prompt."
+        ),
+        "noir": (
+            "Every image prompt MUST describe a FILM NOIR style scene. High contrast black and white, "
+            "dramatic shadows, venetian blind lighting, rain-slicked streets, moody atmosphere. "
+            "Include 'film noir', 'black and white', 'dramatic shadows', 'high contrast' in every prompt."
+        ),
+        "oil_painting": (
+            "Every image prompt MUST describe an OIL PAINTING style scene. Rich impasto texture, "
+            "visible brushstrokes, Renaissance or Impressionist influence, deep saturated colors, classical composition. "
+            "Include 'oil painting', 'thick brushstrokes', 'impasto texture', 'classical art' in every prompt."
         ),
     }
 

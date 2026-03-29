@@ -16,9 +16,16 @@ const GeneratePage = (() => {
     { id: 'fire',           label: 'Fire',            preview: 'FIRE' },
   ];
   const VIDEO_STYLES = [
-    { id: 'photorealistic', label: 'Photorealistic', desc: 'Documentary, cinematic' },
-    { id: 'cartoon',        label: 'Cartoon',         desc: 'Bold, colorful, animated' },
-    { id: 'illustration',   label: 'Illustration',    desc: 'Hand-drawn, artistic' },
+    { id: 'photorealistic', label: 'Photorealistic', desc: 'Cinematic, documentary' },
+    { id: 'cartoon',        label: 'Cartoon',         desc: 'Bold, colorful, Pixar-like' },
+    { id: 'anime',          label: 'Anime',           desc: 'Japanese animation' },
+    { id: 'stop_motion',    label: 'Stop Motion',     desc: 'Claymation, miniatures' },
+    { id: 'comic_book',     label: 'Comic Book',      desc: 'Ink, halftone, graphic novel' },
+    { id: '3d_render',      label: '3D Render',       desc: 'Clean CGI, Blender-like' },
+    { id: 'pixel_art',      label: 'Pixel Art',       desc: 'Retro 16-bit, game style' },
+    { id: 'watercolor',     label: 'Watercolor',      desc: 'Soft washes, paper texture' },
+    { id: 'oil_painting',   label: 'Oil Painting',    desc: 'Classical, rich brushstrokes' },
+    { id: 'noir',           label: 'Film Noir',       desc: 'B&W, dramatic shadows' },
   ];
   const DURATIONS = [
     { id: 'short',  label: 'Short',  desc: '~30s, 5-7 scenes' },
