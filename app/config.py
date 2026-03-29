@@ -142,6 +142,10 @@ class Settings(BaseSettings):
     flux_local_model: str = "black-forest-labs/FLUX.1-schnell"
     claude_cli_timeout: int = 120           # seconds
 
+    # Video style and duration
+    video_style: str = "photorealistic"     # "photorealistic" | "cartoon" | "illustration"
+    video_duration: str = "medium"          # "short" (~30s, 5-7 scenes) | "medium" (~60s, 8-10) | "long" (~90s, 11-14)
+
     # Data directory (scheduler DB, config.json)
     data_dir: str = "data"
 

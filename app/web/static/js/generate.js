@@ -15,6 +15,16 @@ const GeneratePage = (() => {
     { id: 'neon_glow',      label: 'Neon Glow',      preview: 'NEON' },
     { id: 'fire',           label: 'Fire',            preview: 'FIRE' },
   ];
+  const VIDEO_STYLES = [
+    { id: 'photorealistic', label: 'Photorealistic', desc: 'Documentary, cinematic' },
+    { id: 'cartoon',        label: 'Cartoon',         desc: 'Bold, colorful, animated' },
+    { id: 'illustration',   label: 'Illustration',    desc: 'Hand-drawn, artistic' },
+  ];
+  const DURATIONS = [
+    { id: 'short',  label: 'Short',  desc: '~30s, 5-7 scenes' },
+    { id: 'medium', label: 'Medium', desc: '~60s, 8-10 scenes' },
+    { id: 'long',   label: 'Long',   desc: '~90s, 11-14 scenes' },
+  ];
   const STAGES = ['script', 'audio', 'images', 'motion', 'assembly'];
 
   let currentJobId = null;
@@ -61,6 +71,34 @@ const GeneratePage = (() => {
             <select class="form-select" id="gen-voice">
               ${VOICES.map(v => `<option value="${v}">${v.charAt(0).toUpperCase() + v.slice(1)}</option>`).join('')}
             </select>
+          </div>
+        </div>
+
+        <!-- Video Style -->
+        <div class="form-group">
+          <label class="form-label">Video Style</label>
+          <div class="style-grid" id="video-style-grid">
+            ${VIDEO_STYLES.map(s => `
+              <div class="style-card ${s.id === 'photorealistic' ? 'style-card--selected' : ''}"
+                   data-vstyle="${s.id}" onclick="GeneratePage.selectVideoStyle('${s.id}')">
+                <div class="style-card__name">${s.label}</div>
+                <div class="style-card__desc">${s.desc}</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Duration -->
+        <div class="form-group">
+          <label class="form-label">Duration</label>
+          <div class="style-grid" id="duration-grid">
+            ${DURATIONS.map(d => `
+              <div class="style-card ${d.id === 'medium' ? 'style-card--selected' : ''}"
+                   data-dur="${d.id}" onclick="GeneratePage.selectDuration('${d.id}')">
+                <div class="style-card__name">${d.label}</div>
+                <div class="style-card__desc">${d.desc}</div>
+              </div>
+            `).join('')}
           </div>
         </div>
 
@@ -138,8 +176,26 @@ const GeneratePage = (() => {
   }
 
   function selectStyle(styleId) {
-    document.querySelectorAll('.style-card').forEach(c => c.classList.remove('style-card--selected'));
+    document.querySelectorAll('#style-grid .style-card').forEach(c => c.classList.remove('style-card--selected'));
     document.querySelector(`[data-style="${styleId}"]`)?.classList.add('style-card--selected');
+  }
+
+  function selectVideoStyle(styleId) {
+    document.querySelectorAll('#video-style-grid .style-card').forEach(c => c.classList.remove('style-card--selected'));
+    document.querySelector(`[data-vstyle="${styleId}"]`)?.classList.add('style-card--selected');
+  }
+
+  function selectDuration(durId) {
+    document.querySelectorAll('#duration-grid .style-card').forEach(c => c.classList.remove('style-card--selected'));
+    document.querySelector(`[data-dur="${durId}"]`)?.classList.add('style-card--selected');
+  }
+
+  function getSelectedVideoStyle() {
+    return document.querySelector('#video-style-grid .style-card--selected')?.dataset.vstyle || 'photorealistic';
+  }
+
+  function getSelectedDuration() {
+    return document.querySelector('#duration-grid .style-card--selected')?.dataset.dur || 'medium';
   }
 
   function toggleSwitch(id) {
@@ -187,6 +243,8 @@ const GeneratePage = (() => {
       enable_sfx: isToggleActive('toggle-sfx'),
       enable_music: isToggleActive('toggle-music'),
       use_mock: isChecked('cb-mock'),
+      video_style: getSelectedVideoStyle(),
+      video_duration: getSelectedDuration(),
     };
 
     try {
@@ -303,5 +361,5 @@ const GeneratePage = (() => {
     return div.innerHTML;
   }
 
-  return { render, toggleAuto, selectStyle, toggleSwitch, toggleCheckbox, submit };
+  return { render, toggleAuto, selectStyle, selectVideoStyle, selectDuration, toggleSwitch, toggleCheckbox, submit };
 })();

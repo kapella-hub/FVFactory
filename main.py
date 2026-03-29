@@ -113,6 +113,9 @@ def run_pipeline(
     voice: Optional[str] = None,
     upload: bool = False,
     niche: Optional[str] = None,
+    # V3 parameters
+    video_style: str = "",
+    video_duration: str = "",
 ) -> str:
     """
     Run the full video generation pipeline.
@@ -141,7 +144,10 @@ def run_pipeline(
         logger.info("Generating script...")
         script_gen = ScriptGenerator()
         # Use v2 script generation when motion is enabled
-        script = script_gen.generate_script(topic, enable_v2=enable_motion)
+        script = script_gen.generate_script(
+            topic, enable_v2=enable_motion,
+            video_style=video_style, video_duration=video_duration,
+        )
 
         logger.info("Script generated successfully!")
         print()

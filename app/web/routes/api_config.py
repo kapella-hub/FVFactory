@@ -33,6 +33,8 @@ async def get_config():
         "flux_local_model": settings.flux_local_model,
         "claude_cli_timeout": settings.claude_cli_timeout,
         "niche": settings.niche,
+        "video_style": settings.video_style,
+        "video_duration": settings.video_duration,
         "subtitle_style": settings.subtitle_style,
         "enable_motion": settings.enable_motion,
         "enable_sfx": settings.enable_sfx,

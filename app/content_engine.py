@@ -120,9 +120,27 @@ Example: If discussing "Bitcoin crashed", the prompt should be:
 
 DO NOT just mention the character - describe what they are DOING in each scene."""
 
-    def _build_system_prompt(self, enable_v2: bool = False) -> str:
+    def _build_system_prompt(self, enable_v2: bool = False, video_style: str = "photorealistic") -> str:
         """Build the system prompt, optionally including mascot instructions."""
         prompt = self.BASE_SYSTEM_PROMPT
+
+        # Override the photorealistic-only rule for non-photorealistic styles
+        if video_style == "cartoon":
+            prompt = prompt.replace(
+                "Every image prompt MUST describe a photorealistic scene. NO cartoons, illustrations, vector art, or anime.",
+                "Every image prompt MUST describe a colorful CARTOON scene with bold outlines and bright colors."
+            ).replace(
+                'NEVER use words like "cartoon", "illustration", "vector", "animated", "cute character", or "art style".',
+                'ALWAYS include "cartoon style, vibrant colors, bold outlines" in every image prompt.'
+            )
+        elif video_style == "illustration":
+            prompt = prompt.replace(
+                "Every image prompt MUST describe a photorealistic scene. NO cartoons, illustrations, vector art, or anime.",
+                "Every image prompt MUST describe an ILLUSTRATION style scene with artistic hand-drawn aesthetics."
+            ).replace(
+                'NEVER use words like "cartoon", "illustration", "vector", "animated", "cute character", or "art style".',
+                'ALWAYS include "illustration style, hand-drawn, artistic, painted textures" in every image prompt.'
+            )
 
         if settings.mascot_enabled and settings.mascot_prompt:
             mascot_section = self.MASCOT_INSTRUCTION.format(
@@ -135,12 +153,38 @@ DO NOT just mention the character - describe what they are DOING in each scene."
 
         return prompt
 
-    def generate_script(self, topic: str, enable_v2: bool = False) -> ScriptOutput:
+    DURATION_GUIDE = {
+        "short": "Keep the video SHORT: 30-45 seconds reading time, 5-7 scenes max. Be concise.",
+        "medium": "Target MEDIUM length: 45-75 seconds reading time, 8-10 scenes.",
+        "long": "This should be a LONG deep-dive: 75-90 seconds reading time, 11-14 scenes. Go in depth.",
+    }
+
+    STYLE_GUIDE = {
+        "photorealistic": (
+            "Every image prompt MUST describe a photorealistic scene. NO cartoons, illustrations, or anime. "
+            "Cinematic, realistic, natural lighting, muted tones. Think National Geographic or documentary."
+        ),
+        "cartoon": (
+            "Every image prompt MUST describe a colorful CARTOON scene. Use bold outlines, bright saturated colors, "
+            "exaggerated proportions, playful composition. Think Pixar or modern animated explainer videos. "
+            "Include words like 'cartoon style', '3D animated', 'vibrant colors', 'fun exaggerated' in every prompt."
+        ),
+        "illustration": (
+            "Every image prompt MUST describe a hand-drawn ILLUSTRATION style scene. Watercolor, ink, sketch, "
+            "or digital painting aesthetic. Soft textures, artistic brushstrokes, stylized compositions. "
+            "Include words like 'illustration style', 'hand-drawn', 'artistic', 'painted' in every prompt."
+        ),
+    }
+
+    def generate_script(self, topic: str, enable_v2: bool = False,
+                        video_style: str = "", video_duration: str = "") -> ScriptOutput:
         """
         Generate a viral TikTok script for the given topic.
 
         Args:
             topic: The topic or theme for the video
+            video_style: Image style — "photorealistic", "cartoon", or "illustration"
+            video_duration: Video length — "short", "medium", or "long"
 
         Returns:
             ScriptOutput: Validated script with hook, body, image_prompts, and keywords
@@ -151,8 +195,18 @@ DO NOT just mention the character - describe what they are DOING in each scene."
         if not topic or not topic.strip():
             raise ScriptGeneratorError("Topic cannot be empty")
 
-        user_prompt = f"Create a viral TikTok script about: {topic}"
-        system_prompt = self._build_system_prompt(enable_v2=enable_v2)
+        style = video_style or settings.video_style
+        duration = video_duration or settings.video_duration
+
+        duration_hint = self.DURATION_GUIDE.get(duration, self.DURATION_GUIDE["medium"])
+        style_hint = self.STYLE_GUIDE.get(style, self.STYLE_GUIDE["photorealistic"])
+
+        user_prompt = (
+            f"Create a viral TikTok script about: {topic}\n\n"
+            f"DURATION: {duration_hint}\n\n"
+            f"IMAGE STYLE: {style_hint}"
+        )
+        system_prompt = self._build_system_prompt(enable_v2=enable_v2, video_style=style)
 
         try:
             data = generate_json(user_prompt, system=system_prompt, temperature=0.8, max_tokens=3000)

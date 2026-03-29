@@ -20,6 +20,8 @@ class GenerateRequest(BaseModel):
     enable_music: bool = True
     use_mock: bool = False
     auto_topic: bool = False
+    video_style: str = "photorealistic"
+    video_duration: str = "medium"
 
 
 class GenerateResponse(BaseModel):
@@ -55,6 +57,8 @@ async def generate_video(req: GenerateRequest) -> GenerateResponse:
                 enable_sfx=req.enable_sfx,
                 voice=voice_id,
                 niche=req.niche,
+                video_style=req.video_style,
+                video_duration=req.video_duration,
             )
 
             await ws_manager.send_complete(job_id, {"video_id": result} if result else None)
