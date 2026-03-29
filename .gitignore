@@ -33,6 +33,8 @@ output/*.mp4
 output/*.avi
 output/*.mov
 output/tracking.json
+output/metadata/
+output/thumbnails/
 
 # Temp files
 assets/temp/*.mp3
