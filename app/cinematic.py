@@ -244,7 +244,7 @@ class CinematicEngine:
 
             # Audio reactivity: subtle zoom punch on high energy
             energy = self._get_energy_at(audio_info, scene_start + t)
-            zoom_punch = energy * 0.03
+            zoom_punch = energy * 0.01  # very subtle — avoid jitter
 
             # Pick source and apply motion
             if shot_type == "wide":
@@ -277,7 +277,7 @@ class CinematicEngine:
         cy = margin_y // 2
 
         if style == "zoom_in_slow":
-            zoom = 1.0 + t * 0.25 + zoom_punch
+            zoom = 1.0 + t * 0.12 + zoom_punch
             cw = max(int(WIDTH / zoom), 1)
             ch = max(int(HEIGHT / zoom), 1)
             x1 = (src_w - cw) // 2
@@ -286,8 +286,8 @@ class CinematicEngine:
             return np.array(Image.fromarray(crop).resize((WIDTH, HEIGHT), Image.LANCZOS))
 
         elif style == "zoom_out_drift":
-            zoom = 1.25 - t * 0.2 + zoom_punch
-            drift_x = int(margin_x * 0.3 * t)
+            zoom = 1.12 - t * 0.1 + zoom_punch
+            drift_x = int(margin_x * 0.15 * t)
             cw = max(int(WIDTH / zoom), 1)
             ch = max(int(HEIGHT / zoom), 1)
             x1 = max(0, min((src_w - cw) // 2 + drift_x, src_w - cw))
@@ -296,28 +296,30 @@ class CinematicEngine:
             return np.array(Image.fromarray(crop).resize((WIDTH, HEIGHT), Image.LANCZOS))
 
         elif style == "pan_left":
-            x1 = int(margin_x * (1.0 - t))
-            y1 = cy + int(margin_y * 0.08 * math.sin(t * math.pi))
+            x1 = cx + int(margin_x * 0.3 * (1.0 - t))
+            y1 = cy + int(margin_y * 0.04 * math.sin(t * math.pi))
+            x1 = max(0, min(x1, margin_x))
             y1 = max(0, min(y1, margin_y))
 
         elif style == "pan_right":
-            x1 = int(margin_x * t)
-            y1 = cy - int(margin_y * 0.08 * math.sin(t * math.pi))
+            x1 = cx - int(margin_x * 0.3 * (1.0 - t))
+            y1 = cy - int(margin_y * 0.04 * math.sin(t * math.pi))
+            x1 = max(0, min(x1, margin_x))
             y1 = max(0, min(y1, margin_y))
 
         elif style == "pan_up_zoom":
-            zoom = 1.0 + t * 0.15 + zoom_punch
-            y_drift = int(margin_y * (1.0 - t))
+            zoom = 1.0 + t * 0.08 + zoom_punch
+            y_drift = int(margin_y * 0.4 * (1.0 - t))
             cw = max(int(WIDTH / zoom), 1)
             ch = max(int(HEIGHT / zoom), 1)
             x1 = (src_w - cw) // 2
-            y1 = max(0, min(y_drift, src_h - ch))
+            y1 = max(0, min(cy + y_drift, src_h - ch))
             crop = src[y1:y1+ch, x1:x1+cw]
             return np.array(Image.fromarray(crop).resize((WIDTH, HEIGHT), Image.LANCZOS))
 
         elif style == "push_in_rotate":
-            zoom = 1.0 + t * 0.2 + zoom_punch
-            angle = t * 1.5  # subtle rotation
+            zoom = 1.0 + t * 0.1 + zoom_punch
+            angle = t * 0.8  # very subtle rotation
             cw = max(int(WIDTH / zoom), 1)
             ch = max(int(HEIGHT / zoom), 1)
             x1 = (src_w - cw) // 2
@@ -328,8 +330,8 @@ class CinematicEngine:
             return np.array(pil)
 
         elif style == "diagonal_drift":
-            x1 = int(margin_x * t * 0.7)
-            y1 = int(margin_y * t * 0.5)
+            x1 = cx + int(margin_x * 0.2 * t)
+            y1 = cy + int(margin_y * 0.15 * t)
 
         else:
             x1 = cx
@@ -356,7 +358,7 @@ class CinematicEngine:
 
         transition_types = list(TRANSITIONS.keys())
         result = []
-        trans_duration = 0.4
+        trans_duration = 0.6
 
         for i, clip in enumerate(clips):
             if i == 0:

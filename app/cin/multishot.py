@@ -37,25 +37,38 @@ def extract_shots(img_arr: np.ndarray, out_w: int = 1080,
 
 
 def plan_cuts(scene_duration: float, emphasis_points: list[float] = None,
-              min_shot_duration: float = 0.8) -> list[dict]:
+              min_shot_duration: float = 3.0, max_cuts_per_scene: int = 2) -> list[dict]:
+    """Plan cuts within a scene. Deliberately conservative — 1-2 cuts max per scene.
+
+    Most of the scene stays on the wide shot with smooth motion.
+    Only cuts to a closer framing on the strongest emphasis moments.
+    """
     if not emphasis_points:
         emphasis_points = []
     cuts = [{"time": 0.0, "shot_type": "wide", "duration": 0.0}]
-    close_shots = ["close_up", "detail_top", "detail_bottom", "medium", "ultra_close"]
+
+    # Only use medium and close_up — no jarring detail/ultra_close crops
+    closer_shots = ["medium", "close_up"]
     last_cut_time = 0.0
+    num_cuts = 0
+
     for emp_time in emphasis_points:
+        if num_cuts >= max_cuts_per_scene:
+            break
         if emp_time < last_cut_time + min_shot_duration:
             continue
         if emp_time >= scene_duration - min_shot_duration:
             break
-        shot = random.choice(close_shots)
+        shot = closer_shots[num_cuts % len(closer_shots)]
         cuts.append({"time": emp_time, "shot_type": shot, "duration": 0.0})
         last_cut_time = emp_time
-    if len(cuts) == 1 and scene_duration > 2.0:
-        interval = scene_duration / 3
-        cuts.append({"time": interval, "shot_type": "medium", "duration": 0.0})
-        if scene_duration > 4.0:
-            cuts.append({"time": interval * 2, "shot_type": "close_up", "duration": 0.0})
+        num_cuts += 1
+
+    # For long scenes with no emphasis, add one gentle cut to medium
+    if len(cuts) == 1 and scene_duration > 6.0:
+        cuts.append({"time": scene_duration * 0.5, "shot_type": "medium", "duration": 0.0})
+
+    # Calculate durations
     for i in range(len(cuts)):
         if i + 1 < len(cuts):
             cuts[i]["duration"] = cuts[i + 1]["time"] - cuts[i]["time"]

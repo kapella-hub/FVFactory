@@ -508,6 +508,35 @@
         }
       ],
       "total": 1.315
+    },
+    "An_Ancient_Greek_Man_Deadlifte_20260328_205727": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 6,
+          "unit_cost": 0.03,
+          "cost": 0.18
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 6,
+          "unit_cost": 0.1,
+          "cost": 0.6
+        }
+      ],
+      "total": 0.795
     }
   }
 }

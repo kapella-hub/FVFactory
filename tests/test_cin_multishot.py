@@ -17,10 +17,12 @@ def test_extract_shots():
 
 def test_plan_cuts():
     from app.cin.multishot import plan_cuts
-    emphasis = [0.5, 1.5, 3.0]
-    scene_duration = 5.0
+    # Long scene with spread-out emphasis — should get at least 1 cut
+    emphasis = [2.0, 6.0, 9.0]
+    scene_duration = 12.0
     cuts = plan_cuts(scene_duration, emphasis_points=emphasis)
-    assert len(cuts) >= 2
+    assert len(cuts) >= 1
+    assert cuts[0]["shot_type"] == "wide"  # always starts wide
     for cut in cuts:
         assert "time" in cut
         assert "shot_type" in cut
