@@ -1,7 +1,6 @@
-"""Motion Generator - Minimax image-to-video via Replicate"""
+"""Motion Generator - Local Wan I2V or Replicate Minimax"""
 
 import logging
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import List, Optional
 
@@ -14,11 +13,29 @@ logger = logging.getLogger(__name__)
 
 
 class MotionGenerator:
-    """Generates motion clips from static images using Minimax on Replicate."""
+    """Generates motion clips from static images."""
 
     def __init__(self, temp_dir: Optional[str] = None):
         self.temp_dir = Path(temp_dir or "assets/temp")
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self._local_gen = None
+
+    def _is_local(self) -> bool:
+        return settings.motion_provider == "local" or (
+            settings.provider_mode == "local" and settings.motion_provider != "replicate"
+        )
+
+    def _get_local_gen(self):
+        """Lazy-load local video generator — load once, reuse for all clips."""
+        if self._local_gen is None:
+            from app.local_video_gen import LocalVideoGenerator
+            self._local_gen = LocalVideoGenerator(model_size=settings.wan_model_size)
+        return self._local_gen
+
+    def _unload_local_gen(self):
+        if self._local_gen is not None:
+            self._local_gen.unload()
+            self._local_gen = None
 
     def generate_motion_clip(
         self, image_path: str, motion_prompt: str, index: int = 0
@@ -28,10 +45,7 @@ class MotionGenerator:
         Returns path to clip, or None on failure (caller uses Ken Burns fallback).
         """
         try:
-            # Route to local provider if configured
-            if settings.motion_provider == "local" or (
-                settings.provider_mode == "local" and settings.motion_provider != "replicate"
-            ):
+            if self._is_local():
                 return self._generate_local(image_path, motion_prompt, index)
 
             logger.info(f"Generating motion clip {index}: {motion_prompt[:50]}...")
@@ -39,16 +53,14 @@ class MotionGenerator:
             output = replicate_run(
                 settings.minimax_model,
                 {
-                    "first_frame_image": image_path,  # replicate_api converts file paths to data URIs
+                    "first_frame_image": image_path,
                     "prompt": motion_prompt,
                 },
-                timeout=600,  # Motion clips can take a while
+                timeout=600,
             )
 
-            # Output is a URL string
             video_url = output if isinstance(output, str) else str(output)
 
-            # Download the video
             output_path = self.temp_dir / f"motion_{index}.mp4"
             response = requests.get(video_url, stream=True, timeout=120)
 
@@ -68,13 +80,11 @@ class MotionGenerator:
             return None
 
     def _generate_local(self, image_path: str, motion_prompt: str, index: int) -> str | None:
-        """Generate motion clip using local Wan2.1 model."""
-        from app.local_video_gen import LocalVideoGenerator
+        """Generate motion clip using local Wan model (reuses loaded model)."""
         output_path = str(self.temp_dir / f"motion_{index:03d}.mp4")
         try:
-            gen = LocalVideoGenerator(model_size=settings.wan_model_size)
+            gen = self._get_local_gen()
             gen.generate(image_path, motion_prompt, output_path)
-            gen.unload()
             logger.info("Local motion clip %d saved: %s", index, output_path)
             return output_path
         except Exception as e:
@@ -84,19 +94,23 @@ class MotionGenerator:
     def generate_all_clips(
         self, image_paths: List[str], motion_prompts: List[str]
     ) -> List[Optional[str]]:
-        """Generate motion clips for all images in parallel. None entries = failure (use Ken Burns)."""
+        """Generate motion clips for all images sequentially.
+
+        Uses sequential generation (not parallel) for local models to avoid
+        memory contention on Apple Silicon.
+        """
         if len(image_paths) != len(motion_prompts):
             raise ValueError("image_paths and motion_prompts must have same length")
 
         results: List[Optional[str]] = [None] * len(image_paths)
 
-        def generate_one(args):
-            i, (img, prompt) = args
-            return i, self.generate_motion_clip(img, prompt, index=i)
-
-        with ThreadPoolExecutor(max_workers=settings.max_parallel_workers) as executor:
-            for i, clip_path in executor.map(generate_one, enumerate(zip(image_paths, motion_prompts))):
-                results[i] = clip_path
+        try:
+            for i, (img, prompt) in enumerate(zip(image_paths, motion_prompts)):
+                logger.info(f"Motion clip {i+1}/{len(image_paths)}")
+                results[i] = self.generate_motion_clip(img, prompt, index=i)
+        finally:
+            # Always unload model after batch to free memory for video assembly
+            self._unload_local_gen()
 
         success = sum(1 for r in results if r is not None)
         logger.info(f"Motion clips: {success}/{len(results)} generated successfully")

@@ -138,7 +138,7 @@ class Settings(BaseSettings):
     motion_provider: str = "local"          # "local" | "replicate"
 
     # Local model settings
-    wan_model_size: str = "1.3b"            # "1.3b" | "14b"
+    wan_model_size: str = "enhanced"        # "enhanced" (CPU motion effects, no GPU needed)
     flux_local_model: str = "black-forest-labs/FLUX.1-schnell"
     claude_cli_timeout: int = 120           # seconds
 

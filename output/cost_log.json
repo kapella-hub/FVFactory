@@ -456,6 +456,29 @@
         }
       ],
       "total": 0.195
+    },
+    "An_Ancient_Greek_Man_Lifted_92_20260328_191540": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 7,
+          "unit_cost": 0.03,
+          "cost": 0.21
+        }
+      ],
+      "total": 0.225
     }
   }
 }
