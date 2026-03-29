@@ -479,6 +479,35 @@
         }
       ],
       "total": 0.225
+    },
+    "Benjamin_Franklin_Warned_Us_Ab_20260328_202637": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 10,
+          "unit_cost": 0.03,
+          "cost": 0.3
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 10,
+          "unit_cost": 0.1,
+          "cost": 1.0
+        }
+      ],
+      "total": 1.315
     }
   }
 }

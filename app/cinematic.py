@@ -1,6 +1,5 @@
-"""CinematicEngine — orchestrates depth parallax, multi-shot editing,
-audio-reactive cuts, particles, transitions, and kinetic typography
-into a professional-grade video assembly pipeline.
+"""CinematicEngine — multi-shot editing, audio-reactive cuts, particles,
+transitions, and smooth camera motion for professional-grade video assembly.
 """
 
 import logging
@@ -18,8 +17,6 @@ from moviepy import (
 
 from app.config import settings
 from app.cin.audio_analysis import analyze_audio
-from app.cin.depth import estimate_depth, split_into_layers, unload_depth_model
-from app.cin.parallax import render_parallax_frame
 from app.cin.multishot import extract_shots, plan_cuts
 from app.cin.particles import ParticleSystem, STYLE_PARTICLES
 from app.cin.transitions import TRANSITIONS
@@ -63,13 +60,14 @@ class CinematicEngine:
         # 2. Calculate scene durations from scene_texts
         scene_durations = self._calc_durations(audio_duration, scene_texts, len(image_paths))
 
-        # 3. Extract depth maps and prepare layers for each image
-        logger.info("Extracting depth maps...")
+        # 3. Prepare scene data — upscale images for motion headroom, extract multi-shot crops
+        logger.info("Preparing scenes...")
         scene_data = []
         for i, img_path in enumerate(image_paths):
             img = np.array(Image.open(img_path).convert("RGB").resize((WIDTH, HEIGHT), Image.LANCZOS))
-            depth = estimate_depth(img_path)
-            layers = split_into_layers(img, depth, num_layers=3)
+            # Upscale 1.4x for zoom/pan headroom
+            big = np.array(Image.fromarray(img).resize(
+                (int(WIDTH * 1.4), int(HEIGHT * 1.4)), Image.LANCZOS))
             shots = extract_shots(img)
 
             # Plan cuts for this scene based on audio emphasis within scene time window
@@ -81,17 +79,23 @@ class CinematicEngine:
             ]
             cuts = plan_cuts(scene_durations[i], local_emphasis)
 
+            # Assign a unique camera motion style per scene
+            motion_style = random.choice([
+                "zoom_in_slow", "zoom_out_drift", "pan_left", "pan_right",
+                "pan_up_zoom", "diagonal_drift", "push_in_rotate",
+            ])
+
             scene_data.append({
                 "image": img,
-                "layers": layers,
+                "big": big,
                 "shots": shots,
                 "cuts": cuts,
                 "duration": scene_durations[i],
                 "start": scene_start,
+                "motion_style": motion_style,
             })
 
-        unload_depth_model()
-        logger.info("Depth processing complete for %d scenes", len(scene_data))
+        logger.info("Scene preparation complete for %d scenes", len(scene_data))
 
         # 4. Set up particle system
         particle_preset = STYLE_PARTICLES.get(video_style, "dust")
@@ -190,45 +194,68 @@ class CinematicEngine:
 
     def _render_scene(self, sd: dict, audio_info: dict,
                       particles: ParticleSystem) -> VideoClip:
+        """Render a scene with multi-shot cuts + smooth camera motion + particles.
+
+        Each scene uses a single upscaled image. Within the scene, we cut between
+        different framings (wide, medium, close-up, detail) synced to audio emphasis.
+        Each framing has its own smooth camera motion (zoom/pan/rotate).
+        """
         duration = sd["duration"]
-        layers = sd["layers"]
+        big = sd["big"]  # 1.4x upscaled for motion headroom
         shots = sd["shots"]
         cuts = sd["cuts"]
         scene_start = sd["start"]
+        motion_style = sd["motion_style"]
 
         shot_map = {s["type"]: s["crop"] for s in shots}
-        cam_motion = random.choice(["drift_right", "drift_left", "drift_up", "push_in"])
+        big_h, big_w = big.shape[:2]
+
+        # Pre-upscale each shot crop for its own motion headroom
+        shot_big = {}
+        for s in shots:
+            scaled = np.array(Image.fromarray(s["crop"]).resize(
+                (int(WIDTH * 1.3), int(HEIGHT * 1.3)), Image.LANCZOS))
+            shot_big[s["type"]] = scaled
+
+        # Assign different motion styles to different shot types for variety
+        shot_motions = {}
+        motion_options = ["zoom_in_slow", "zoom_out_drift", "pan_left", "pan_right",
+                          "pan_up_zoom", "push_in_rotate"]
+        for i, s in enumerate(shots):
+            shot_motions[s["type"]] = motion_options[i % len(motion_options)]
+
+        # Wide shot always uses the scene's primary motion on the big image
+        shot_motions["wide"] = motion_style
 
         def make_frame(t):
-            # Determine active cut
+            # Determine active cut (which shot framing)
             active_cut = cuts[0]
             for cut in cuts:
                 if t >= cut["time"]:
                     active_cut = cut
 
             shot_type = active_cut["shot_type"]
-            progress = t / max(duration, 0.01)
-            cam_x, cam_y, cam_zoom = self._camera_motion(progress, cam_motion, audio_info,
-                                                          scene_start + t)
+            cut_start = active_cut["time"]
+            cut_duration = max(active_cut["duration"], 0.01)
+            cut_progress = min((t - cut_start) / cut_duration, 1.0)
 
-            if shot_type in ("wide", "medium"):
-                frame = render_parallax_frame(
-                    layers, progress,
-                    camera_x=cam_x, camera_y=cam_y, camera_zoom=cam_zoom,
-                    out_w=WIDTH, out_h=HEIGHT,
-                )
+            # Smooth ease
+            ease = 0.5 - 0.5 * math.cos(math.pi * cut_progress)
+
+            # Audio reactivity: subtle zoom punch on high energy
+            energy = self._get_energy_at(audio_info, scene_start + t)
+            zoom_punch = energy * 0.03
+
+            # Pick source and apply motion
+            if shot_type == "wide":
+                frame = self._apply_motion(big, big_w, big_h, ease,
+                                           shot_motions["wide"], zoom_punch)
             else:
-                base = shot_map.get(shot_type, shot_map.get("wide", sd["image"]))
-                zoom = 1.0 + progress * 0.1
-                h, w = base.shape[:2]
-                cw = max(int(w / zoom), 1)
-                ch = max(int(h / zoom), 1)
-                x1 = (w - cw) // 2 + int(cam_x * 20)
-                y1 = (h - ch) // 2 + int(cam_y * 10)
-                x1 = max(0, min(x1, w - cw))
-                y1 = max(0, min(y1, h - ch))
-                crop = base[y1:y1+ch, x1:x1+cw]
-                frame = np.array(Image.fromarray(crop).resize((WIDTH, HEIGHT), Image.LANCZOS))
+                src = shot_big.get(shot_type, shot_big.get("wide", big))
+                sh, sw = src.shape[:2]
+                frame = self._apply_motion(src, sw, sh, ease,
+                                           shot_motions.get(shot_type, "zoom_in_slow"),
+                                           zoom_punch)
 
             # Overlay particles
             particle_frame = particles.render_frame(scene_start + t)
@@ -241,24 +268,77 @@ class CinematicEngine:
 
         return VideoClip(make_frame, duration=duration).with_fps(FPS)
 
-    def _camera_motion(self, progress: float, style: str,
-                       audio_info: dict, global_time: float) -> tuple:
-        ease = 0.5 - 0.5 * math.cos(math.pi * progress)
+    def _apply_motion(self, src: np.ndarray, src_w: int, src_h: int,
+                      t: float, style: str, zoom_punch: float = 0.0) -> np.ndarray:
+        """Apply camera motion to an upscaled source image. Returns WIDTH x HEIGHT frame."""
+        margin_x = src_w - WIDTH
+        margin_y = src_h - HEIGHT
+        cx = margin_x // 2
+        cy = margin_y // 2
 
-        if style == "drift_right":
-            base_x, base_y = ease * 2 - 1, math.sin(progress * math.pi) * 0.3
-        elif style == "drift_left":
-            base_x, base_y = -(ease * 2 - 1), math.sin(progress * math.pi) * 0.3
-        elif style == "drift_up":
-            base_x, base_y = math.sin(progress * math.pi) * 0.3, -(ease * 2 - 1) * 0.5
-        else:  # push_in
-            base_x, base_y = 0, 0
+        if style == "zoom_in_slow":
+            zoom = 1.0 + t * 0.25 + zoom_punch
+            cw = max(int(WIDTH / zoom), 1)
+            ch = max(int(HEIGHT / zoom), 1)
+            x1 = (src_w - cw) // 2
+            y1 = (src_h - ch) // 2
+            crop = src[y1:y1+ch, x1:x1+cw]
+            return np.array(Image.fromarray(crop).resize((WIDTH, HEIGHT), Image.LANCZOS))
 
-        base_zoom = 1.0 + ease * 0.2 if style == "push_in" else 1.0 + ease * 0.08
-        energy = self._get_energy_at(audio_info, global_time)
-        zoom_punch = energy * 0.05
+        elif style == "zoom_out_drift":
+            zoom = 1.25 - t * 0.2 + zoom_punch
+            drift_x = int(margin_x * 0.3 * t)
+            cw = max(int(WIDTH / zoom), 1)
+            ch = max(int(HEIGHT / zoom), 1)
+            x1 = max(0, min((src_w - cw) // 2 + drift_x, src_w - cw))
+            y1 = (src_h - ch) // 2
+            crop = src[y1:y1+ch, x1:x1+cw]
+            return np.array(Image.fromarray(crop).resize((WIDTH, HEIGHT), Image.LANCZOS))
 
-        return base_x, base_y, base_zoom + zoom_punch
+        elif style == "pan_left":
+            x1 = int(margin_x * (1.0 - t))
+            y1 = cy + int(margin_y * 0.08 * math.sin(t * math.pi))
+            y1 = max(0, min(y1, margin_y))
+
+        elif style == "pan_right":
+            x1 = int(margin_x * t)
+            y1 = cy - int(margin_y * 0.08 * math.sin(t * math.pi))
+            y1 = max(0, min(y1, margin_y))
+
+        elif style == "pan_up_zoom":
+            zoom = 1.0 + t * 0.15 + zoom_punch
+            y_drift = int(margin_y * (1.0 - t))
+            cw = max(int(WIDTH / zoom), 1)
+            ch = max(int(HEIGHT / zoom), 1)
+            x1 = (src_w - cw) // 2
+            y1 = max(0, min(y_drift, src_h - ch))
+            crop = src[y1:y1+ch, x1:x1+cw]
+            return np.array(Image.fromarray(crop).resize((WIDTH, HEIGHT), Image.LANCZOS))
+
+        elif style == "push_in_rotate":
+            zoom = 1.0 + t * 0.2 + zoom_punch
+            angle = t * 1.5  # subtle rotation
+            cw = max(int(WIDTH / zoom), 1)
+            ch = max(int(HEIGHT / zoom), 1)
+            x1 = (src_w - cw) // 2
+            y1 = (src_h - ch) // 2
+            crop = src[y1:y1+ch, x1:x1+cw]
+            pil = Image.fromarray(crop).resize((WIDTH, HEIGHT), Image.LANCZOS)
+            pil = pil.rotate(angle, resample=Image.BICUBIC, expand=False)
+            return np.array(pil)
+
+        elif style == "diagonal_drift":
+            x1 = int(margin_x * t * 0.7)
+            y1 = int(margin_y * t * 0.5)
+
+        else:
+            x1 = cx
+            y1 = cy
+
+        # Simple crop for pan styles
+        x1 = max(0, min(x1, margin_x))
+        y1 = max(0, min(y1, margin_y))
+        return src[y1:y1+HEIGHT, x1:x1+WIDTH]
 
     def _get_energy_at(self, audio_info: dict, time: float) -> float:
         times = audio_info["times"]
