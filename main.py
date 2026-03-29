@@ -179,6 +179,31 @@ def resolve_music_mood(niche: Optional[str] = None, video_style: Optional[str] =
     return mood
 
 
+def resolve_subtitle_style(subtitle_style: str, video_style: Optional[str] = None) -> str:
+    """Auto-select subtitle style based on video style when set to 'auto' or default.
+
+    Available styles: bold_impact, clean_minimal, neon_glow, fire
+    """
+    if subtitle_style == "auto" and video_style:
+        STYLE_SUBTITLE = {
+            "cartoon": "bold_impact",
+            "anime": "neon_glow",
+            "pixel_art": "neon_glow",
+            "comic_book": "bold_impact",
+            "stop_motion": "bold_impact",
+            "noir": "clean_minimal",
+            "oil_painting": "clean_minimal",
+            "watercolor": "clean_minimal",
+            "3d_render": "neon_glow",
+            "illustration": "clean_minimal",
+            "photorealistic": "fire",
+        }
+        resolved = STYLE_SUBTITLE.get(video_style, "bold_impact")
+        logger.info(f"Auto-selected subtitle style '{resolved}' for video style '{video_style}'")
+        return resolved
+    return subtitle_style
+
+
 def run_pipeline(
     topic: str,
     use_mock_images: bool = False,
@@ -229,6 +254,8 @@ def run_pipeline(
             video_style=video_style, video_duration=video_duration,
         )
 
+        # Resolve subtitle style based on video style if set to auto
+        subtitle_style = resolve_subtitle_style(subtitle_style, video_style)
         logger.info("Script generated successfully!")
         print()
         print("=" * 50)

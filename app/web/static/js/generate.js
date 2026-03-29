@@ -10,6 +10,7 @@ const GeneratePage = (() => {
   ];
   const VOICES = ['auto', 'bill', 'george', 'daniel', 'josh', 'rachel'];
   const STYLES = [
+    { id: 'auto',           label: 'Auto',            preview: '✦' },
     { id: 'bold_impact',    label: 'Bold Impact',    preview: 'BOLD' },
     { id: 'clean_minimal',  label: 'Clean Minimal',  preview: 'Clean' },
     { id: 'neon_glow',      label: 'Neon Glow',      preview: 'NEON' },
@@ -114,7 +115,7 @@ const GeneratePage = (() => {
           <label class="form-label">Subtitle Style</label>
           <div class="style-grid" id="style-grid">
             ${STYLES.map(s => `
-              <div class="style-card ${s.id === 'bold_impact' ? 'style-card--selected' : ''}"
+              <div class="style-card ${s.id === 'auto' ? 'style-card--selected' : ''}"
                    data-style="${s.id}" onclick="GeneratePage.selectStyle('${s.id}')">
                 <div class="style-card__preview style-preview--${s.id}">${s.preview}</div>
                 <div class="style-card__name">${s.label}</div>

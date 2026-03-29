@@ -51,9 +51,9 @@ class VideoEditor:
     FPS = 24
     CODEC = "libx264"
 
-    # Ken Burns effect settings
+    # Ken Burns effect settings — more aggressive for visible motion
     ZOOM_START = 1.0
-    ZOOM_END = 1.1
+    ZOOM_END = 1.25
 
     # Subtitle settings
     HOOK_DURATION = 3  # seconds
@@ -586,12 +586,12 @@ class VideoEditor:
             lines = lines[:max_lines]
             lines[-1] = lines[-1][:30] + "..."
 
-        # Draw centered text — CYAN color (#00E5FF) to contrast yellow subtitles
+        # Draw centered text — Fire orange (#FF4500) bold style
         line_height = font_size + 16
         total_height = len(lines) * line_height
         y_start = (self.HEIGHT - total_height) // 2
 
-        text_color = (0, 229, 255, 255)  # Bright cyan
+        text_color = (255, 69, 0, 255)    # Fire orange
         stroke_color = (0, 0, 0, 255)
 
         for i, line in enumerate(lines):
@@ -707,6 +707,18 @@ class VideoEditor:
             if len(video_clips) > 1 and settings.crossfade_duration > 0:
                 from moviepy.video.fx import CrossFadeIn
                 crossfade = settings.crossfade_duration
+                # Crossfades shorten total duration — extend last clip to compensate
+                total_overlap = crossfade * (len(video_clips) - 1)
+                extra_per_last = total_overlap  # add all overlap time to last scene
+                last_clip = video_clips[-1]
+                video_clips[-1] = self._create_ken_burns_clip(
+                    image_paths[-1], scene_durations[-1] + extra_per_last
+                )
+                if color_grade:
+                    video_clips[-1] = video_clips[-1].image_transform(
+                        lambda frame, grade=color_grade: self._apply_color_grade(frame, grade)
+                    )
+
                 for i in range(1, len(video_clips)):
                     video_clips[i] = video_clips[i].with_start(
                         sum(scene_durations[:i]) - crossfade * i
@@ -715,6 +727,11 @@ class VideoEditor:
                 video = video.with_duration(audio_duration)
             else:
                 video = concatenate_videoclips(video_clips, method="compose")
+                # Ensure video covers full audio — extend last clip if needed
+                if video.duration < audio_duration:
+                    gap = audio_duration - video.duration
+                    ext_clip = self._create_ken_burns_clip(image_paths[-1], gap)
+                    video = concatenate_videoclips([video, ext_clip], method="compose")
 
             # Add title overlay on top of first scene
             if title:
@@ -819,47 +836,53 @@ class VideoEditor:
 
     def _create_ken_burns_clip(self, image_path: str, duration: float) -> ImageClip:
         """
-        Create an ImageClip with Ken Burns zoom effect.
+        Create an ImageClip with Ken Burns zoom + pan effect.
 
-        The effect slowly zooms from ZOOM_START to ZOOM_END over the clip duration,
-        keeping the image centered.
+        Randomly picks a motion direction (zoom in/out + pan direction)
+        for visual variety between scenes.
         """
         clip = ImageClip(image_path).with_duration(duration)
 
-        # Resize image to fill frame with room for zoom
-        # Scale up initially so zoom out doesn't show edges
         base_scale = max(
             self.WIDTH / clip.w,
             self.HEIGHT / clip.h
-        ) * self.ZOOM_END
+        ) * self.ZOOM_END * 1.1  # extra margin for pan
 
         clip = clip.resized(base_scale)
 
+        # Randomly pick motion direction for this clip
+        zoom_in = random.choice([True, False])
+        # Pan offset: fraction of frame to drift (0.0 = center, 0.15 = 15% drift)
+        pan_x = random.uniform(-0.12, 0.12)
+        pan_y = random.uniform(-0.08, 0.08)
+
+        zoom_start = self.ZOOM_START if zoom_in else self.ZOOM_END
+        zoom_end = self.ZOOM_END if zoom_in else self.ZOOM_START
+
         def ken_burns_effect(get_frame, t):
-            """Apply zoom effect based on time"""
-            # Calculate current zoom level (interpolate from ZOOM_END to ZOOM_START)
-            # This creates a zoom-out effect which feels more natural
-            progress = t / duration
-            current_zoom = self.ZOOM_END - (progress * (self.ZOOM_END - self.ZOOM_START))
+            progress = t / max(duration, 0.01)
+            current_zoom = zoom_start + progress * (zoom_end - zoom_start)
 
             frame = get_frame(t)
+            fh, fw = frame.shape[:2]
 
-            # Calculate crop dimensions for current zoom
             crop_w = int(self.WIDTH / current_zoom)
             crop_h = int(self.HEIGHT / current_zoom)
 
-            # Center crop
-            center_x = frame.shape[1] // 2
-            center_y = frame.shape[0] // 2
+            # Pan: drift from center toward pan target over time
+            offset_x = int(fw * pan_x * progress)
+            offset_y = int(fh * pan_y * progress)
 
-            x1 = max(0, center_x - crop_w // 2)
-            y1 = max(0, center_y - crop_h // 2)
+            center_x = fw // 2 + offset_x
+            center_y = fh // 2 + offset_y
+
+            x1 = max(0, min(center_x - crop_w // 2, fw - crop_w))
+            y1 = max(0, min(center_y - crop_h // 2, fh - crop_h))
             x2 = x1 + crop_w
             y2 = y1 + crop_h
 
             cropped = frame[y1:y2, x1:x2]
 
-            # Resize to output dimensions
             from PIL import Image
             import numpy as np
 
@@ -868,7 +891,6 @@ class VideoEditor:
 
             return np.array(img)
 
-        # Apply the Ken Burns effect using transform
         clip = clip.transform(ken_burns_effect)
 
         return clip

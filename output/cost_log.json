@@ -433,6 +433,29 @@
         }
       ],
       "total": 1.835
+    },
+    "Scientists_Just_Confirmed_Some_20260328_185133": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 6,
+          "unit_cost": 0.03,
+          "cost": 0.18
+        }
+      ],
+      "total": 0.195
     }
   }
 }
