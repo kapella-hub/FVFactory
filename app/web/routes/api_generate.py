@@ -45,7 +45,7 @@ async def generate_video(req: GenerateRequest) -> GenerateResponse:
                 topics = scout.discover_topics(niche=req.niche, count=1)
                 topic = topics[0].title if topics else "Interesting facts about the world"
 
-            voice_id = resolve_voice(req.voice, req.niche)
+            voice_id = resolve_voice(req.voice, req.niche, req.video_style)
             await ws_manager.send_progress(job_id, "script", 0.1, f"Topic: {topic}")
 
             result = await asyncio.to_thread(

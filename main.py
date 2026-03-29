@@ -75,8 +75,17 @@ def generate_output_filename(topic: str) -> str:
     return f"{safe_topic}_{timestamp}.mp4"
 
 
-def resolve_voice(voice: Optional[str] = None, niche: Optional[str] = None) -> Optional[str]:
+def resolve_voice(voice: Optional[str] = None, niche: Optional[str] = None,
+                   video_style: Optional[str] = None) -> Optional[str]:
     """Resolve a voice preset name or 'auto' to an ElevenLabs voice ID.
+
+    When voice is 'auto', picks based on niche and video style:
+    - Niche mapping is primary (stoicism→bill, tech→daniel, etc.)
+    - Video style adjusts the default when niche has no specific mapping:
+      energetic styles (cartoon, anime, pixel_art, comic_book) → josh
+      dramatic styles (noir, oil_painting) → bill
+      artistic styles (watercolor, illustration, stop_motion) → george
+      technical styles (3d_render, photorealistic) → daniel
 
     Returns None to use the default from config.
     """
@@ -84,11 +93,31 @@ def resolve_voice(voice: Optional[str] = None, niche: Optional[str] = None) -> O
         return None
 
     if voice == "auto":
-        # Pick voice based on niche
         niche_key = (niche or "").lower().strip()
-        preset = settings.voice_niche_map.get(niche_key, "george")  # george as safe default
+
+        # First try niche-specific mapping
+        preset = settings.voice_niche_map.get(niche_key)
+
+        # If no niche match, use video style to pick voice
+        if not preset and video_style:
+            STYLE_VOICE = {
+                "cartoon": "josh",
+                "anime": "josh",
+                "pixel_art": "josh",
+                "comic_book": "josh",
+                "noir": "bill",
+                "oil_painting": "bill",
+                "watercolor": "george",
+                "illustration": "george",
+                "stop_motion": "george",
+                "3d_render": "daniel",
+                "photorealistic": "daniel",
+            }
+            preset = STYLE_VOICE.get(video_style)
+
+        preset = preset or "george"  # safe default
         voice_id = settings.voice_presets.get(preset)
-        logger.info(f"Auto-selected voice '{preset}' for niche '{niche_key}'")
+        logger.info(f"Auto-selected voice '{preset}' for niche='{niche_key}' style='{video_style or ''}'")
         return voice_id
 
     # Direct preset name
@@ -97,6 +126,57 @@ def resolve_voice(voice: Optional[str] = None, niche: Optional[str] = None) -> O
 
     # Assume it's a raw ElevenLabs voice ID
     return voice
+
+
+def resolve_music_mood(niche: Optional[str] = None, video_style: Optional[str] = None) -> str:
+    """Pick a music mood based on niche and video style.
+
+    Returns a mood string matching a subfolder in assets/music/:
+      epic, chill, upbeat, dark, cinematic
+
+    Falls back to empty string (root music dir) if no match.
+    """
+    # Style takes priority for mood
+    STYLE_MOOD = {
+        "cartoon": "upbeat",
+        "anime": "epic",
+        "pixel_art": "upbeat",
+        "comic_book": "epic",
+        "stop_motion": "upbeat",
+        "noir": "dark",
+        "oil_painting": "cinematic",
+        "watercolor": "chill",
+        "illustration": "chill",
+        "3d_render": "cinematic",
+        "photorealistic": "cinematic",
+    }
+
+    NICHE_MOOD = {
+        "stoicism": "cinematic",
+        "philosophy": "chill",
+        "self-improvement": "epic",
+        "motivation": "epic",
+        "history": "cinematic",
+        "science": "cinematic",
+        "tech": "upbeat",
+        "technology": "upbeat",
+        "finance": "cinematic",
+        "crypto": "dark",
+        "gaming": "upbeat",
+        "entertainment": "upbeat",
+        "pop culture": "upbeat",
+        "health": "chill",
+        "lifestyle": "chill",
+    }
+
+    mood = ""
+    if video_style:
+        mood = STYLE_MOOD.get(video_style, "")
+    if not mood and niche:
+        mood = NICHE_MOOD.get(niche.lower().strip(), "")
+
+    logger.info(f"Music mood: '{mood}' for niche='{niche or ''}' style='{video_style or ''}'")
+    return mood
 
 
 def run_pipeline(
@@ -229,7 +309,7 @@ def run_pipeline(
         if use_hybrid_mode and animated_video_path:
             # Render hybrid video (background images + talking head overlay)
             logger.info("Rendering hybrid video...")
-            video_editor = VideoEditor()
+            video_editor = VideoEditor(music_mood=resolve_music_mood(niche, video_style))
 
             output_path = video_editor.assemble_hybrid_video(
                 audio_path=audio_result.file_path,
@@ -244,7 +324,7 @@ def run_pipeline(
         else:
             # STANDARD MODE: Just background images
             logger.info("Rendering video...")
-            video_editor = VideoEditor()
+            video_editor = VideoEditor(music_mood=resolve_music_mood(niche, video_style))
 
             output_path = video_editor.assemble_video(
                 audio_path=audio_result.file_path,

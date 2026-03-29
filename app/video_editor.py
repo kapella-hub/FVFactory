@@ -93,11 +93,12 @@ class VideoEditor:
         "default": {"contrast": 1.05, "saturation": 1.1},
     }
 
-    def __init__(self):
+    def __init__(self, music_mood: str = ""):
         self.output_dir = Path(settings.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._whisper_model = None
         self.music_dir = Path(settings.music_dir)
+        self.music_mood = music_mood
 
     def _get_whisper_model(self):
         """Lazy-load Whisper model to avoid loading until needed."""
@@ -113,9 +114,17 @@ class VideoEditor:
                 )
         return self._whisper_model
 
-    def _get_random_music_file(self) -> Optional[Path]:
+    def _get_random_music_file(self, mood: str = "") -> Optional[Path]:
         """
-        Get a random music file from the music directory.
+        Get a random music file, preferring mood-specific subfolder.
+
+        Folder structure:
+          assets/music/           — fallback (any mood)
+          assets/music/epic/      — epic, dramatic tracks
+          assets/music/chill/     — calm, ambient tracks
+          assets/music/upbeat/    — energetic, fun tracks
+          assets/music/dark/      — moody, suspenseful tracks
+          assets/music/cinematic/ — orchestral, documentary tracks
 
         Returns:
             Path to a random music file, or None if no music files found
@@ -124,18 +133,28 @@ class VideoEditor:
             logger.warning(f"Music directory not found: {self.music_dir}")
             return None
 
-        music_files = [
-            f for f in self.music_dir.iterdir()
-            if f.is_file() and f.suffix.lower() in self.MUSIC_EXTENSIONS
-        ]
+        # Try mood-specific subfolder first
+        search_dirs = []
+        if mood:
+            mood_dir = self.music_dir / mood
+            if mood_dir.exists():
+                search_dirs.append(mood_dir)
 
-        if not music_files:
-            logger.warning(f"No music files found in {self.music_dir}")
-            return None
+        # Always fall back to root music dir
+        search_dirs.append(self.music_dir)
 
-        selected = random.choice(music_files)
-        logger.info(f"Selected background music: {selected.name}")
-        return selected
+        for search_dir in search_dirs:
+            music_files = [
+                f for f in search_dir.iterdir()
+                if f.is_file() and f.suffix.lower() in self.MUSIC_EXTENSIONS
+            ]
+            if music_files:
+                selected = random.choice(music_files)
+                logger.info(f"Selected background music ({mood or 'any'}): {selected.name}")
+                return selected
+
+        logger.warning(f"No music files found in {self.music_dir}")
+        return None
 
     def _prepare_background_music(
         self,
@@ -730,7 +749,7 @@ class VideoEditor:
 
             # Prepare background music if enabled
             if enable_music and settings.music_enabled:
-                music_path = self._get_random_music_file()
+                music_path = self._get_random_music_file(self.music_mood)
                 if music_path:
                     try:
                         music_clip = self._prepare_background_music(
@@ -1157,7 +1176,7 @@ class VideoEditor:
             voice_audio = talking_head_audio.with_volume_scaled(settings.voice_volume)
 
             if enable_music and settings.music_enabled:
-                music_path = self._get_random_music_file()
+                music_path = self._get_random_music_file(self.music_mood)
                 if music_path:
                     try:
                         music_clip = self._prepare_background_music(music_path, video_duration)
@@ -1249,7 +1268,7 @@ class VideoEditor:
             video_duration = video.duration
 
             # Get background music
-            music_path = self._get_random_music_file()
+            music_path = self._get_random_music_file(self.music_mood)
             if music_path:
                 try:
                     music_clip = self._prepare_background_music(music_path, video_duration)
