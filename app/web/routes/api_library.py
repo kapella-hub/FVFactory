@@ -16,7 +16,7 @@ async def list_videos():
     if not output_dir.exists():
         return {"videos": []}
 
-    for mp4 in sorted(output_dir.glob("*.mp4"), reverse=True):
+    for mp4 in sorted(output_dir.glob("*.mp4"), key=lambda f: f.stat().st_mtime, reverse=True):
         video_id = mp4.stem
         meta_path = output_dir / "metadata" / f"{video_id}.json"
         thumb_path = output_dir / "thumbnails" / f"{video_id}.png"
