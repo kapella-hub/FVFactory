@@ -145,6 +145,7 @@ class Settings(BaseSettings):
     # Video style and duration
     video_style: str = "photorealistic"     # "photorealistic" | "cartoon" | "illustration"
     video_duration: str = "medium"          # "short" (~30s, 5-7 scenes) | "medium" (~60s, 8-10) | "long" (~90s, 11-14)
+    cinematic_enabled: bool = True          # Use cinematic engine (depth parallax, multi-shot, etc.)
 
     # Data directory (scheduler DB, config.json)
     data_dir: str = "data"

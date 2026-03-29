@@ -634,6 +634,9 @@ class VideoEditor:
         enable_intro: bool = False,
         title: Optional[str] = None,
         scene_texts: Optional[List[str]] = None,
+        # V3 parameters
+        cinematic: bool = True,
+        video_style: str = "photorealistic",
     ) -> str:
         """
         Assemble a video from audio and images with Ken Burns effect, subtitles, and music.
@@ -661,6 +664,25 @@ class VideoEditor:
         for img_path in image_paths:
             if not Path(img_path).exists():
                 raise VideoEditorError(f"Image file not found: {img_path}")
+
+        # Use Cinematic Engine if enabled
+        if cinematic and settings.cinematic_enabled:
+            try:
+                from app.cinematic import CinematicEngine
+                engine = CinematicEngine(output_dir=str(self.output_dir))
+                return engine.render(
+                    audio_path=audio_path,
+                    image_paths=image_paths,
+                    output_filename=output_filename,
+                    scene_texts=scene_texts,
+                    subtitle_style=subtitle_style,
+                    video_style=video_style,
+                    title=title or "",
+                    enable_music=enable_music,
+                    music_mood=self.music_mood,
+                )
+            except Exception as e:
+                logger.warning("Cinematic engine failed, falling back to classic: %s", e)
 
         subtitle_clips = []
         music_clip = None

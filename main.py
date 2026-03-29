@@ -368,6 +368,9 @@ def run_pipeline(
                 enable_sfx=enable_sfx,
                 title=script.hook,
                 scene_texts=script.scene_texts if script.scene_texts else None,
+                # V3 params
+                cinematic=True,
+                video_style=video_style,
             )
 
         logger.info(f"Video rendered successfully: {output_path}")
@@ -490,6 +493,8 @@ def parse_args(argv=None):
                         help="Use all API models (original behavior)")
     parser.add_argument("--serve", action="store_true",
                         help="Start the FastAPI web server")
+    parser.add_argument("--classic", action="store_true",
+                        help="Use classic Ken Burns video assembly instead of cinematic engine")
 
     return parser.parse_args(argv)
 
@@ -642,6 +647,9 @@ def main():
         settings.provider_mode = "local"
     elif args.api:
         settings.provider_mode = "api"
+
+    if args.classic:
+        settings.cinematic_enabled = False
 
     # Web server mode
     if args.serve:
