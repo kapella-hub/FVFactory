@@ -55,8 +55,11 @@ class AssetManager:
         """
         Enhance an image prompt with consistent style keywords.
         Prevents style drift between scenes.
+        Only appends the default image_style for photorealistic mode —
+        non-photorealistic styles already have style keywords from the LLM.
         """
-        # Check if style keywords are already present (avoid duplication)
+        if settings.video_style != "photorealistic":
+            return prompt
         style = settings.image_style
         if style and style.lower() not in prompt.lower():
             return f"{prompt}, {style}"
