@@ -77,7 +77,16 @@ class MotionGenerator:
             args["duration"] = "5"
             args["aspect_ratio"] = "9:16"
 
-        result = fal_client.subscribe(endpoint, arguments=args)
+        def on_queue_update(update):
+            if isinstance(update, fal_client.InProgress):
+                logger.info(f"  Motion clip {index}: generating...")
+
+        result = fal_client.subscribe(
+            endpoint, arguments=args,
+            with_logs=True,
+            on_queue_update=on_queue_update,
+            timeout=600,  # 10 minute timeout per clip
+        )
 
         # Extract video URL
         video_url = result["video"]["url"]
