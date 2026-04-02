@@ -68,11 +68,19 @@ const SettingsPage = (() => {
           </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Motion Provider</label>
-          <select class="form-select" data-key="motion_provider">
-            ${['replicate_minimax', 'local_wan', 'none'].map(p => `<option value="${p}" ${config.motion_provider === p ? 'selected' : ''}>${p}</option>`).join('')}
-          </select>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Motion Provider</label>
+            <select class="form-select" data-key="motion_provider">
+              ${['fal', 'replicate', 'local'].map(p => `<option value="${p}" ${config.motion_provider === p ? 'selected' : ''}>${p === 'fal' ? 'fal.ai (recommended)' : p}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">fal.ai Video Model</label>
+            <select class="form-select" data-key="fal_video_model">
+              ${['hailuo', 'kling', 'kling-pro'].map(m => `<option value="${m}" ${config.fal_video_model === m ? 'selected' : ''}>${m === 'hailuo' ? 'Minimax Hailuo (best value)' : m === 'kling' ? 'Kling Standard' : 'Kling Pro'}</option>`).join('')}
+            </select>
+          </div>
         </div>
       `)}
 
@@ -144,6 +152,7 @@ const SettingsPage = (() => {
 
       <!-- API Keys -->
       ${accordion('API Keys', 'keys', false, `
+        ${keyStatus('fal.ai', config.has_fal_key)}
         ${keyStatus('OpenAI', config.has_openai_key)}
         ${keyStatus('ElevenLabs', config.has_elevenlabs_key)}
         ${keyStatus('Replicate', config.has_replicate_key)}

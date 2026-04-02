@@ -29,6 +29,8 @@ async def get_config():
         "llm_provider": settings.llm_provider,
         "image_provider": settings.image_provider,
         "motion_provider": settings.motion_provider,
+        "fal_video_model": settings.fal_video_model,
+        "has_fal_key": bool(settings.fal_api_key),
         "wan_model_size": settings.wan_model_size,
         "flux_local_model": settings.flux_local_model,
         "claude_cli_timeout": settings.claude_cli_timeout,

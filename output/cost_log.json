@@ -537,6 +537,64 @@
         }
       ],
       "total": 0.795
+    },
+    "A_Man_Faked_His_Own_Murder_Usi_20260329_081814": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 7,
+          "unit_cost": 0.03,
+          "cost": 0.21
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 7,
+          "unit_cost": 0.1,
+          "cost": 0.7
+        }
+      ],
+      "total": 0.925
+    },
+    "Your_Phone_Reports_Your_Locati_20260329_090114": {
+      "items": [
+        {
+          "item": "openai_gpt4o",
+          "quantity": 1,
+          "unit_cost": 0.005,
+          "cost": 0.005
+        },
+        {
+          "item": "elevenlabs_tts",
+          "quantity": 1,
+          "unit_cost": 0.01,
+          "cost": 0.01
+        },
+        {
+          "item": "flux_image",
+          "quantity": 9,
+          "unit_cost": 0.03,
+          "cost": 0.27
+        },
+        {
+          "item": "minimax_video",
+          "quantity": 9,
+          "unit_cost": 0.1,
+          "cost": 0.9
+        }
+      ],
+      "total": 1.185
     }
   }
 }

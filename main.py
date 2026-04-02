@@ -47,8 +47,11 @@ def validate_config() -> bool:
         if not settings.replicate_api_token:
             errors.append("REPLICATE_API_TOKEN is required when image_provider=replicate")
 
-    # Motion: only need Replicate key if using Replicate provider
-    if settings.motion_provider == "replicate" or settings.provider_mode == "api":
+    # Motion: check key for selected provider
+    if settings.motion_provider == "fal":
+        if not settings.fal_api_key:
+            errors.append("FAL_API_KEY is required when motion_provider=fal")
+    elif settings.motion_provider == "replicate":
         if not settings.replicate_api_token:
             errors.append("REPLICATE_API_TOKEN is required when motion_provider=replicate")
 
