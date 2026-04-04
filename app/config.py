@@ -130,16 +130,17 @@ class Settings(BaseSettings):
     # === V3 Settings: Provider Configuration ===
 
     # Provider mode: "local" (all local), "api" (all API), "mixed" (per-provider)
-    provider_mode: str = "local"
+    provider_mode: str = "api"
 
-    # Individual provider selection (used when provider_mode="mixed" or to override)
+    # Individual provider selection
     llm_provider: str = "claude_cli"        # "claude_cli" | "openai"
-    image_provider: str = "local"           # "local" | "replicate"
+    image_provider: str = "fal"             # "fal" | "local" | "replicate"
     motion_provider: str = "fal"            # "fal" | "replicate" | "local"
 
     # fal.ai settings
     fal_api_key: str = ""                   # fal.ai API key (or set FAL_KEY env var)
     fal_video_model: str = "hailuo"         # "hailuo" | "kling" | "kling-pro"
+    fal_image_model: str = "fal-ai/flux/schnell"  # fal.ai image generation endpoint
 
     # Local model settings
     wan_model_size: str = "enhanced"        # "enhanced" (CPU motion effects, no GPU needed)

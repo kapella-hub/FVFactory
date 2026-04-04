@@ -193,12 +193,12 @@ class AssetManager:
                 styled_prompt = self._enhance_prompt_with_style(prompt)
                 self._generate_mock_image(styled_prompt, output_path, i)
                 file_paths[i] = str(output_path)
-        elif settings.image_provider == "local" or (
-            settings.provider_mode == "local" and settings.image_provider != "replicate"
-        ):
+        elif settings.image_provider == "fal":
+            return self._generate_images_fal(prompts)
+        elif settings.image_provider == "local":
             return self._generate_images_local(prompts)
         else:
-            # Sequential generation with delay to respect rate limits
+            # Replicate: sequential generation with delay to respect rate limits
             import time
             for i, prompt in enumerate(prompts):
                 output_path = self.TEMP_DIR / f"image_{i}.png"
@@ -261,6 +261,44 @@ class AssetManager:
         draw.text((x, y), text, fill="white", font=font)
 
         img.save(output_path, "PNG")
+
+    def _generate_images_fal(self, prompts: list[str]) -> list[str]:
+        """Generate images using fal.ai FLUX API."""
+        import os
+        import fal_client
+
+        if settings.fal_api_key:
+            os.environ['FAL_KEY'] = settings.fal_api_key
+
+        endpoint = settings.fal_image_model
+        file_paths = []
+
+        for i, prompt in enumerate(prompts):
+            styled = self._enhance_prompt_with_style(prompt)
+            enhanced = (
+                f"{styled}. "
+                "Vertical composition suitable for TikTok/Shorts (9:16 aspect ratio). "
+                "High quality, consistent lighting."
+            )
+            logger.info(f"fal.ai image {i + 1}/{len(prompts)}: {enhanced[:80]}...")
+
+            result = fal_client.subscribe(endpoint, arguments={
+                "prompt": enhanced,
+                "image_size": {"width": self.IMAGE_WIDTH, "height": self.IMAGE_HEIGHT},
+                "num_images": 1,
+            })
+
+            # Download image
+            image_url = result["images"][0]["url"]
+            response = requests.get(image_url, timeout=60)
+            output_path = self.TEMP_DIR / f"image_{i}.png"
+            with open(output_path, "wb") as f:
+                f.write(response.content)
+
+            logger.info(f"Image {i + 1} saved: {output_path}")
+            file_paths.append(str(output_path))
+
+        return file_paths
 
     def _generate_images_local(self, prompts: list[str]) -> list[str]:
         """Generate images using local FLUX model."""

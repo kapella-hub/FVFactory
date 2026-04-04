@@ -42,8 +42,11 @@ def validate_config() -> bool:
         if not settings.openai_api_key:
             errors.append("OPENAI_API_KEY is required when llm_provider=openai")
 
-    # Image: only need Replicate key if using Replicate provider
-    if settings.image_provider == "replicate" or settings.provider_mode == "api":
+    # Image: check key for selected provider
+    if settings.image_provider == "fal":
+        if not settings.fal_api_key:
+            errors.append("FAL_API_KEY is required when image_provider=fal")
+    elif settings.image_provider == "replicate":
         if not settings.replicate_api_token:
             errors.append("REPLICATE_API_TOKEN is required when image_provider=replicate")
 

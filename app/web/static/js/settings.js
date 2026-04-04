@@ -63,7 +63,7 @@ const SettingsPage = (() => {
           <div class="form-group">
             <label class="form-label">Image Provider</label>
             <select class="form-select" data-key="image_provider">
-              ${['replicate_flux', 'local_flux', 'mock'].map(p => `<option value="${p}" ${config.image_provider === p ? 'selected' : ''}>${p}</option>`).join('')}
+              ${['fal', 'local', 'replicate'].map(p => `<option value="${p}" ${config.image_provider === p ? 'selected' : ''}>${p === 'fal' ? 'fal.ai FLUX (recommended)' : p === 'local' ? 'Local FLUX' : 'Replicate'}</option>`).join('')}
             </select>
           </div>
         </div>
