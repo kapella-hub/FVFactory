@@ -83,8 +83,11 @@ async def spa_fallback(path: str):
 
 
 def start_server(host: str = "0.0.0.0", port: int = 8000):
-    import webbrowser
-    webbrowser.open(f"http://localhost:{port}")
+    try:
+        import webbrowser
+        webbrowser.open(f"http://localhost:{port}")
+    except Exception:
+        pass  # headless server, no browser
     uvicorn.run(app, host=host, port=port, log_level="info")
 
 
