@@ -118,7 +118,7 @@ class Settings(BaseSettings):
     cost_openai_tts_per_1k_chars: float = 0.015
 
     # Trend Scout
-    reddit_subreddits: str = "todayilearned,technology,science,explainlikeimfive"
+    reddit_subreddits: str = "todayilearned,Damnthatsinteresting,interestingasfuck,space,technology,science,Futurology"
     trend_count: int = 5
 
     # YouTube
