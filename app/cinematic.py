@@ -48,6 +48,7 @@ class CinematicEngine:
         title: str = "",
         enable_music: bool = True,
         music_mood: str = "",
+        motion_clip_paths: list[str] = None,
     ) -> str:
         """Render a cinematic video. Returns path to output file."""
         logger.info("=== Cinematic Engine: Starting render ===")
@@ -85,6 +86,11 @@ class CinematicEngine:
                 "pan_up_zoom", "diagonal_drift", "push_in_rotate",
             ])
 
+            # Check if we have a motion clip for this scene
+            motion_clip = None
+            if motion_clip_paths and i < len(motion_clip_paths) and motion_clip_paths[i]:
+                motion_clip = motion_clip_paths[i]
+
             scene_data.append({
                 "image": img,
                 "big": big,
@@ -93,6 +99,7 @@ class CinematicEngine:
                 "duration": scene_durations[i],
                 "start": scene_start,
                 "motion_style": motion_style,
+                "motion_clip": motion_clip,
             })
 
         logger.info("Scene preparation complete for %d scenes", len(scene_data))
@@ -194,74 +201,67 @@ class CinematicEngine:
 
     def _render_scene(self, sd: dict, audio_info: dict,
                       particles: ParticleSystem) -> VideoClip:
-        """Render a scene with multi-shot cuts + smooth camera motion + particles.
+        """Render a scene. Uses motion clip if available, falls back to image animation."""
+        from moviepy import VideoFileClip
 
-        Each scene uses a single upscaled image. Within the scene, we cut between
-        different framings (wide, medium, close-up, detail) synced to audio emphasis.
-        Each framing has its own smooth camera motion (zoom/pan/rotate).
-        """
         duration = sd["duration"]
-        big = sd["big"]  # 1.4x upscaled for motion headroom
-        shots = sd["shots"]
-        cuts = sd["cuts"]
+        motion_clip = sd.get("motion_clip")
         scene_start = sd["start"]
+
+        # If we have a real motion clip from fal.ai, USE IT
+        if motion_clip and Path(motion_clip).exists():
+            logger.info("  Using motion clip: %s", Path(motion_clip).name)
+            raw = VideoFileClip(motion_clip)
+            raw = raw.resized((WIDTH, HEIGHT))
+
+            # Adjust speed to fill scene duration
+            if raw.duration and abs(raw.duration - duration) > 0.5:
+                speed = raw.duration / duration
+                clip = raw.with_speed_scaled(speed)
+            else:
+                clip = raw.with_duration(min(raw.duration, duration))
+
+            # Extend with freeze-frame if clip is shorter than scene
+            if clip.duration < duration:
+                gap = duration - clip.duration
+                last_frame = clip.get_frame(clip.duration - 0.04)
+                ext = ImageClip(last_frame).with_duration(gap).with_fps(FPS)
+                clip = concatenate_videoclips([clip, ext], method="compose")
+
+            clip = clip.with_duration(duration)
+
+            # Overlay particles on the motion clip
+            particles_sys = particles
+
+            def add_particles(get_frame, t):
+                frame = get_frame(t)
+                pf = particles_sys.render_frame(scene_start + t)
+                if pf.shape[2] == 4:
+                    alpha = pf[:, :, 3:4].astype(np.float32) / 255.0
+                    rgb = pf[:, :, :3].astype(np.float32)
+                    frame = (frame.astype(np.float32) * (1 - alpha) + rgb * alpha).astype(np.uint8)
+                return frame
+
+            return clip.transform(add_particles).with_fps(FPS)
+
+        # FALLBACK: No motion clip — use image animation
+        logger.info("  No motion clip, using image animation")
+        big = sd["big"]
+        big_h, big_w = big.shape[:2]
         motion_style = sd["motion_style"]
 
-        shot_map = {s["type"]: s["crop"] for s in shots}
-        big_h, big_w = big.shape[:2]
-
-        # Pre-upscale each shot crop for its own motion headroom
-        shot_big = {}
-        for s in shots:
-            scaled = np.array(Image.fromarray(s["crop"]).resize(
-                (int(WIDTH * 1.3), int(HEIGHT * 1.3)), Image.LANCZOS))
-            shot_big[s["type"]] = scaled
-
-        # Assign different motion styles to different shot types for variety
-        shot_motions = {}
-        motion_options = ["zoom_in_slow", "zoom_out_drift", "pan_left", "pan_right",
-                          "pan_up_zoom", "push_in_rotate"]
-        for i, s in enumerate(shots):
-            shot_motions[s["type"]] = motion_options[i % len(motion_options)]
-
-        # Wide shot always uses the scene's primary motion on the big image
-        shot_motions["wide"] = motion_style
-
         def make_frame(t):
-            # Determine active cut (which shot framing)
-            active_cut = cuts[0]
-            for cut in cuts:
-                if t >= cut["time"]:
-                    active_cut = cut
-
-            shot_type = active_cut["shot_type"]
-            cut_start = active_cut["time"]
-            cut_duration = max(active_cut["duration"], 0.01)
-            cut_progress = min((t - cut_start) / cut_duration, 1.0)
-
-            # Smooth ease
-            ease = 0.5 - 0.5 * math.cos(math.pi * cut_progress)
-
-            # Audio reactivity: subtle zoom punch on high energy
+            progress = t / max(duration, 0.01)
+            ease = 0.5 - 0.5 * math.cos(math.pi * progress)
             energy = self._get_energy_at(audio_info, scene_start + t)
-            zoom_punch = energy * 0.01  # very subtle — avoid jitter
+            zoom_punch = energy * 0.01
 
-            # Pick source and apply motion
-            if shot_type == "wide":
-                frame = self._apply_motion(big, big_w, big_h, ease,
-                                           shot_motions["wide"], zoom_punch)
-            else:
-                src = shot_big.get(shot_type, shot_big.get("wide", big))
-                sh, sw = src.shape[:2]
-                frame = self._apply_motion(src, sw, sh, ease,
-                                           shot_motions.get(shot_type, "zoom_in_slow"),
-                                           zoom_punch)
+            frame = self._apply_motion(big, big_w, big_h, ease, motion_style, zoom_punch)
 
-            # Overlay particles
-            particle_frame = particles.render_frame(scene_start + t)
-            if particle_frame.shape[2] == 4:
-                alpha = particle_frame[:, :, 3:4].astype(np.float32) / 255.0
-                rgb = particle_frame[:, :, :3].astype(np.float32)
+            pf = particles.render_frame(scene_start + t)
+            if pf.shape[2] == 4:
+                alpha = pf[:, :, 3:4].astype(np.float32) / 255.0
+                rgb = pf[:, :, :3].astype(np.float32)
                 frame = (frame.astype(np.float32) * (1 - alpha) + rgb * alpha).astype(np.uint8)
 
             return frame

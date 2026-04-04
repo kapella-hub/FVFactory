@@ -680,6 +680,7 @@ class VideoEditor:
                     title=title or "",
                     enable_music=enable_music,
                     music_mood=self.music_mood,
+                    motion_clip_paths=motion_clip_paths,
                 )
             except Exception as e:
                 logger.warning("Cinematic engine failed, falling back to classic: %s", e)
