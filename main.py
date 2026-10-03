@@ -367,6 +367,15 @@ def _log_costs(video_id: str, report: RunReport, narration: str, use_mock_images
     return total
 
 
+def _tag_job_dir(exc: BaseException, job_root) -> None:
+    """Callers (web UI, scheduler) find run_report.json of a failed run via exc.job_dir.
+    The exception type is unchanged; an exception that refuses attributes is left alone."""
+    try:
+        exc.job_dir = str(job_root)
+    except (AttributeError, TypeError):
+        pass
+
+
 def run_pipeline(
     topic: str,
     use_mock_images: bool = False,
@@ -481,9 +490,10 @@ def run_pipeline(
         report.status = "failed"
         report.error = f"{type(e).__name__}: {e}"
         logger.error(f"Pipeline failed: {e} (sources kept in {job.root}; fix and --rerender)")
+        _tag_job_dir(e, job.root)
         raise
     finally:
-        report.save(job.report)
+        report.save_quietly(job.report)
 
 
 def list_personas() -> list:

@@ -270,4 +270,4 @@ def rerender_job(job_dir, *, pacing: Optional[str] = None, subtitle_style: Optio
         report.error = f"{type(e).__name__}: {e}"
         raise
     finally:
-        report.save(job.report)
+        report.save_quietly(job.report)

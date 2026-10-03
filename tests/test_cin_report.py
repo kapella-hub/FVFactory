@@ -38,3 +38,39 @@ def test_load_ignores_unknown_keys(tmp_path):
     path = tmp_path / "run_report.json"
     path.write_text(json.dumps({"job": "j", "status": "ok", "future_field": 1}), encoding="utf-8")
     assert RunReport.load(path).status == "ok"
+
+
+def test_load_summary_of_a_saved_report(tmp_path):
+    from app.cin.report import load_summary
+    job = tmp_path / "20261003_1200_gold"
+    job.mkdir()
+    report = RunReport(job=job.name, status="ok")
+    report.warn("still_fallback", "scene 1 is a still", {"scene": 1})
+    report.loudness = {"I": -14.1, "TP": -1.2, "LRA": 5.0}
+    report.save(job / "run_report.json")
+    s = load_summary(job / "run_report.json")
+    assert s == {"job": job.name, "status": "ok", "error": None,
+                 "warnings": [{"code": "still_fallback", "message": "scene 1 is a still", "detail": {"scene": 1}}],
+                 "loudness": {"I": -14.1, "TP": -1.2, "LRA": 5.0}, "platform_safe": None}
+
+
+def test_load_summary_never_raises(tmp_path):
+    from app.cin.report import load_summary
+    job = tmp_path / "jobx"
+    job.mkdir()
+    missing = load_summary(job / "run_report.json")
+    assert missing["status"] == "unknown" and missing["warnings"] == [] and missing["job"] == "jobx"
+    for bad in (b"{not json", b"\xff\xfe\x00garbage", b"[1, 2]"):
+        (job / "run_report.json").write_bytes(bad)
+        s = load_summary(job / "run_report.json")
+        assert s["status"] == "unknown" and s["warnings"] == [] and s["error"]
+    (job / "run_report.json").write_text(json.dumps({"status": "ok", "warnings": ["oops", {"code": "x"}]}))
+    s = load_summary(job / "run_report.json")
+    assert s["warnings"] == [{"code": "x", "message": "", "detail": {}}] and s["job"] == "jobx"
+
+
+def test_save_quietly_logs_instead_of_raising(tmp_path, caplog):
+    report = RunReport(job="j")
+    assert report.save_quietly(tmp_path / "missing_dir" / "run_report.json") is False
+    assert "Could not write run report" in caplog.text
+    assert report.save_quietly(tmp_path / "run_report.json") is True

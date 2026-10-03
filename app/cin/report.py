@@ -1,5 +1,5 @@
 """run_report.json writer (spec §10). Phase A: warnings, loudness, platform check, cost, stage
-durations, clip counts. Phase D surfaces it through /api/generate."""
+durations, clip counts. load_summary() is the read side for /api/generate and the web library."""
 from __future__ import annotations
 
 import json
@@ -65,8 +65,46 @@ class RunReport:
         tmp.write_text(json.dumps(self.to_json(), indent=1), encoding="utf-8")
         os.replace(tmp, path)
 
+    def save_quietly(self, path) -> bool:
+        """save() for finally-blocks: a failed write is logged, never raised, so it cannot replace
+        the exception that is already propagating (or fail a finished render)."""
+        try:
+            self.save(path)
+            return True
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not write run report %s", path)
+            return False
+
     @classmethod
     def load(cls, path) -> "RunReport":
         d = json.loads(Path(path).read_text(encoding="utf-8"))
         known = {f for f in cls.__dataclass_fields__}
         return cls(**{k: v for k, v in d.items() if k in known})
+
+
+
+def load_summary(path) -> dict:
+    """UI-safe view of run_report.json for /api/generate and the library. Never raises: a missing
+    or unreadable report gives status "unknown" and no warnings, so a listing never fails on it."""
+    path = Path(path)
+    summary = {"job": path.parent.name, "status": "unknown", "error": None, "warnings": [],
+               "loudness": None, "platform_safe": None}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return summary
+    except (OSError, ValueError) as e:            # JSONDecodeError and UnicodeDecodeError are ValueErrors
+        logger.warning("Unreadable run report %s: %s", path, e)
+        return {**summary, "error": "run_report.json is unreadable"}
+    if not isinstance(data, dict):
+        return {**summary, "error": "run_report.json is not an object"}
+    warnings = []
+    for w in data.get("warnings") or []:
+        if isinstance(w, dict):
+            detail = w.get("detail")
+            warnings.append({"code": str(w.get("code", "")), "message": str(w.get("message", "")),
+                             "detail": detail if isinstance(detail, dict) else {}})
+    return {**summary, "job": str(data.get("job") or summary["job"]),
+            "status": str(data.get("status") or "unknown"), "error": data.get("error"),
+            "warnings": warnings, "loudness": data.get("loudness"),
+            "platform_safe": data.get("platform_safe")}

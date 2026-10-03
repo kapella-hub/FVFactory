@@ -111,3 +111,38 @@ def test_config_file_missing_corrupt_or_not_an_object_is_empty(tmp_path):
         assert load_config_file(p) == {}
     p.write_text('{"pacing": "fast"}', encoding="utf-8")
     assert load_config_file(p) == {"pacing": "fast"}
+
+
+def test_run_result_carries_report_warnings(tmp_path):
+    from app.cin.report import RunReport
+    from app.run_options import run_result
+    job = tmp_path / "20261003_1200_gold"
+    job.mkdir()
+    report = RunReport(job=job.name, status="ok")
+    report.warn("music_missing", "No music files", {"mood": "epic"})
+    report.save(job / "run_report.json")
+    out = run_result(job / "final.mp4")
+    assert out["video_id"] == job.name and out["path"] == str(job / "final.mp4")
+    assert out["status"] == "ok" and [w["code"] for w in out["warnings"]] == ["music_missing"]
+
+
+def test_run_result_without_report_still_has_video_id(tmp_path):
+    from app.run_options import run_result
+    out = run_result(tmp_path / "jobz" / "final.20261003_120000.mp4")      # locked-final fallback name
+    assert out["video_id"] == "jobz" and out["warnings"] == [] and out["status"] == "unknown"
+
+
+def test_run_failure_reads_the_failed_jobs_report(tmp_path):
+    from app.cin.report import RunReport
+    from app.run_options import run_failure
+    job = tmp_path / "jobf"
+    job.mkdir()
+    report = RunReport(job="jobf", status="failed", error="StrictModeError: strict mode")
+    report.warn("still_fallback", "scene 0 is a still", {})
+    report.save(job / "run_report.json")
+    err = RuntimeError("strict mode")
+    err.job_dir = str(job)
+    out = run_failure(err)
+    assert out["video_id"] == "jobf" and out["status"] == "failed"
+    assert [w["code"] for w in out["warnings"]] == ["still_fallback"]
+    assert run_failure(ValueError("no topics")) == {"video_id": None, "status": "failed", "warnings": []}

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Optional
 
 from app.cin.music_library import MUSIC_SOURCES
+from app.cin.report import load_summary
 from app.cin.shot_plan import PACING
 from app.config import settings
 
@@ -135,3 +136,21 @@ def load_config_file(path) -> dict:
         logger.warning("Ignoring unreadable %s: %s", path, e)
         return {}
     return data if isinstance(data, dict) else {}
+
+
+
+def run_result(final_path) -> dict:
+    """WebSocket 'complete' payload: library id of the job plus the run report summary
+    (spec §10: /api/generate returns the report's warnings with the result)."""
+    final = Path(final_path)
+    return {"video_id": final.parent.name, "path": str(final),
+            **load_summary(final.parent / "run_report.json")}
+
+
+def run_failure(exc: BaseException) -> dict:
+    """WebSocket 'error' payload extras. run_pipeline tags exceptions with job_dir (main.py);
+    errors raised before a job folder exists (topic discovery) carry no report."""
+    job_dir = getattr(exc, "job_dir", None)
+    if not job_dir:
+        return {"video_id": None, "status": "failed", "warnings": []}
+    return {"video_id": Path(job_dir).name, **load_summary(Path(job_dir) / "run_report.json")}

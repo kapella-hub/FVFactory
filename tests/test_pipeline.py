@@ -269,3 +269,28 @@ def test_music_source_defaults_to_settings_and_rejects_unknown(offline, monkeypa
     assert seen["src"] == "mine"
     with pytest.raises(ValueError):
         main.run_pipeline("Gold facts", use_mock_images=True, music_source="spotify")
+
+
+def test_failed_run_exposes_job_dir_without_changing_exception_type(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", _raise(RenderError("boom")))
+    with pytest.raises(RenderError) as info:
+        main.run_pipeline("Gold facts", use_mock_images=True)
+    job = only_job(offline.out)
+    assert info.value.job_dir == str(job)
+    assert report_of(job)["status"] == "failed"
+
+
+def test_report_write_failure_does_not_mask_the_pipeline_error(offline, monkeypatch):
+    from app.cin.report import RunReport
+    monkeypatch.setattr(main, "render_job", _raise(RenderError("render died")))
+    monkeypatch.setattr(RunReport, "save", _raise(OSError("disk full")))
+    with pytest.raises(RenderError, match="render died"):
+        main.run_pipeline("Gold facts", use_mock_images=True)
+
+
+def test_report_write_failure_does_not_fail_a_finished_run(offline, monkeypatch):
+    from app.cin.report import RunReport
+    monkeypatch.setattr(main, "render_job", fake_render)
+    monkeypatch.setattr(RunReport, "save", _raise(OSError("disk full")))
+    out = main.run_pipeline("Gold facts", use_mock_images=True)
+    assert out.endswith("final.mp4")

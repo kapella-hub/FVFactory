@@ -161,3 +161,18 @@ def test_rerender_moved_job_keeps_repo_relative_music(tmp_path, monkeypatch):
     shutil.copytree(job.root, moved)
     rerender_job(moved, pacing="fast")
     assert ShotPlan.load(open_job(moved).shot_plan).music["file"] == "assets/music/cinematic/rel.wav"
+
+
+def test_rerender_report_write_failure_does_not_mask_render_error(tmp_path, monkeypatch):
+    job, plan = saved_job(tmp_path)
+
+    def boom(*a, **k):
+        raise RuntimeError("render died")
+
+    def disk_full(self, path):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("app.cin.editor.render_job", boom)
+    monkeypatch.setattr(RunReport, "save", disk_full)
+    with pytest.raises(RuntimeError, match="render died"):
+        rerender_job(job.root, pacing="fast")
