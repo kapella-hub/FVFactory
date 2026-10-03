@@ -137,7 +137,7 @@ const SettingsPage = (() => {
           <div class="form-group">
             <label class="form-label">Default Quality Tier</label>
             <select class="form-select" data-key="quality_tier">
-              ${[['standard', 'Standard (Kling v3 Standard)'], ['premium', 'Premium (Kling v3 Pro)'], ['custom', 'Custom (fal.ai video model)']]
+              ${[['standard', 'Standard (MiniMax H3 Turbo)'], ['premium', 'Premium (Kling v3 Pro)'], ['custom', 'Custom (fal.ai video model)']]
                 .map(([t, label]) => `<option value="${t}" ${(config.quality_tier || 'standard') === t ? 'selected' : ''}>${label}</option>`).join('')}
             </select>
           </div>

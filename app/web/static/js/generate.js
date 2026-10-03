@@ -49,7 +49,7 @@ const GeneratePage = (() => {
   ];
   // Quality tiers (spec 2026-10-03 section 9): the motion model per video. "" = the Settings default.
   const TIERS = [
-    { id: 'standard', label: 'Standard (Kling v3 Standard)' },
+    { id: 'standard', label: 'Standard (MiniMax H3 Turbo)' },
     { id: 'premium',  label: 'Premium (Kling v3 Pro)' },
     { id: 'custom',   label: 'Custom (Settings model)' },
   ];

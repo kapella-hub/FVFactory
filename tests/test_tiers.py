@@ -8,12 +8,12 @@ from app.motion_gen import CLIP_MODELS
 
 def test_tier_table():
     assert QUALITY_TIERS == ("standard", "premium", "custom")
-    assert TIER_MODELS == {"standard": "kling", "premium": "kling-pro"}
+    assert TIER_MODELS == {"standard": "h3-turbo", "premium": "kling-pro"}
     assert all(CLIP_MODELS[key].endpoint for key in TIER_MODELS.values())
 
 
 @pytest.mark.parametrize("tier, custom, expected", [
-    ("standard", "hailuo", "kling"), ("premium", "hailuo", "kling-pro"),
+    ("standard", "hailuo", "h3-turbo"), ("premium", "hailuo", "kling-pro"), ("custom", "kling", "kling"),
     ("custom", "hailuo", "hailuo"), ("custom", "h3-turbo", "h3-turbo"), ("custom", "kling-pro", "kling-pro"),
 ])
 def test_fal_tiers_resolve(tier, custom, expected):

@@ -198,7 +198,7 @@ class Settings(BaseSettings):
     music_source: Literal["mine", "generated", "any", "none"] = "any"   # spec §8.1
 
     # === Quality tiers (spec 2026-10-03) ===
-    # standard = Kling v3 Standard, premium = Kling v3 Pro, custom = fal_video_model. Tiers change the
+    # standard = MiniMax H3 Max Turbo, premium = Kling v3 Pro, custom = fal_video_model. Tiers change the
     # motion model only; every shot stays motion footage.
     quality_tier: Literal["standard", "premium", "custom"] = "standard"
     # USD per video. A run whose estimate exceeds it stops before the next paid stage (never degrades

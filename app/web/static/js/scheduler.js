@@ -249,7 +249,7 @@ const SchedulerPage = (() => {
               <label class="form-label">Quality Tier</label>
               <select class="form-select" id="sched-tier">
                 <option value="">Default</option>
-                ${[['standard', 'Standard (Kling v3 Standard)'], ['premium', 'Premium (Kling v3 Pro)'], ['custom', 'Custom (Settings model)']].map(([t, label]) =>
+                ${[['standard', 'Standard (MiniMax H3 Turbo)'], ['premium', 'Premium (Kling v3 Pro)'], ['custom', 'Custom (Settings model)']].map(([t, label]) =>
                   `<option value="${t}" ${config.quality_tier === t ? 'selected' : ''}>${label}</option>`
                 ).join('')}
               </select>

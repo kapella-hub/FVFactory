@@ -476,8 +476,9 @@ def test_cap_equal_to_the_estimate_is_not_exceeded(offline, monkeypatch):
 
 
 def test_no_cap_run_logs_exactly_the_pre_clips_estimate(offline, monkeypatch):
-    """Standard tier (Kling v3): scene 0 2.32 s + 0.5 -> 3 s, scene 1 5.68 s + 0.5 -> 7 s = 10 s x $0.084.
-    OpenAI LLM with a failed revision = 2 calls; ElevenLabs TTS = 1 unit. Every clip succeeds."""
+    """Standard tier (MiniMax H3 Turbo, 5-15 s): scene 0 2.32 s + 0.5 = 2.82 -> 5 s (minimum), scene 1
+    5.68 s + 0.5 = 6.18 -> 7 s = 12 s x $0.04 = $0.48. OpenAI LLM with a failed revision = 2 calls x $0.005;
+    ElevenLabs TTS = 1 unit x $0.01; 2 images x $0.03. Every clip succeeds."""
     monkeypatch.setattr(settings, "quality_tier", "standard")
     monkeypatch.setattr(settings, "llm_provider", "openai")
     monkeypatch.setattr(settings, "elevenlabs_api_key", "x")
@@ -486,14 +487,14 @@ def test_no_cap_run_logs_exactly_the_pre_clips_estimate(offline, monkeypatch):
     monkeypatch.setattr(main, "render_job", fake_render)
     main.run_pipeline("Gold facts")
     rep = report_of(only_job(offline.out))
-    assert rep["status"] == "ok" and sorted(calls) == [("kling", 3.0), ("kling", 7.0)]
+    assert rep["status"] == "ok" and sorted(calls) == [("h3-turbo", 5.0), ("h3-turbo", 7.0)]
     est = rep["cost"]["estimated"]
     assert set(est) == {"pre_tts", "pre_clips"} and rep["cost"]["cap"] == 0.0
-    assert est["pre_clips"] == {"stage": "pre_clips", "clips": 0.84, "images": 0.06, "tts": 0.01, "llm": 0.01,
-                                "spent": 0.08, "total": 0.92, "model": "kling", "clip_seconds": 10.0}
-    assert round(est["pre_clips"]["spent"] + est["pre_clips"]["clips"], 4) == rep["cost"]["total"] == 0.92
+    assert est["pre_clips"] == {"stage": "pre_clips", "clips": 0.48, "images": 0.06, "tts": 0.01, "llm": 0.01,
+                                "spent": 0.08, "total": 0.56, "model": "h3-turbo", "clip_seconds": 12.0}
+    assert round(est["pre_clips"]["spent"] + est["pre_clips"]["clips"], 4) == rep["cost"]["total"] == 0.56
     assert [i["item"] for i in rep["cost"]["actual"]].count("openai_gpt4o") == 2
-    assert rep["options"]["quality_tier"] == "standard" and rep["options"]["clip_model"] == "kling"
+    assert rep["options"]["quality_tier"] == "standard" and rep["options"]["clip_model"] == "h3-turbo"
     assert rep["options"]["max_cost"] == 0.0
 
 
@@ -651,7 +652,8 @@ def test_render_failure_still_logs_the_generated_clips(offline, monkeypatch):
         main.run_pipeline("Gold facts")
     rep = report_of(only_job(offline.out))
     clips = sorted((i["item"], i["seconds"]) for i in rep["cost"]["actual"] if i["item"].startswith("clip:"))
-    assert clips == [("clip:kling", 3.0), ("clip:kling", 7.0)] and rep["cost"]["total"] == 0.9
+    # H3 Turbo 5 s + 7 s = $0.48 + 2 images $0.06 (claude_cli $0, no TTS key) = $0.54
+    assert clips == [("clip:h3-turbo", 5.0), ("clip:h3-turbo", 7.0)] and rep["cost"]["total"] == 0.54
 
 
 def test_classic_assemble_failure_still_logs_the_generated_clips(offline, monkeypatch):

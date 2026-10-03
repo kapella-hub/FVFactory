@@ -33,7 +33,9 @@ _H3_ARGS = (("resolution", "768P"), ("prompt_expansion_mode", "balanced"))
 CLASSIC_CLIP_SECONDS = 5.0     # the classic editor's clip length (old Kling minimum); see main._log_costs
 
 # fal list prices live in settings.clip_pricing (checked 2026-10-03). Kling v1/v1.5 are dead on
-# fal; the "kling" / "kling-pro" keys now name Kling v3 so saved configs stay valid.
+# fal; the "kling" / "kling-pro" keys now name Kling v3 so saved configs stay valid. H3 Max Turbo was
+# verified live on 2026-10-03 (768x1344 portrait from a 9:16 image, 24 fps, 5.17 s for duration 5) and
+# is the standard tier's model (app/cin/tiers.py); Kling v3 Standard returns 724x1268.
 CLIP_MODELS = {
     "kling": ClipModel("kling", "fal-ai/kling-video/v3/standard/image-to-video", KLING_V3_LENGTHS,
                        "int_str", "start_image_url", _KLING_ARGS, "Kling v3 Standard"),
@@ -41,9 +43,9 @@ CLIP_MODELS = {
                            "int_str", "start_image_url", _KLING_ARGS, "Kling v3 Pro"),
     "hailuo": ClipModel("hailuo", "fal-ai/minimax-video/image-to-video", (6.0,), label="Minimax video-01"),
     "h3-turbo": ClipModel("h3-turbo", "minimax/h3-max-turbo/image-to-video", H3_LENGTHS, "number",
-                          extra_args=_H3_ARGS, label="MiniMax H3 Max Turbo (unverified 9:16)"),
+                          extra_args=_H3_ARGS, label="MiniMax H3 Max Turbo (768x1344)"),
     "h3": ClipModel("h3", "minimax/h3-max/image-to-video", H3_LENGTHS, "number",
-                    extra_args=_H3_ARGS, label="MiniMax H3 Max (unverified 9:16)"),
+                    extra_args=_H3_ARGS, label="MiniMax H3 Max (768x1344)"),
     "replicate-minimax": ClipModel("replicate-minimax", None, (6.0,), label="Replicate Minimax"),
     "local": ClipModel("local", None, None, label="Local (free)"),
 }

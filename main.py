@@ -689,7 +689,7 @@ def parse_args(argv=None):
     parser.add_argument("--strict", action=argparse.BooleanOptionalAction, default=None,
                         help="Fail the run instead of shipping a still when a motion clip fails")
     parser.add_argument("--tier", choices=list(QUALITY_TIERS), default=None,
-                        help="Motion quality: standard (Kling v3 Standard), premium (Kling v3 Pro) or "
+                        help="Motion quality: standard (MiniMax H3 Turbo), premium (Kling v3 Pro) or "
                              "custom (settings.fal_video_model) (default: settings.quality_tier)")
     parser.add_argument("--max-cost", type=_max_cost_arg, default=None, metavar="USD",
                         help="Stop the run before the next paid stage when its cost estimate exceeds "

@@ -128,10 +128,14 @@ def test_cap_rule(total, cap, over):
 
 
 def test_tier_estimates_per_duration_preset():
-    est = tier_estimates(custom_model="h3-turbo")
-    assert est["standard"] == {"model": "kling", "short": 2.94, "medium": 4.2, "long": 6.048}
+    """Word-budget target over the middle scene count, + 0.5 s handle, snapped up:
+    short 66 w / 2.2 / 7 = 4.29 s -> 4.79 -> 5 s x 7; medium 99 / 2.2 / 10 = 4.5 -> 5.0 -> 5 s x 10;
+    long 132 / 2.2 / 12 = 5.0 -> 5.5 -> 6 s x 12. H3 Turbo $0.04/s (5 s minimum), Kling v3 $0.084/s,
+    Kling v3 Pro $0.112/s."""
+    est = tier_estimates(custom_model="kling")
+    assert est["standard"] == {"model": "h3-turbo", "short": 1.4, "medium": 2.0, "long": 2.88}
     assert est["premium"] == {"model": "kling-pro", "short": 3.92, "medium": 5.6, "long": 8.064}
-    assert est["custom"]["model"] == "h3-turbo" and est["custom"]["medium"] == 2.0
+    assert est["custom"] == {"model": "kling", "short": 2.94, "medium": 4.2, "long": 6.048}
 
 
 @pytest.mark.parametrize("custom", [None, "", "sora", "local"])
@@ -144,15 +148,17 @@ def test_clip_model_options_are_the_fal_models_with_prices():
     assert [o["key"] for o in opts] == ["kling", "kling-pro", "hailuo", "h3-turbo", "h3"]
     by_key = {o["key"]: o for o in opts}
     assert by_key["kling"] == {"key": "kling", "label": "Kling v3 Standard", "price_text": "$0.084/s"}
+    assert by_key["h3-turbo"]["label"] == "MiniMax H3 Max Turbo (768x1344)"
+    assert by_key["h3"]["label"] == "MiniMax H3 Max (768x1344)"
     assert by_key["hailuo"]["price_text"] == "$0.50/clip"
     assert by_key["h3-turbo"]["price_text"] == "$0.04/s"
 
 
 def test_tier_estimates_missing_price_is_none_not_an_error():
-    pricing = {k: v for k, v in settings.clip_pricing.items() if k != "kling"}
-    est = tier_estimates(custom_model="h3-turbo", pricing=pricing)
+    pricing = {k: v for k, v in settings.clip_pricing.items() if k != "h3-turbo"}
+    est = tier_estimates(custom_model="kling", pricing=pricing)
     assert est["standard"] is None
-    assert est["premium"]["model"] == "kling-pro" and est["custom"]["model"] == "h3-turbo"
+    assert est["premium"]["model"] == "kling-pro" and est["custom"]["model"] == "kling"
 
 
 def test_classic_estimate_is_one_clip_per_image_at_five_seconds():

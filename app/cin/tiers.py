@@ -8,7 +8,9 @@ from __future__ import annotations
 from app.motion_gen import CLIP_MODELS, ClipModel, clip_model_for
 
 QUALITY_TIERS = ("standard", "premium", "custom")
-TIER_MODELS = {"standard": "kling", "premium": "kling-pro"}
+# standard: MiniMax H3 Max Turbo ($0.04/s, 768x1344, strong subject motion; verified live 2026-10-03).
+# It replaced Kling v3 Standard ($0.084/s, 724x1268), which cost twice as much for weaker motion.
+TIER_MODELS = {"standard": "h3-turbo", "premium": "kling-pro"}
 
 
 def fal_model_keys() -> list:
