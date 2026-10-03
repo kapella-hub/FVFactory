@@ -470,7 +470,7 @@ def test_config_api_exposes_the_llm_settings(llm_settings, monkeypatch, tmp_path
 
 
 def test_settings_js_offers_the_three_providers_and_the_fallback_input():
-    js = Path("app/web/static/js/settings.js").read_text(encoding="utf-8")
+    js = (Path(__file__).parents[1] / "app/web/static/js/settings.js").read_text(encoding="utf-8")
     assert "'ollama'" not in js
     for key in ("'claude_cli', 'Claude Code (headless)'", "'codex', 'Codex CLI (headless)'",
                 "'openai', 'OpenAI API'", 'data-key="llm_fallback"'):

@@ -14,7 +14,7 @@ services:
       - ./.env:/workspace/.env:ro
       # Optional: Codex ChatGPT-plan login. Run `codex login` on the host first (or set CODEX_API_KEY in
       # .env instead); read-write because Codex refreshes its token in ~/.codex/auth.json.
-      - ${HOME}/.codex:/root/.codex
+      - ${HOME:-/root}/.codex:/root/.codex
     environment:
       - PYTHONUNBUFFERED=1
     command: ["streamlit", "run", "app/library.py", "--server.port=8501", "--server.address=0.0.0.0", "--server.headless=true"]
@@ -27,7 +27,7 @@ services:
     volumes:
       - ./output:/workspace/output
       - ./.env:/workspace/.env:ro
-      - ${HOME}/.codex:/root/.codex  # optional Codex login, see the library service
+      - ${HOME:-/root}/.codex:/root/.codex  # optional Codex login, see the library service
     environment:
       - PYTHONUNBUFFERED=1
     profiles:
