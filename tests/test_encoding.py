@@ -34,12 +34,22 @@ def test_measure_loudness_tone_and_silence(tmp_path):
     assert measure_loudness(make_silence(tmp_path / "s.wav", 3.0)) is None
 
 
+def _peaky_wav(path, seconds):
+    """Quiet tone plus loud 0.5 ms bursts: high crest factor, so the true-peak limit binds
+    (measured -0.93 dBTP after AAC when loudnorm targets TP=-1)."""
+    import subprocess
+    expr = "0.08*sin(2*PI*220*t)+0.95*lt(mod(t,0.5),0.0005)*sin(2*PI*2000*t)"
+    subprocess.run([find_ffmpeg(), "-v", "error", "-y", "-f", "lavfi",
+                    "-i", f"aevalsrc='{expr}':s=48000:d={seconds}", "-ac", "2", str(path)], check=True)
+    return Path(path)
+
+
 def test_write_video_then_mux_hits_targets(tmp_path):
     from moviepy import VideoClip
     clip = VideoClip(lambda t: np.full((192, 108, 3), int(t * 30) % 255, np.uint8), duration=8.0)
     video = tmp_path / "video.mp4"
     write_video(clip, video)
-    wav = make_tone(tmp_path / "mix.wav", 8.0)
+    wav = _peaky_wav(tmp_path / "mix.wav", 8.0)
     out = tmp_path / "final.mp4"
     mux_final(video, wav, out, measure_loudness(wav))
 
@@ -66,3 +76,17 @@ def test_platform_check_flags_wrong_resolution(tmp_path):
     ok, issues = is_platform_safe(make_test_clip(tmp_path / "c.mp4", 1.0))
     assert ok is False
     assert "Resolution 108x192 should be 1080x1920" in issues
+
+
+def test_platform_check_flags_true_peak_over_ceiling(tmp_path, monkeypatch):
+    import app.encoding as enc
+    video = make_test_clip(tmp_path / "v.mp4", 1.0, size="1080x1920")
+    monkeypatch.setattr(enc, "probe_video", lambda p: {
+        "video_codec": "h264", "pixel_format": "yuv420p", "has_audio": True, "audio_codec": "aac",
+        "width": 1080, "height": 1920, "fps": 30.0})
+    monkeypatch.setattr(enc, "faststart_ok", lambda p: True)
+    monkeypatch.setattr(enc, "measure_loudness", lambda p: {"input_tp": -0.75})
+    ok, issues = enc.is_platform_safe(video)
+    assert not ok and any("true peak" in i.lower() for i in issues)
+    monkeypatch.setattr(enc, "measure_loudness", lambda p: {"input_tp": -1.2})
+    assert enc.is_platform_safe(video)[0]

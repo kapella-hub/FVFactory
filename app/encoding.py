@@ -22,7 +22,10 @@ X264_PRESET = "slow"
 # spec §9.1 step 1 (the preset is passed separately because MoviePy always adds -preset)
 X264_PARAMS = ["-crf", "18", "-profile:v", "high", "-pix_fmt", "yuv420p",
                "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709"]
-LOUDNORM = "I=-14:TP=-1:LRA=11"
+# Spec ceiling is -1 dBTP on the delivered file. AAC encoding overshoots the WAV peak by ~0.25 dB,
+# so the filter targets -1.5 to land the measured post-AAC true peak at <= -1.0.
+TRUE_PEAK_CEILING = -1.0
+LOUDNORM = "I=-14:TP=-1.5:LRA=11"
 # MoviePy's x264 output only carries colorspace; tag primaries/transfer on the copy-mux.
 COLOR_BSF = "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1"
 _LOUDNORM_JSON = re.compile(r"\{[^{}]*\"input_i\"[^{}]*\}", re.S)
@@ -130,6 +133,9 @@ def is_platform_safe(video_path) -> tuple:
         issues.append(f"FPS {stats['fps']} should be between 24-60")
     if not faststart_ok(video_path):
         issues.append("moov atom is not at the front (missing +faststart)")
+    loud = measure_loudness(video_path) if stats["has_audio"] else None
+    if loud and loud["input_tp"] > TRUE_PEAK_CEILING:
+        issues.append(f"True peak {loud['input_tp']:.2f} dBTP exceeds {TRUE_PEAK_CEILING} dBTP ceiling")
     return len(issues) == 0, issues
 
 
