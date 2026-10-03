@@ -72,6 +72,7 @@ def generate_segment_clips(requests: list, image_paths: list, motion_prompts: li
     def run_scene(scene_reqs: list) -> list:
         specs, prev_last = [], None
         for req in sorted(scene_reqs, key=lambda r: r.index):
+            start = None
             try:
                 start = prev_last if (req.chained and prev_last) else image_paths[req.scene]
                 spec = ClipSpec(req.scene, req.index, req.t0, req.t1, req.requested_len, job.rel(start))
@@ -100,8 +101,12 @@ def generate_segment_clips(requests: list, image_paths: list, motion_prompts: li
             except Exception as e:  # noqa: BLE001 - one bad segment must not sink the other scenes
                 logger.error("Clip segment %s failed unexpectedly: %s", req.name, e)
                 prev_last = None
-                spec = ClipSpec(req.scene, req.index, req.t0, req.t1, req.requested_len, "",
-                                failed=True)
+                try:   # the still fallback needs a real image; never let this lookup re-raise
+                    fallback_image = job.rel(start if start is not None else image_paths[req.scene])
+                except Exception:  # noqa: BLE001
+                    fallback_image = ""
+                spec = ClipSpec(req.scene, req.index, req.t0, req.t1, req.requested_len,
+                                fallback_image, failed=True)
             specs.append(spec)
         return specs
 

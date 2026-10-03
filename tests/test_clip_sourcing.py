@@ -128,5 +128,13 @@ def test_raising_generator_degrades_to_failed_spec_not_crash(tmp_path):
     specs, report = run(job, segs, images, Raising())
     assert len(specs) == 3
     assert specs[0].failed and specs[0].path is None
+    assert specs[0].start_image == "sources/images/scene00.png"
     assert specs[1].path and not specs[1].failed
     assert report.clips["failed"] == 1 and report.clips["generated"] == 2
+
+
+def test_failed_spec_survives_missing_image_lookup(tmp_path):
+    job, _, segs, images = gold_job(tmp_path)
+    specs, _ = run(job, segs, images[:1], FakeGenerator())   # scene 1 has no image -> IndexError
+    assert len(specs) == 3 and specs[0].path
+    assert specs[1].failed and specs[1].start_image == ""
