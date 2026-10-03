@@ -111,12 +111,16 @@ def test_env_example_documents_shot_editor_settings():
     for name in ("PACING", "STRICT", "MUSIC_SOURCE", "ELEVENLABS_MUSIC_MODEL",
                  "COST_ELEVENLABS_MUSIC_PER_MINUTE", "COST_ELEVENLABS_SFX_PER_MINUTE",
                  "LLM_PROVIDER", "LLM_FALLBACK", "CLAUDE_CLI_MODEL", "CODEX_MODEL", "OPENAI_MODEL",
-                 "CODEX_CLI_TIMEOUT"):
+                 "CODEX_CLI_TIMEOUT", "CODEX_REASONING_EFFORT", "CLAUDE_CODE_OAUTH_TOKEN", "CODEX_API_KEY",
+                 "CORS_ORIGINS"):
         assert name in keys, name
-    cli_auth = {"CLAUDE_CODE_OAUTH_TOKEN", "CODEX_API_KEY"}     # read by the claude / codex CLIs, not Settings
-    assert cli_auth <= keys
-    assert all(k.lower() in Settings.model_fields for k in keys - cli_auth), sorted(
-        k for k in keys - cli_auth if k.lower() not in Settings.model_fields)
+    assert all(k.lower() in Settings.model_fields for k in keys), sorted(
+        k for k in keys if k.lower() not in Settings.model_fields)
+
+
+def test_cli_auth_and_cors_settings_default_blank():
+    s = make()
+    assert s.claude_code_oauth_token == "" and s.codex_api_key == "" and s.cors_origins == ""
 
 
 

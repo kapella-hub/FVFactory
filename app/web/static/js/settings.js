@@ -65,7 +65,7 @@ const SettingsPage = (() => {
           <div class="form-group">
             <label class="form-label">LLM Fallback (comma list, tried in order)</label>
             <input class="form-input mono" data-key="llm_fallback" type="text"
-                   value="${escapeHtml(config.llm_fallback ?? 'codex,openai')}" placeholder="codex,openai (none = no fallback)">
+                   value="${escapeHtml(config.llm_fallback ?? 'codex,openai')}" placeholder="blank or none = no fallback">
             <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1)">Names: claude_cli, codex, openai. Used when the provider above fails.</div>
           </div>
         </div>

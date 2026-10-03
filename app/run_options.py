@@ -10,7 +10,7 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Any, Mapping, Optional, Union
+from typing import Annotated, Any, Mapping, Optional, Union
 
 from pydantic import StrictFloat, StrictInt, TypeAdapter, ValidationError
 
@@ -29,6 +29,10 @@ MaxCostInput = Optional[Union[StrictFloat, StrictInt, str]]
 PACING_CHOICES = tuple(PACING)                 # ("calm", "standard", "fast"), spec §6.1 order
 MUSIC_SOURCE_CHOICES = tuple(MUSIC_SOURCES)    # ("mine", "generated", "any", "none"), spec §8.1
 TIER_CHOICES = QUALITY_TIERS                   # ("standard", "premium", "custom"), spec 2026-10-03 §4
+
+# Settings that only .env may set: secrets for the CLI children and the web UI's own CORS policy (a
+# web-settable CORS policy would let any page widen it). PUT /api/config and config.json refuse them.
+ENV_ONLY_SETTINGS = frozenset({"cors_origins", "claude_code_oauth_token", "codex_api_key"})
 
 _TRUE = {"true", "1", "yes", "on"}
 _FALSE = {"false", "0", "no", "off"}
@@ -130,7 +134,7 @@ def clean_settings_updates(updates: Mapping[str, Any]) -> dict:
         if _blank(cleaned["quality_tier"]):
             raise OptionError(f"quality_tier must be one of {', '.join(TIER_CHOICES)}")
         cleaned["quality_tier"] = _choice("quality_tier", cleaned["quality_tier"], TIER_CHOICES)
-    if "max_cost_per_video" in cleaned:      # Field(ge=0) is not seen by validate_settings_updates
+    if "max_cost_per_video" in cleaned:      # blank / text forms; validate_settings_updates checks ge=0 too
         if _blank(cleaned["max_cost_per_video"]):
             raise OptionError("max_cost_per_video must be a number of USD >= 0 (0 = no cap)")
         cleaned["max_cost_per_video"] = to_max_cost("max_cost_per_video", cleaned["max_cost_per_video"], None)
@@ -149,8 +153,13 @@ def validate_settings_updates(target, updates: Mapping[str, Any]) -> tuple:
         if field is None:
             errors[key] = "unknown setting"
             continue
+        if key in ENV_ONLY_SETTINGS:
+            errors[key] = "can only be set in .env"
+            continue
+        # field.annotation alone drops Annotated / Field constraints (patterns, ge=...): re-attach them
+        annotation = Annotated[(field.annotation, *field.metadata)] if field.metadata else field.annotation
         try:
-            valid[key] = TypeAdapter(field.annotation).validate_python(value)
+            valid[key] = TypeAdapter(annotation).validate_python(value)
         except ValidationError as e:
             errors[key] = e.errors()[0]["msg"]
     return valid, errors

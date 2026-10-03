@@ -1,7 +1,12 @@
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, StringConstraints
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Model names travel on a CLI's argv; on Windows the npm `codex` shim is a .cmd that cmd.exe parses, so
+# a name may only use characters cmd.exe treats literally (no & | < > ^ % " ! ( ) or whitespace).
+ModelName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]*$")]      # "" allowed
+RequiredModelName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]+$")]
 
 
 class Settings(BaseSettings):
@@ -154,13 +159,17 @@ class Settings(BaseSettings):
     # logins, $0 in the cost log); openai is the paid API.
     llm_provider: Literal["claude_cli", "codex", "openai"] = "claude_cli"
     llm_fallback: str = "codex,openai"
-    claude_cli_model: str = "sonnet"        # claude -p --model
-    codex_model: str = "gpt-5.5"            # codex exec -m; "" = the Codex CLI default (from ~/.codex/config.toml,
+    claude_cli_model: ModelName = "sonnet"  # claude -p --model; "" = the Claude CLI default
+    codex_model: ModelName = "gpt-5.5"      # codex exec -m; "" = the Codex CLI default (from ~/.codex/config.toml,
                                             # which may name a model a ChatGPT login cannot use)
-    codex_reasoning_effort: str = "medium"  # -c model_reasoning_effort; "" = the Codex config value
-                                            # (gpt-5.5 accepts none|low|medium|high|xhigh, not "max")
-    openai_model: str = "gpt-5.4-mini-2026-03-17"
+    # -c model_reasoning_effort; "" = the Codex config value (gpt-5.5 rejects the "max" some configs set)
+    codex_reasoning_effort: Literal["", "none", "low", "medium", "high", "xhigh"] = "medium"
+    openai_model: RequiredModelName = "gpt-5.4-mini-2026-03-17"
     codex_cli_timeout: int = 300            # seconds
+    # CLI auth, passed only to its own CLI's environment (every CLI child gets ANTHROPIC_API_KEY,
+    # OPENAI_API_KEY, CODEX_API_KEY and CLAUDE_CODE_OAUTH_TOKEN stripped first). .env only, never the web UI.
+    claude_code_oauth_token: str = ""       # `claude setup-token`: bills the Claude subscription
+    codex_api_key: str = ""                 # Codex API-key auth (else the `codex login` in ~/.codex)
     image_provider: str = "fal"             # "fal" | "local" | "replicate"
     motion_provider: str = "fal"            # "fal" | "replicate" | "local"
 
@@ -203,6 +212,10 @@ class Settings(BaseSettings):
 
     # Data directory (scheduler DB, config.json)
     data_dir: str = "data"
+
+    # Web UI: comma list of extra origins allowed to call the API cross-origin. "" = no CORS headers at
+    # all (the bundled UI is same-origin). .env only, never the web UI.
+    cors_origins: str = ""
 
     # Local provider cost tracking (compute time in seconds)
     cost_local_image: float = 0.0

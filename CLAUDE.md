@@ -120,5 +120,10 @@ Copy `.env.example` to `.env` and add your API keys.
 **Script LLM** (`app/llm.py`): `LLM_PROVIDER` = `claude_cli` (Claude Code headless, default) | `codex` (Codex CLI
 headless) | `openai` (paid API). `LLM_FALLBACK` (default `codex,openai`; `none` = off) is tried in order when it
 fails. Models: `CLAUDE_CLI_MODEL`, `CODEX_MODEL`, `OPENAI_MODEL`. The provider that answered is recorded at
-`run_report.json` `script.llm_provider` and picks the LLM cost-log item. The Docker image installs both CLIs; auth
-via `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) and `codex login` (mounted `~/.codex`) or `CODEX_API_KEY`.
+`run_report.json` `script.llm_provider` and picks the LLM cost-log item. A provider that fails, or answers with empty
+or invalid JSON, falls through to the next. The Docker image installs both CLIs; auth via `CLAUDE_CODE_OAUTH_TOKEN`
+(`claude setup-token`) and `codex login` (mounted `~/.codex`) or `CODEX_API_KEY`, all in `.env` (no compose
+`env_file`). The CLIs never inherit `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `CODEX_API_KEY` /
+`CLAUDE_CODE_OAUTH_TOKEN` from the environment; each gets only its own setting. Model names are restricted to
+`[A-Za-z0-9._:-]` (the Windows `codex.cmd` shim runs through cmd.exe). Web UI CORS is off unless `CORS_ORIGINS`
+lists origins; `CORS_ORIGINS` and the two CLI tokens cannot be set from the Settings page.

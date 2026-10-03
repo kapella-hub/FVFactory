@@ -12,7 +12,9 @@ settings.llm_fallback, in order. last_provider() tells the calling thread which 
 
 import json
 import logging
+import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import threading
@@ -32,6 +34,73 @@ def _cli(name: str) -> str:
     """Full path of a CLI. On Windows npm installs `codex` as codex.cmd, which CreateProcess does not
     find from the bare name; shutil.which resolves it. Unresolved = the bare name (FileNotFoundError)."""
     return shutil.which(name) or name
+
+
+# Auth variables no CLI child inherits. MoviePy's load_dotenv copies .env into os.environ, so without
+# this an ANTHROPIC_API_KEY / OPENAI_API_KEY in .env would silently switch a CLI to API billing.
+_CLI_AUTH_VARS = frozenset({"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"})
+
+
+def _child_env(**auth: str) -> dict:
+    """os.environ without _CLI_AUTH_VARS, plus the non-empty `auth` values (this CLI's own login)."""
+    env = {k: v for k, v in os.environ.items() if k.upper() not in _CLI_AUTH_VARS}
+    env.update({k: v for k, v in auth.items() if v})
+    return env
+
+
+# Python hands a .cmd/.bat argv to cmd.exe without escaping its metacharacters (BatBadBut), so any of
+# these in an argument could run a command. Settings patterns already exclude them; this is the backstop.
+_CMD_UNSAFE = frozenset('&|<>^%"!()\r\n')
+_KILL_GRACE = 5      # seconds to drain the pipes after killing a timed-out process tree
+
+
+def _check_shim_args(cmd: list) -> None:
+    if Path(cmd[0]).suffix.lower() not in (".cmd", ".bat"):
+        return
+    for arg in cmd[1:]:
+        if _CMD_UNSAFE.intersection(arg):
+            raise RuntimeError(f"Refusing unsafe argument {arg!r} for {Path(cmd[0]).name} "
+                               "(cmd.exe would interpret it)")
+
+
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill a process and every descendant (a .cmd shim's node/codex grandchildren, the npm wrapper's
+    native binary on Linux). Best effort: the process may already be gone."""
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=_KILL_GRACE)
+        else:
+            os.killpg(proc.pid, signal.SIGKILL)       # start_new_session=True: its own process group
+    except (OSError, subprocess.SubprocessError):
+        pass
+    try:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _run(cmd: list, *, input: str, timeout: float, cwd: str, env: dict) -> subprocess.CompletedProcess:
+    """Run a CLI with `input` on stdin (UTF-8 text). On timeout the whole process tree is killed before
+    TimeoutExpired is re-raised: subprocess.run kills only the direct child, and on Windows then waits
+    for the grandchildren of a .cmd shim to close the pipes (the timeout was not enforced)."""
+    _check_shim_args(cmd)
+    group = {} if os.name == "nt" else {"start_new_session": True}
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, encoding="utf-8", errors="replace", cwd=cwd, env=env, **group)
+    try:
+        stdout, stderr = proc.communicate(input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_tree(proc)
+        try:
+            proc.communicate(timeout=_KILL_GRACE)
+        except (subprocess.TimeoutExpired, OSError, ValueError):
+            pass
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    except BaseException:
+        _kill_tree(proc)
+        raise
+    return subprocess.CompletedProcess(cmd, proc.returncode, stdout, stderr)
 
 
 def _full_prompt(prompt: str, system: Optional[str], json_mode: bool) -> str:
@@ -67,24 +136,19 @@ class ClaudeCLIProvider:
         """
         # Run from an empty temp dir with no MCP servers: the repo's CLAUDE.md, project hooks and the
         # user's MCP servers would otherwise load into every call (slow, and ~$0.5 of context each).
-        cmd = [
-            _cli("claude"), "-p",
-            "--model", settings.claude_cli_model,
-            "--output-format", "json",
-            "--strict-mcp-config",
-        ]
+        cmd = [_cli("claude"), "-p"]
+        if settings.claude_cli_model:                  # "" = the Claude CLI default model
+            cmd += ["--model", settings.claude_cli_model]
+        cmd += ["--output-format", "json", "--strict-mcp-config"]
 
         try:
             with tempfile.TemporaryDirectory(prefix="fvf-claude-", ignore_cleanup_errors=True) as tmp:
-                result = subprocess.run(
+                result = _run(
                     cmd,
                     input=_full_prompt(prompt, system, json_mode),
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
                     timeout=self.timeout,
                     cwd=tmp,
+                    env=_child_env(CLAUDE_CODE_OAUTH_TOKEN=settings.claude_code_oauth_token),
                 )
         except FileNotFoundError:
             raise RuntimeError("Claude CLI not found")
@@ -104,8 +168,10 @@ class ClaudeCLIProvider:
         if data.get("is_error"):
             raise RuntimeError(f"Claude CLI error: {data.get('result', 'unknown')}")
 
-        response_text = data.get("result", "")
-        cost = data.get("total_cost_usd", 0)
+        response_text = data.get("result") or ""
+        if not response_text.strip():
+            raise RuntimeError("Claude CLI returned no answer (empty result)")
+        cost = data.get("total_cost_usd") or 0
         logger.info(f"Claude CLI response (${cost:.4f})")
 
         return response_text
@@ -147,19 +213,17 @@ class CodexCLIProvider:
             if settings.codex_model:
                 cmd += ["-m", settings.codex_model]
             if settings.codex_reasoning_effort:
-                cmd += ["-c", f'model_reasoning_effort="{settings.codex_reasoning_effort}"']
+                # unquoted (a `"` cannot pass the codex.cmd shim): codex reads a non-TOML value as a string
+                cmd += ["-c", f"model_reasoning_effort={settings.codex_reasoning_effort}"]
             cmd.append("-")                      # instructions from stdin
 
             try:
-                result = subprocess.run(
+                result = _run(
                     cmd,
                     input=_full_prompt(prompt, system, json_mode),
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
                     timeout=self.timeout,
                     cwd=tmp,
+                    env=_child_env(CODEX_API_KEY=settings.codex_api_key),
                 )
             except FileNotFoundError:
                 raise RuntimeError("Codex CLI not found")
@@ -262,10 +326,13 @@ def get_provider(name: Optional[str] = None):
     return cls()
 
 
+_warned_fallbacks = set()      # llm_fallback values already warned about (one warning per value)
+
+
 def provider_chain() -> list:
     """Providers generate() tries, in order: settings.llm_provider, then each name in the comma list
     settings.llm_fallback, skipping the primary and duplicates. "" or "none" = no fallback. Unknown
-    names are ignored with one warning (never an error)."""
+    names are ignored with one warning per distinct llm_fallback value (never an error)."""
     chain = [settings.llm_provider]
     raw = (settings.llm_fallback or "").strip()
     if raw.lower() == "none":
@@ -279,7 +346,8 @@ def provider_chain() -> list:
             unknown.append(name)
             continue
         chain.append(name)
-    if unknown:
+    if unknown and raw not in _warned_fallbacks:
+        _warned_fallbacks.add(raw)
         logger.warning("Ignoring unknown llm_fallback provider(s) %s (known: %s)",
                        ", ".join(unknown), ", ".join(PROVIDER_NAMES))
     return chain
@@ -344,21 +412,32 @@ def generate(prompt: str, system: Optional[str] = None, temperature: float = 0.7
     Raises:
         RuntimeError: every provider failed; the message names each provider and its error.
     """
+    return _generate_chain(prompt, system, temperature, max_tokens, json_mode)
+
+
+def _generate_chain(prompt, system, temperature, max_tokens, json_mode, parse=None):
+    """Try each provider_chain() provider in order. An exception, or `parse` rejecting the answer
+    (ValueError), moves on to the next one; the first usable answer is recorded for last_provider()."""
     chain = provider_chain()
     errors = []
     for i, name in enumerate(chain):
         try:
             text = get_provider(name).generate(prompt, system, temperature, max_tokens, json_mode)
+            result = parse(text) if parse else text
         except Exception as e:  # noqa: BLE001 - any provider failure moves on to the next one
-            errors.append(f"{name}: {e}")
+            errors.append(f"{name}: {_one_line(e)}")
             nxt = chain[i + 1] if i + 1 < len(chain) else None
-            logger.warning("LLM provider %s failed: %s.%s", name, e,
+            logger.warning("LLM provider %s failed: %s.%s", name, _one_line(e),
                            f" Falling back to {nxt}." if nxt else "")
             continue
         _set_last_provider(name)
         logger.info("Script LLM answered by %s", name)
-        return text
+        return result
     raise RuntimeError("All LLM providers failed: " + "; ".join(errors))
+
+
+def _one_line(error: Exception, limit: int = 300) -> str:
+    return " ".join(str(error).split())[:limit]
 
 
 def generate_json(prompt: str, system: Optional[str] = None, temperature: float = 0.7,
@@ -368,8 +447,10 @@ def generate_json(prompt: str, system: Optional[str] = None, temperature: float 
     Returns:
         Parsed JSON dict
 
+    An empty or unparseable answer counts as that provider failing: the next provider is tried.
+
     Raises:
-        ValueError: If response is not valid JSON
+        RuntimeError: no provider returned valid JSON; the message names each provider and its error.
     """
-    raw = generate(prompt, system, temperature, max_tokens, json_mode=True)
-    return _strip_and_parse_json(raw)
+    return _generate_chain(prompt, system, temperature, max_tokens, json_mode=True,
+                           parse=_strip_and_parse_json)

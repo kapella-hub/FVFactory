@@ -30,7 +30,7 @@ def test_get_provider_invalid():
         get_provider("invalid")
 
 
-@patch("app.llm.subprocess.run")
+@patch("app.llm._run")
 def test_claude_cli_generate(mock_run):
     from app.llm import ClaudeCLIProvider
     # Claude CLI returns JSON envelope with --output-format json
@@ -41,7 +41,7 @@ def test_claude_cli_generate(mock_run):
     assert result == "Hello world"
 
 
-@patch("app.llm.subprocess.run")
+@patch("app.llm._run")
 def test_claude_cli_generate_json(mock_run):
     from app.llm import ClaudeCLIProvider
     envelope = json.dumps({"result": '{"answer": 42}', "is_error": False, "total_cost_usd": 0.001})
@@ -51,7 +51,7 @@ def test_claude_cli_generate_json(mock_run):
     assert result == {"answer": 42}
 
 
-@patch("app.llm.subprocess.run")
+@patch("app.llm._run")
 def test_claude_cli_strips_markdown_fences(mock_run):
     from app.llm import ClaudeCLIProvider
     envelope = json.dumps({"result": '```json\n{"answer": 42}\n```', "is_error": False, "total_cost_usd": 0.001})
@@ -61,15 +61,13 @@ def test_claude_cli_strips_markdown_fences(mock_run):
     assert result == {"answer": 42}
 
 
-@patch("app.llm.subprocess.run")
+@patch("app.llm._run")
 def test_claude_cli_decodes_utf8_explicitly(mock_run):
     """Windows default (cp1252) cannot decode the CLI's UTF-8 output."""
     from app.llm import ClaudeCLIProvider
     envelope = json.dumps({"result": "café — ok", "is_error": False}, ensure_ascii=False)
     mock_run.return_value = MagicMock(returncode=0, stdout=envelope, stderr="")
     assert ClaudeCLIProvider(timeout=30).generate("x") == "café — ok"
-    kwargs = mock_run.call_args.kwargs
-    assert kwargs["encoding"] == "utf-8" and kwargs["errors"] == "replace"
 
 
 # ---------------------------------------------------------------------------
@@ -87,8 +85,11 @@ def llm_settings(monkeypatch):
     monkeypatch.setattr(settings, "codex_reasoning_effort", "")
     monkeypatch.setattr(settings, "codex_cli_timeout", 300)
     monkeypatch.setattr(settings, "openai_model", "gpt-5.4-mini-2026-03-17")
+    monkeypatch.setattr(settings, "claude_code_oauth_token", "")
+    monkeypatch.setattr(settings, "codex_api_key", "")
     import app.llm
     app.llm.reset_last_provider()
+    app.llm._warned_fallbacks.clear()
     yield settings
     app.llm.reset_last_provider()
 
@@ -141,7 +142,7 @@ def test_get_provider_invalid_lists_the_names():
 def test_codex_argv_stdin_and_output_file(llm_settings):
     from app.llm import CodexCLIProvider
     seen = {}
-    with patch("app.llm.subprocess.run", side_effect=_codex_run(seen, answer="  hello  \n")):
+    with patch("app.llm._run", side_effect=_codex_run(seen, answer="  hello  \n")):
         result = CodexCLIProvider().generate("Write it", system="Be brief", json_mode=True)
     assert result == "hello"
     cmd = seen["cmd"]
@@ -153,14 +154,13 @@ def test_codex_argv_stdin_and_output_file(llm_settings):
     prompt = kwargs["input"]
     assert prompt.index("Be brief") < prompt.index("Write it") < prompt.index("Respond with valid JSON only")
     assert "Write it" not in " ".join(cmd)                    # the prompt never travels on argv
-    assert kwargs["encoding"] == "utf-8" and kwargs["errors"] == "replace"
-    assert kwargs["timeout"] == 300 and kwargs["capture_output"] is True
+    assert kwargs["timeout"] == 300
 
 
 def test_codex_runs_in_a_temp_dir_that_is_removed(llm_settings):
     from app.llm import CodexCLIProvider
     seen = {}
-    with patch("app.llm.subprocess.run", side_effect=_codex_run(seen)):
+    with patch("app.llm._run", side_effect=_codex_run(seen)):
         CodexCLIProvider().generate("x")
     cwd = seen["cwd"]
     assert seen["cwd_existed"]
@@ -175,7 +175,7 @@ def test_codex_model_flag_only_when_set(llm_settings, monkeypatch):
     monkeypatch.setattr(settings, "codex_model", "gpt-5.5")
     monkeypatch.setattr(settings, "codex_cli_timeout", 42)
     seen = {}
-    with patch("app.llm.subprocess.run", side_effect=_codex_run(seen)):
+    with patch("app.llm._run", side_effect=_codex_run(seen)):
         CodexCLIProvider().generate("x")
     cmd = seen["cmd"]
     assert cmd[cmd.index("-m") + 1] == "gpt-5.5" and cmd[-1] == "-"
@@ -187,16 +187,17 @@ def test_codex_reasoning_effort_override(llm_settings, monkeypatch):
     from app.llm import CodexCLIProvider
     monkeypatch.setattr(settings, "codex_reasoning_effort", "medium")
     seen = {}
-    with patch("app.llm.subprocess.run", side_effect=_codex_run(seen)):
+    with patch("app.llm._run", side_effect=_codex_run(seen)):
         CodexCLIProvider().generate("x")
     cmd = seen["cmd"]
-    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="medium"' and cmd[-1] == "-"
+    # unquoted: a `"` would be refused for the codex.cmd shim; codex reads a non-TOML value as a string
+    assert cmd[cmd.index("-c") + 1] == "model_reasoning_effort=medium" and cmd[-1] == "-"
 
 
 def test_codex_generate_json(llm_settings):
     from app.llm import CodexCLIProvider
     seen = {}
-    with patch("app.llm.subprocess.run", side_effect=_codex_run(seen, answer='```json\n{"ok": true}\n```')):
+    with patch("app.llm._run", side_effect=_codex_run(seen, answer='```json\n{"ok": true}\n```')):
         assert CodexCLIProvider().generate_json("x") == {"ok": True}
 
 
@@ -206,7 +207,7 @@ def test_codex_generate_json(llm_settings):
 ])
 def test_codex_launch_errors(llm_settings, error, match):
     from app.llm import CodexCLIProvider
-    with patch("app.llm.subprocess.run", side_effect=error):
+    with patch("app.llm._run", side_effect=error):
         with pytest.raises(RuntimeError, match=match):
             CodexCLIProvider().generate("x")
 
@@ -215,7 +216,7 @@ def test_codex_nonzero_exit_reports_stderr_and_cleans_up(llm_settings):
     from app.llm import CodexCLIProvider
     seen = {}
     banner = "OpenAI Codex v0.153.4 (research preview)\n--------\nworkdir: C:/tmp\n" * 20
-    with patch("app.llm.subprocess.run",
+    with patch("app.llm._run",
                side_effect=_codex_run(seen, answer=None, returncode=1, stderr=banner + "ERROR: not logged in\n")):
         with pytest.raises(RuntimeError, match=r"Codex CLI failed \(exit 1\): .*ERROR: not logged in$") as exc:
             CodexCLIProvider().generate("x")
@@ -227,7 +228,7 @@ def test_codex_nonzero_exit_reports_stderr_and_cleans_up(llm_settings):
 def test_codex_empty_output_is_an_error(llm_settings, answer):
     from app.llm import CodexCLIProvider
     seen = {}
-    with patch("app.llm.subprocess.run", side_effect=_codex_run(seen, answer=answer)):
+    with patch("app.llm._run", side_effect=_codex_run(seen, answer=answer)):
         with pytest.raises(RuntimeError, match="Codex CLI returned no answer"):
             CodexCLIProvider().generate("x")
     assert not seen["cwd"].exists()
@@ -235,7 +236,7 @@ def test_codex_empty_output_is_an_error(llm_settings, answer):
 
 # --- Claude CLI ------------------------------------------------------------
 
-@patch("app.llm.subprocess.run")
+@patch("app.llm._run")
 def test_claude_cli_prompt_on_stdin_and_model_setting(mock_run, llm_settings, monkeypatch):
     from app.llm import ClaudeCLIProvider
     monkeypatch.setattr(settings, "claude_cli_model", "opus")
@@ -490,3 +491,303 @@ def test_settings_js_offers_the_three_providers_and_the_fallback_input():
     for key in ("'claude_cli', 'Claude Code (headless)'", "'codex', 'Codex CLI (headless)'",
                 "'openai', 'OpenAI API'", 'data-key="llm_fallback"'):
         assert key in js, key
+
+
+# ---------------------------------------------------------------------------
+# Review fixes (2026-10-03): cmd.exe injection, child env, chain fallthrough, timeouts
+# ---------------------------------------------------------------------------
+
+BAD_MODEL_NAMES = ["x & calc", 'a"b', "a|b", "%PATH%", "a^b", "a<b", "a>b", "a!b", "a(b)", "a\nb"]
+
+
+@pytest.mark.parametrize("field", ["claude_cli_model", "codex_model", "openai_model"])
+@pytest.mark.parametrize("bad", BAD_MODEL_NAMES)
+def test_model_names_reject_shell_metacharacters_in_settings(field, bad):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: bad})
+
+
+@pytest.mark.parametrize("field", ["claude_cli_model", "codex_model", "openai_model"])
+@pytest.mark.parametrize("bad", BAD_MODEL_NAMES)
+def test_model_names_reject_shell_metacharacters_on_put(field, bad):
+    from app.run_options import validate_settings_updates
+    valid, errors = validate_settings_updates(settings, {field: bad})
+    assert field in errors and not valid
+
+
+@pytest.mark.parametrize("field, value", [
+    ("claude_cli_model", "sonnet"), ("claude_cli_model", "claude-sonnet-4-5"), ("claude_cli_model", ""),
+    ("codex_model", "gpt-5.5"), ("codex_model", ""), ("openai_model", "gpt-5.4-mini-2026-03-17"),
+    ("openai_model", "ft:gpt-4o:org.name:x"),
+])
+def test_model_names_accept_real_names(field, value):
+    from app.run_options import validate_settings_updates
+    assert getattr(Settings(_env_file=None, **{field: value}), field) == value
+    assert validate_settings_updates(settings, {field: value}) == ({field: value}, {})
+
+
+def test_openai_model_cannot_be_blank():
+    from pydantic import ValidationError
+    from app.run_options import validate_settings_updates
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, openai_model="")
+    assert "openai_model" in validate_settings_updates(settings, {"openai_model": ""})[1]
+
+
+@pytest.mark.parametrize("value", ["", "none", "low", "medium", "high", "xhigh"])
+def test_codex_reasoning_effort_accepts_the_known_levels(value):
+    from app.run_options import validate_settings_updates
+    assert Settings(_env_file=None, codex_reasoning_effort=value).codex_reasoning_effort == value
+    assert validate_settings_updates(settings, {"codex_reasoning_effort": value})[0] == {
+        "codex_reasoning_effort": value}
+
+
+@pytest.mark.parametrize("bad", ["max", 'medium" & calc & "', "x & calc", "%PATH%", "MEDIUM "])
+def test_codex_reasoning_effort_rejects_anything_else(bad):
+    from pydantic import ValidationError
+    from app.run_options import validate_settings_updates
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, codex_reasoning_effort=bad)
+    valid, errors = validate_settings_updates(settings, {"codex_reasoning_effort": bad})
+    assert "codex_reasoning_effort" in errors and not valid
+
+
+def test_put_path_sees_field_constraints():
+    """validate_settings_updates validates Annotated/Field metadata, not just the bare type."""
+    from app.run_options import validate_settings_updates
+    assert "max_cost_per_video" in validate_settings_updates(settings, {"max_cost_per_video": -1})[1]
+
+
+@pytest.mark.parametrize("key", ["cors_origins", "claude_code_oauth_token", "codex_api_key"])
+def test_env_only_settings_are_refused_on_put(key):
+    from app.run_options import validate_settings_updates
+    valid, errors = validate_settings_updates(settings, {key: "x"})
+    assert key in errors and ".env" in errors[key] and not valid
+
+
+def test_claude_cli_blank_model_uses_the_cli_default(llm_settings, monkeypatch):
+    from app.llm import ClaudeCLIProvider
+    monkeypatch.setattr(settings, "claude_cli_model", "")
+    with patch("app.llm._run", return_value=MagicMock(returncode=0, stdout=json.dumps({"result": "ok"}),
+                                                      stderr="")) as mock_run:
+        ClaudeCLIProvider(timeout=30).generate("x")
+    assert "--model" not in mock_run.call_args.args[0]
+
+
+# --- defence in depth: .cmd / .bat shims ------------------------------------
+
+@pytest.mark.parametrize("bad", ["x & calc", 'a"b', "a|b", "%PATH%", "a^b", "a<b", "a>b", "a!b", "(a)",
+                                 "a\nb", "a\rb"])
+@pytest.mark.parametrize("shim", [r"C:\npm\codex.cmd", r"C:\npm\codex.CMD", r"C:\npm\codex.bat"])
+def test_run_refuses_cmd_metacharacters_for_batch_shims(bad, shim):
+    import app.llm
+    with patch("app.llm.subprocess.Popen") as popen:
+        with pytest.raises(RuntimeError, match="unsafe"):
+            app.llm._run([shim, "exec", "-m", bad, "-"], input="x", timeout=5, cwd=".", env={})
+    popen.assert_not_called()
+
+
+def test_run_allows_metacharacters_for_real_executables():
+    """Only .cmd/.bat go through cmd.exe; an .exe gets its argv verbatim (and the prompt is on stdin)."""
+    import app.llm
+    proc = MagicMock(returncode=0, pid=1)
+    proc.communicate.return_value = ("out", "err")
+    with patch("app.llm.subprocess.Popen", return_value=proc):
+        result = app.llm._run([r"C:\bin\claude.exe", "a & b"], input="x", timeout=5, cwd=".", env={})
+    assert result.returncode == 0 and result.stdout == "out" and result.stderr == "err"
+
+
+def test_codex_refuses_a_planted_bad_model_through_a_cmd_shim(llm_settings, monkeypatch):
+    """Settings bypassed (setattr does not validate): the shim check still stops the launch."""
+    import app.llm
+    monkeypatch.setattr(app.llm, "_cli", lambda name: "C:\\npm\\" + name + ".cmd")
+    monkeypatch.setattr(settings, "codex_model", 'x"&calc&"')
+    with patch("app.llm.subprocess.Popen") as popen:
+        with pytest.raises(RuntimeError, match="unsafe"):
+            app.llm.CodexCLIProvider().generate("x")
+    popen.assert_not_called()
+
+
+def test_run_popen_arguments():
+    import app.llm
+    proc = MagicMock(returncode=3, pid=1)
+    proc.communicate.return_value = ("café", "")
+    with patch("app.llm.subprocess.Popen", return_value=proc) as popen:
+        result = app.llm._run(["tool", "a"], input="prompt", timeout=7, cwd="/tmp/x", env={"A": "1"})
+    kwargs = popen.call_args.kwargs
+    assert popen.call_args.args[0] == ["tool", "a"]
+    assert kwargs["stdin"] == kwargs["stdout"] == kwargs["stderr"] == subprocess.PIPE
+    assert kwargs["text"] is True and kwargs["encoding"] == "utf-8" and kwargs["errors"] == "replace"
+    assert kwargs["cwd"] == "/tmp/x" and kwargs["env"] == {"A": "1"}
+    if os.name != "nt":
+        assert kwargs["start_new_session"] is True
+    proc.communicate.assert_called_once_with("prompt", timeout=7)
+    assert (result.returncode, result.stdout) == (3, "café")
+
+
+def test_run_timeout_kills_the_process_tree():
+    import app.llm
+    proc = MagicMock(returncode=None, pid=4242)
+    proc.communicate.side_effect = [subprocess.TimeoutExpired("tool", 7), ("", "")]
+    with patch("app.llm.subprocess.Popen", return_value=proc), \
+            patch("app.llm._kill_tree") as kill_tree:
+        with pytest.raises(subprocess.TimeoutExpired):
+            app.llm._run(["tool"], input="x", timeout=7, cwd=".", env={})
+    kill_tree.assert_called_once_with(proc)
+    assert proc.communicate.call_count == 2                       # pipes drained after the kill
+    assert proc.communicate.call_args_list[1].kwargs.get("timeout") is not None   # never unbounded
+
+
+def test_run_timeout_survives_pipes_that_stay_open():
+    import app.llm
+    proc = MagicMock(returncode=None, pid=4242)
+    proc.communicate.side_effect = [subprocess.TimeoutExpired("tool", 7), subprocess.TimeoutExpired("tool", 5)]
+    with patch("app.llm.subprocess.Popen", return_value=proc), patch("app.llm._kill_tree"):
+        with pytest.raises(subprocess.TimeoutExpired):
+            app.llm._run(["tool"], input="x", timeout=7, cwd=".", env={})
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows taskkill path")
+def test_kill_tree_uses_taskkill_on_windows():
+    import app.llm
+    proc = MagicMock(pid=4242)
+    with patch("app.llm.subprocess.run") as run:
+        app.llm._kill_tree(proc)
+    assert run.call_args.args[0] == ["taskkill", "/T", "/F", "/PID", "4242"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process group path")
+def test_kill_tree_kills_the_process_group_on_posix():
+    import signal
+    import app.llm
+    proc = MagicMock(pid=4242)
+    with patch("app.llm.os.killpg") as killpg:
+        app.llm._kill_tree(proc)
+    killpg.assert_called_once_with(4242, signal.SIGKILL)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="a real .cmd shim with a grandchild process (Windows)")
+def test_run_timeout_is_enforced_through_a_real_cmd_shim(tmp_path):
+    """subprocess.run(timeout=1) returned only after the grandchild finished (~7 s in the review)."""
+    import time
+    import app.llm
+    shim = tmp_path / "slow.cmd"
+    shim.write_text("@echo off\r\nping -n 15 127.0.0.1 >nul\r\n", encoding="ascii")
+    start = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        app.llm._run([str(shim)], input="", timeout=1, cwd=str(tmp_path), env=dict(os.environ))
+    assert time.monotonic() - start < 6
+
+
+# --- child environment ---------------------------------------------------------
+
+AUTH_VARS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")
+
+
+@pytest.fixture
+def planted_env(monkeypatch):
+    for var in AUTH_VARS:
+        monkeypatch.setenv(var, "planted-" + var.lower())
+    monkeypatch.setenv("FVF_TEST_KEEP", "kept")
+
+
+def _claude_ok():
+    return MagicMock(returncode=0, stdout=json.dumps({"result": "ok"}), stderr="")
+
+
+def test_claude_child_env_strips_api_keys(llm_settings, planted_env):
+    from app.llm import ClaudeCLIProvider
+    with patch("app.llm._run", return_value=_claude_ok()) as mock_run:
+        ClaudeCLIProvider(timeout=30).generate("x")
+    env = mock_run.call_args.kwargs["env"]
+    assert not any(k.upper() in AUTH_VARS for k in env)
+    assert env["FVF_TEST_KEEP"] == "kept"
+
+
+def test_claude_child_env_gets_the_oauth_token_setting(llm_settings, planted_env, monkeypatch):
+    from app.llm import ClaudeCLIProvider
+    monkeypatch.setattr(settings, "claude_code_oauth_token", "tok-123")
+    monkeypatch.setattr(settings, "codex_api_key", "codex-key")
+    with patch("app.llm._run", return_value=_claude_ok()) as mock_run:
+        ClaudeCLIProvider(timeout=30).generate("x")
+    env = mock_run.call_args.kwargs["env"]
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == "tok-123"
+    assert not any(k.upper() in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CODEX_API_KEY") for k in env)
+
+
+def test_codex_child_env_strips_api_keys(llm_settings, planted_env):
+    from app.llm import CodexCLIProvider
+    seen = {}
+    with patch("app.llm._run", side_effect=_codex_run(seen)):
+        CodexCLIProvider().generate("x")
+    env = seen["kwargs"]["env"]
+    assert not any(k.upper() in AUTH_VARS for k in env)
+    assert env["FVF_TEST_KEEP"] == "kept"
+
+
+def test_codex_child_env_gets_the_api_key_setting(llm_settings, planted_env, monkeypatch):
+    from app.llm import CodexCLIProvider
+    monkeypatch.setattr(settings, "codex_api_key", "codex-key")
+    monkeypatch.setattr(settings, "claude_code_oauth_token", "tok-123")
+    seen = {}
+    with patch("app.llm._run", side_effect=_codex_run(seen)):
+        CodexCLIProvider().generate("x")
+    env = seen["kwargs"]["env"]
+    assert env["CODEX_API_KEY"] == "codex-key"
+    assert not any(k.upper() in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN") for k in env)
+
+
+# --- chain: unusable answers fall through ----------------------------------------
+
+def _scripted_providers(monkeypatch, answers):
+    import app.llm
+    calls = []
+
+    class Scripted(_FakeProvider):
+        def generate(self, *args, **kwargs):
+            self.calls.append(self.name)
+            return answers[self.name]
+
+    monkeypatch.setattr(app.llm, "get_provider", lambda name=None: Scripted(name, calls))
+    return calls
+
+
+@pytest.mark.parametrize("bad", ["Sure! Here is the JSON you asked for.", "", "   ", '{"broken": '])
+def test_generate_json_falls_through_on_an_unusable_answer(llm_settings, monkeypatch, bad):
+    import app.llm
+    calls = _scripted_providers(monkeypatch, {"claude_cli": bad, "codex": '{"by": "codex"}',
+                                              "openai": '{"by": "openai"}'})
+    assert app.llm.generate_json("x") == {"by": "codex"}
+    assert calls == ["claude_cli", "codex"]
+    assert app.llm.last_provider() == "codex"
+
+
+def test_generate_json_all_unusable_names_each_error(llm_settings, monkeypatch):
+    import app.llm
+    _scripted_providers(monkeypatch, {"claude_cli": "prose", "codex": "", "openai": "[1,"})
+    with pytest.raises(RuntimeError) as exc:
+        app.llm.generate_json("x")
+    msg = str(exc.value)
+    assert "claude_cli:" in msg and "codex:" in msg and "openai:" in msg
+    assert app.llm.last_provider() is None
+
+
+def test_claude_cli_empty_result_is_an_error(llm_settings):
+    from app.llm import ClaudeCLIProvider
+    with patch("app.llm._run", return_value=MagicMock(
+            returncode=0, stdout=json.dumps({"result": "  ", "is_error": False}), stderr="")):
+        with pytest.raises(RuntimeError, match="no answer"):
+            ClaudeCLIProvider(timeout=30).generate("x")
+
+
+def test_unknown_fallback_warning_is_logged_once_per_value(llm_settings, monkeypatch, caplog):
+    from app.llm import provider_chain
+    monkeypatch.setattr(settings, "llm_fallback", "ollama,openai")
+    with caplog.at_level(logging.WARNING, logger="app.llm"):
+        provider_chain()
+        provider_chain()
+        monkeypatch.setattr(settings, "llm_fallback", "llama,openai")
+        provider_chain()
+    warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 2 and "ollama" in warnings[0] and "llama" in warnings[1]

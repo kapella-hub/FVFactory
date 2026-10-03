@@ -15,7 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js 22 + the headless script-LLM CLIs that app/llm.py shells out to (LLM_PROVIDER=claude_cli | codex).
-# Auth comes from .env (CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY) or the mounted ~/.codex; see docker-compose.yml.
+# Auth: CLAUDE_CODE_OAUTH_TOKEN / CODEX_API_KEY in the mounted .env (the app hands each CLI only its own)
+# or the mounted ~/.codex login; see docker-compose.yml.
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && npm install -g @anthropic-ai/claude-code @openai/codex \

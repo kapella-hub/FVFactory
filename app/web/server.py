@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.config import settings
+from app.web.cors import cors_origin_list
 from app.web.ws import ws_manager
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,6 @@ DATA_DIR = Path("data")
 async def lifespan(app: FastAPI):
     DATA_DIR.mkdir(exist_ok=True)
     # Settings-page values survive a restart (before Phase D they were applied in-process only).
-    from app.config import settings
     from app.run_options import apply_saved_settings, load_config_file
     from app.web.routes.api_config import CONFIG_PATH
     applied = apply_saved_settings(settings, load_config_file(CONFIG_PATH))
@@ -35,12 +36,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="FVFactory", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# No CORS by default: the bundled UI is same-origin, and a wildcard would let any web page the user has
+# open drive the API (settings, generation). CORS_ORIGINS in .env names any extra origins.
+_cors_origins = cors_origin_list(settings.cors_origins)
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_headers=["Content-Type"],
+    )
 
 
 @app.websocket("/ws")

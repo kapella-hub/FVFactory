@@ -6,9 +6,8 @@ services:
     restart: unless-stopped
     ports:
       - "8501:8501"
-    # .env as real environment variables too, so the script-LLM CLIs see CLAUDE_CODE_OAUTH_TOKEN /
-    # ANTHROPIC_API_KEY / CODEX_API_KEY (the app itself reads the mounted /workspace/.env)
-    env_file: .env
+    # No env_file: the app reads the mounted /workspace/.env and passes each script-LLM CLI only its own
+    # auth (CLAUDE_CODE_OAUTH_TOKEN / CODEX_API_KEY from .env), so a restart rereads .env.
     volumes:
       - ./output:/workspace/output
       - ./.env:/workspace/.env:ro
@@ -23,7 +22,6 @@ services:
   generator:
     build: .
     container_name: fvfactory-generator
-    env_file: .env                   # see the library service
     volumes:
       - ./output:/workspace/output
       - ./.env:/workspace/.env:ro
