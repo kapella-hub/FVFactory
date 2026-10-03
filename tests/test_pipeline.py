@@ -294,3 +294,12 @@ def test_report_write_failure_does_not_fail_a_finished_run(offline, monkeypatch)
     monkeypatch.setattr(RunReport, "save", _raise(OSError("disk full")))
     out = main.run_pipeline("Gold facts", use_mock_images=True)
     assert out.endswith("final.mp4")
+
+
+def test_cost_tracker_construction_failure_never_fails_run(offline, monkeypatch):
+    """Phase C review: CostTracker() itself (corrupt cost_log.json) must not fail a run."""
+    monkeypatch.setattr(main, "render_job", fake_render)
+    monkeypatch.setattr(main, "CostTracker", _raise(ValueError("corrupt cost_log.json")))
+    out_path = main.run_pipeline("Gold facts", use_mock_images=True)
+    assert out_path.endswith("final.mp4")
+    assert report_of(only_job(offline.out))["status"] == "ok"

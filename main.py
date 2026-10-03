@@ -317,13 +317,16 @@ def _log_costs(video_id: str, report: RunReport, narration: str, use_mock_images
                image_count: int, specs=None, classic_clips=None) -> float:
     """Cost bookkeeping after a successful render. It must never fail the run (an unknown clip
     model or a cost-file error is logged as a warning and skipped)."""
-    tracker = CostTracker()
-
     def attempt(label: str, fn):
         try:
-            fn()
+            return fn()
         except Exception as e:  # noqa: BLE001 - cost logging is best-effort
             logger.warning("Cost logging skipped (%s): %s", label, e)
+            return None
+
+    tracker = attempt("tracker", CostTracker)
+    if tracker is None:
+        return 0.0
 
     attempt("gpt4o", lambda: tracker.log_cost(video_id, "openai_gpt4o"))
     if settings.elevenlabs_api_key:

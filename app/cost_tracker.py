@@ -2,12 +2,18 @@
 
 import json
 import logging
+import os
+import shutil
+import threading
 from pathlib import Path
 from typing import Optional
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Serialises load-modify-save across tracker instances in this process (concurrent runs).
+_LOCK = threading.Lock()
 
 
 class CostTracker:
@@ -17,6 +23,7 @@ class CostTracker:
         self.output_dir = Path(output_dir or settings.output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.log_path = self.output_dir / "cost_log.json"
+        self._dirty: set = set()
         self._costs = self._load()
 
     @property
@@ -32,11 +39,30 @@ class CostTracker:
             "claude_cli": settings.cost_claude_cli,         # $0.00
         }
 
-    def _load(self) -> dict:
-        if self.log_path.exists():
-            with open(self.log_path) as f:
-                return json.load(f)
+    @staticmethod
+    def _empty() -> dict:
         return {"schema_version": 1, "videos": {}}
+
+    def _read(self) -> dict:
+        """Read the log from disk (caller holds _LOCK). Never raises; a corrupt file is copied aside."""
+        try:
+            data = json.loads(self.log_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return self._empty()
+        except (OSError, ValueError) as e:
+            logger.warning("Cost log %s unreadable (%s); starting empty", self.log_path, e)
+            try:
+                shutil.copy2(self.log_path, self.log_path.with_name("cost_log.corrupt.json"))
+            except OSError:
+                pass
+            return self._empty()
+        if not isinstance(data, dict) or not isinstance(data.get("videos"), dict):
+            return self._empty()
+        return data
+
+    def _load(self) -> dict:
+        with _LOCK:
+            return self._read()
 
     def log_cost(self, video_id: str, item: str, quantity: int = 1) -> None:
         if item not in self.unit_costs:
@@ -65,6 +91,7 @@ class CostTracker:
         return list(self._costs["videos"].get(video_id, {}).get("items", []))
 
     def _append(self, video_id: str, entry: dict) -> None:
+        self._dirty.add(video_id)
         video = self._costs["videos"].setdefault(video_id, {"items": [], "total": 0.0})
         video["items"].append(entry)
         video["total"] = round(video["total"] + entry["cost"], 4)
@@ -83,6 +110,12 @@ class CostTracker:
         }
 
     def save(self) -> None:
-        with open(self.log_path, "w") as f:
-            json.dump(self._costs, f, indent=2)
+        with _LOCK:
+            disk = self._read()
+            for vid in self._dirty:
+                disk["videos"][vid] = self._costs["videos"][vid]
+            tmp = self.log_path.with_name(self.log_path.name + ".tmp")
+            tmp.write_text(json.dumps(disk, indent=2), encoding="utf-8")
+            os.replace(tmp, self.log_path)
+            self._costs = disk
         logger.info(f"Cost log saved to {self.log_path}")
