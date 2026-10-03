@@ -114,3 +114,11 @@ def test_make_hook_headline_window():
     assert make_hook_headline("Gold is heavy.", 40.0) == {"text": "Gold is heavy", "t0": 0.0, "t1": 2.5}
     assert make_hook_headline("Gold is heavy.", 1.8) == {"text": "Gold is heavy", "t0": 0.0, "t1": 1.8}
     assert make_hook_headline("a b c d e f g h i", 40.0) is None
+
+
+def test_headline_does_not_split_after_abbreviations():
+    assert hook_headline_text("Dr. Smith built a watch that sank.") == "Dr. Smith built a watch that sank"
+    assert hook_headline_text("Mr. Rolex made time. Then it grew.") == "Mr. Rolex made time"
+    assert hook_headline_text("Born in the U.S. he moved. Later he left.") == "Born in the U.S. he moved"
+    assert hook_headline_text("A. Lange built it. Then more.") == "A. Lange built it"
+    assert hook_headline_text("Rolex was founded. It grew.") == "Rolex was founded"

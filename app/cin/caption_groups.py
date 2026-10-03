@@ -22,6 +22,24 @@ NUMBER_WORDS = frozenset({
     "dollars", "dollar", "euros", "pounds", "years", "kg", "km", "mph",
 })
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
+_ABBREVIATIONS = frozenset({
+    "mr.", "mrs.", "ms.", "dr.", "st.", "jr.", "sr.", "prof.", "vs.", "etc.", "u.s.", "u.k.", "no.", "inc.",
+})
+_SHORT_INITIAL = re.compile(r"^[A-Z][A-Za-z]{0,2}\.$")
+
+
+def _first_sentence(text: str) -> str:
+    """Text up to the first sentence break, skipping periods that follow an abbreviation or a lone
+    short capitalized token ("Dr.", "A.")."""
+    for m in _SENTENCE_SPLIT.finditer(text):
+        left = text[:m.start()]
+        last = left.split()[-1] if left.split() else ""
+        if last.lower() in _ABBREVIATIONS:
+            continue
+        if _SHORT_INITIAL.match(left.strip()):
+            continue
+        return left
+    return text
 
 
 @dataclass
@@ -100,7 +118,7 @@ def hook_headline_text(hook: Optional[str]) -> Optional[str]:
     hook = (hook or "").strip()
     if not hook:
         return None
-    first = _SENTENCE_SPLIT.split(hook, maxsplit=1)[0].strip()
+    first = _first_sentence(hook).strip()
     words = first.split()
     if not words or len(words) > HOOK_MAX_WORDS:
         return None
