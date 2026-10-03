@@ -85,6 +85,22 @@ def make_silence(path, seconds: float) -> Path:
     return Path(path)
 
 
+def make_tone_wav(path, seconds: float, freq: float, amp: float, windows=None) -> Path:
+    """Stereo 48 kHz sine written with the stdlib; silent outside `windows` ([[t0, t1], ...]) if given."""
+    import numpy as np
+    from app.cin.audio_io import write_wav
+    t = np.arange(int(round(seconds * 48000))) / 48000
+    x = amp * np.sin(2 * np.pi * freq * t)
+    if windows is not None:
+        mask = np.zeros_like(t, dtype=bool)
+        for a, b in windows:
+            mask |= (t >= a) & (t < b)
+        x = x * mask
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    write_wav(path, np.stack([x, x], axis=1))
+    return Path(path)
+
+
 # ---------------------------------------------------------------- job builder (Task 11)
 
 def build_gold_job(tmp_path, durations=(5.0, 10.0), clip_size: str = "360x640", topic: str = "gold test"):
