@@ -114,3 +114,19 @@ def test_short_clip_reports_real_duration(tmp_path):
     job, _, segs, images = gold_job(tmp_path)
     specs, _ = run(job, segs, images, FakeGenerator(length=2.0))
     assert all(abs(s.duration - 2.0) < 0.1 for s in specs)
+
+
+def test_raising_generator_degrades_to_failed_spec_not_crash(tmp_path):
+    job, _, segs, images = gold_job(tmp_path)
+
+    class Raising(FakeGenerator):
+        def generate_clip(self, image_path, prompt, output_path, duration=None, model_key=None):
+            if Path(output_path).name == "scene00_a.mp4":
+                raise RuntimeError("boom")
+            return super().generate_clip(image_path, prompt, output_path, duration, model_key)
+
+    specs, report = run(job, segs, images, Raising())
+    assert len(specs) == 3
+    assert specs[0].failed and specs[0].path is None
+    assert specs[1].path and not specs[1].failed
+    assert report.clips["failed"] == 1 and report.clips["generated"] == 2

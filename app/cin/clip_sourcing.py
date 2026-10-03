@@ -72,30 +72,36 @@ def generate_segment_clips(requests: list, image_paths: list, motion_prompts: li
     def run_scene(scene_reqs: list) -> list:
         specs, prev_last = [], None
         for req in sorted(scene_reqs, key=lambda r: r.index):
-            start = prev_last if (req.chained and prev_last) else image_paths[req.scene]
-            spec = ClipSpec(req.scene, req.index, req.t0, req.t1, req.requested_len, job.rel(start))
-            prev_last = None
-            if enable_motion:
-                prompt = motion_prompts[req.scene] if req.scene < len(motion_prompts) else ""
-                out = job.clip(req.name)
-                for n, key in enumerate(_attempt_models(model_key, fallback_model), start=1):
-                    spec.attempts = n
-                    if generator.generate_clip(str(start), prompt, str(out),
-                                               duration=req.requested_len, model_key=key):
-                        spec.path, spec.model = job.rel(out), key
-                        break
-                if spec.path:
-                    try:
-                        spec.duration = probe_clip_duration(out)
-                    except Exception as e:  # noqa: BLE001 - corrupt download counts as a failure
-                        logger.warning("Unreadable clip %s: %s", out, e)
-                        spec.path, spec.model = None, ""
-                if spec.path:
-                    last = extract_last_frame(out, job.last_frame(req.name))
-                    spec.last_frame = job.rel(last) if last else None
-                    prev_last = last
-                else:
-                    spec.failed = True
+            try:
+                start = prev_last if (req.chained and prev_last) else image_paths[req.scene]
+                spec = ClipSpec(req.scene, req.index, req.t0, req.t1, req.requested_len, job.rel(start))
+                prev_last = None
+                if enable_motion:
+                    prompt = motion_prompts[req.scene] if req.scene < len(motion_prompts) else ""
+                    out = job.clip(req.name)
+                    for n, key in enumerate(_attempt_models(model_key, fallback_model), start=1):
+                        spec.attempts = n
+                        if generator.generate_clip(str(start), prompt, str(out),
+                                                   duration=req.requested_len, model_key=key):
+                            spec.path, spec.model = job.rel(out), key
+                            break
+                    if spec.path:
+                        try:
+                            spec.duration = probe_clip_duration(out)
+                        except Exception as e:  # noqa: BLE001 - corrupt download counts as a failure
+                            logger.warning("Unreadable clip %s: %s", out, e)
+                            spec.path, spec.model = None, ""
+                    if spec.path:
+                        last = extract_last_frame(out, job.last_frame(req.name))
+                        spec.last_frame = job.rel(last) if last else None
+                        prev_last = last
+                    else:
+                        spec.failed = True
+            except Exception as e:  # noqa: BLE001 - one bad segment must not sink the other scenes
+                logger.error("Clip segment %s failed unexpectedly: %s", req.name, e)
+                prev_last = None
+                spec = ClipSpec(req.scene, req.index, req.t0, req.t1, req.requested_len, "",
+                                failed=True)
             specs.append(spec)
         return specs
 
