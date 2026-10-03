@@ -40,6 +40,8 @@ class GenerateRequest(BaseModel):
     # blank ("" = Settings default), negative and non-numeric caps.
     quality_tier: Optional[str] = None      # standard | premium | custom
     max_cost: MaxCostInput = None   # USD, 0 = no cap
+    # Companion character in the image prompts. None = settings.mascot_enabled; never for a story.
+    mascot: Optional[bool] = None
     # "Your story" (app.story): story "" = a topic / auto-discover run. title is optional.
     story: Optional[str] = ""
     story_mode: Optional[str] = None        # verbatim (default) | adapt

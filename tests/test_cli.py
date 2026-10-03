@@ -280,3 +280,18 @@ def test_main_story_file_errors_exit_before_config_validation(monkeypatch, tmp_p
         with pytest.raises(SystemExit) as exit_info:
             main.main()
         assert exit_info.value.code == 1
+
+
+def test_mascot_flag_is_tri_state():
+    assert parse_args(["--mascot"]).mascot is True
+    assert parse_args(["--no-mascot"]).mascot is False
+    assert parse_args([]).mascot is None                 # None = settings.mascot_enabled
+
+
+def test_cli_modes_pass_the_mascot_choice_to_the_pipeline(monkeypatch):
+    import main
+    seen = []
+    monkeypatch.setattr(main, "run_pipeline", lambda *a, **kw: seen.append(kw.get("mascot", "missing")) or "out.mp4")
+    main.run_auto_mode(parse_args(["--auto", "--topic", "Baba Yaga", "--no-mascot"]))
+    main.run_story_mode(parse_args(["--mascot"]), "Baba Yaga lives in the forest.")
+    assert seen == [False, True]

@@ -22,7 +22,7 @@ def test_empty_config_means_settings_defaults(monkeypatch):
                   "enable_sfx": True, "enable_music": True, "subtitle_style": "neon_glow",
                   "niche": None, "video_style": "", "video_duration": "",
                   "pacing": None, "music_source": None, "strict": None,
-                  "quality_tier": None, "max_cost": None}
+                  "quality_tier": None, "max_cost": None, "mascot": None}
 
 
 def test_old_scheduler_slot_without_new_keys_runs_with_defaults():
@@ -298,3 +298,15 @@ def test_available_personas_never_creates_the_folder(tmp_path):
     from app.run_options import available_personas
     missing = tmp_path / "personas"
     assert available_personas(missing) == [] and not missing.exists()
+
+
+@pytest.mark.parametrize("value,expected", [(None, None), ("", None), ("  ", None), (True, True), (False, False),
+                                            ("true", True), ("off", False), (1, True), (0, False)])
+def test_mascot_option_blank_means_settings_default(value, expected):
+    assert pipeline_kwargs({"mascot": value})["mascot"] is expected
+
+
+@pytest.mark.parametrize("value", ["maybe", 2, [], {}])
+def test_bad_mascot_option_is_rejected(value):
+    with pytest.raises(OptionError, match="mascot must be true or false"):
+        pipeline_kwargs({"mascot": value})

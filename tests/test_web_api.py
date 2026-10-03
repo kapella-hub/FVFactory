@@ -174,3 +174,23 @@ def test_topic_request_records_its_source(client, monkeypatch):
     client.post("/api/generate", json={"topic": "Gold facts"})
     _run_task(monkeypatch, tasks[0])
     assert seen["topic"] == "Gold facts" and seen["source"] == "topic" and seen["story"] == ""
+
+
+def test_config_exposes_the_mascot_default(client):
+    assert isinstance(client.get("/api/config").json()["mascot_enabled"], bool)
+
+
+@pytest.mark.parametrize("value,expected", [(True, True), (False, False), (None, None)])
+def test_generate_request_passes_the_mascot_choice(client, monkeypatch, value, expected):
+    import main
+    seen = {}
+    monkeypatch.setattr(main, "run_pipeline", lambda **kw: seen.update(kw) or "output/j/final.mp4")
+    tasks = _capture_task(monkeypatch)
+    resp = client.post("/api/generate", json={"topic": "Baba Yaga", "video_style": "anime", "mascot": value})
+    assert resp.status_code == 200
+    _run_task(monkeypatch, tasks[0])
+    assert seen["mascot"] is expected
+
+
+def test_generate_rejects_a_bad_mascot_value(client):
+    assert client.post("/api/generate", json={"topic": "x", "mascot": "maybe"}).status_code == 422

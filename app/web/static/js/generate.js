@@ -270,6 +270,14 @@ const GeneratePage = (() => {
           </div>
         </div>
 
+        <!-- Mascot checkbox (pre-checked from Settings by loadDefaults, like strict) -->
+        <div class="form-group">
+          <div class="checkbox" id="cb-mascot" data-defaults-loaded="false" style="pointer-events:none;opacity:.6" onclick="GeneratePage.toggleCheckbox('cb-mascot')">
+            <div class="checkbox__box">&#10003;</div>
+            <span class="checkbox__label">Mascot character in images (a companion in the scene; never for a story or photorealistic)</span>
+          </div>
+        </div>
+
         <!-- Classic editor -->
         <div class="form-group">
           <div class="checkbox" id="cb-classic" onclick="GeneratePage.toggleCheckbox('cb-classic')">
@@ -457,6 +465,7 @@ const GeneratePage = (() => {
       const cap = document.getElementById('gen-max-cost');
       if (cap) cap.placeholder = cfg.max_cost_per_video > 0 ? `Default ($${cfg.max_cost_per_video})` : 'Default (no cap)';
       if (cfg.strict === true) document.getElementById('cb-strict')?.classList.add('checkbox--checked');
+      if (cfg.mascot_enabled === true) document.getElementById('cb-mascot')?.classList.add('checkbox--checked');
       defaults = cfg;
     } catch (e) {
       // Labels stay "Default"; the server applies the Settings defaults anyway.
@@ -481,14 +490,16 @@ const GeneratePage = (() => {
     }
   }
 
-  // The strict box stays locked until Settings defaults are known (or failed to load), so a fast
-  // submit cannot send strict:false over a Settings value of true.
+  // The strict and mascot boxes stay locked until Settings defaults are known (or failed to load), so a
+  // fast submit cannot send false over a Settings value of true.
   function enableStrict() {
-    const el = document.getElementById('cb-strict');
-    if (!el) return;
-    el.dataset.defaultsLoaded = 'true';
-    el.style.pointerEvents = '';
-    el.style.opacity = '';
+    for (const id of ['cb-strict', 'cb-mascot']) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.dataset.defaultsLoaded = 'true';
+      el.style.pointerEvents = '';
+      el.style.opacity = '';
+    }
   }
 
   function selectStyle(styleId) {
@@ -590,6 +601,7 @@ const GeneratePage = (() => {
       max_cost: document.getElementById('gen-max-cost').value.trim() || null,         // text: the server validates
       // null = server uses Settings, until the defaults have loaded
       strict: document.getElementById('cb-strict')?.dataset.defaultsLoaded === 'true' ? isChecked('cb-strict') : null,
+      mascot: document.getElementById('cb-mascot')?.dataset.defaultsLoaded === 'true' ? isChecked('cb-mascot') : null,
       classic: isChecked('cb-classic'),
       persona: document.getElementById('gen-persona')?.value || '',
       use_chroma_key: isChecked('cb-chroma'),

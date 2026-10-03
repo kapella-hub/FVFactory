@@ -48,6 +48,7 @@ async def get_config():
         "pacing": settings.pacing,
         "music_source": settings.music_source,
         "strict": settings.strict,
+        "mascot_enabled": settings.mascot_enabled,
         "quality_tier": settings.quality_tier,
         "max_cost_per_video": settings.max_cost_per_video,
         "enable_motion": settings.enable_motion,

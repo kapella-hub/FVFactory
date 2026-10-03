@@ -2,7 +2,7 @@
 
 Pure: no FastAPI / APScheduler imports, so it is unit-tested in the local venv (which has neither).
 The rule everywhere is the CLI's: an option that is missing, None or "" means "use the Settings
-default", which run_pipeline applies (pacing / music_source / strict default to None there).
+default", which run_pipeline applies (pacing / music_source / strict / mascot default to None there).
 """
 from __future__ import annotations
 
@@ -114,6 +114,7 @@ def pipeline_kwargs(config: Mapping[str, Any]) -> dict:
         "strict": to_bool("strict", config.get("strict"), None),
         "quality_tier": _choice("quality_tier", config.get("quality_tier"), TIER_CHOICES),
         "max_cost": to_max_cost("max_cost", config.get("max_cost"), None),
+        "mascot": to_bool("mascot", config.get("mascot"), None),      # None = settings.mascot_enabled
     }
 
 

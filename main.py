@@ -730,6 +730,9 @@ def parse_args(argv=None):
                         help="Shot pacing: calm, standard or fast (default: settings.pacing)")
     parser.add_argument("--strict", action=argparse.BooleanOptionalAction, default=None,
                         help="Fail the run instead of shipping a still when a motion clip fails")
+    parser.add_argument("--mascot", action=argparse.BooleanOptionalAction, default=None,
+                        help="Add the mascot as a companion in the image prompts (default: settings.mascot_enabled; "
+                             "never for --story-file or photorealistic)")
     parser.add_argument("--tier", choices=list(QUALITY_TIERS), default=None,
                         help="Motion quality: standard (MiniMax H3 Turbo), premium (Kling v3 Pro) or "
                              "custom (settings.fal_video_model) (default: settings.quality_tier)")
@@ -804,6 +807,7 @@ def run_auto_mode(args):
                 music_source=args.music_source,
                 quality_tier=args.tier,
                 max_cost=args.max_cost,
+                mascot=args.mascot,
                 source=source,
             )
         except Exception as e:
@@ -843,6 +847,7 @@ def run_story_mode(args, story: str) -> None:
             music_source=args.music_source,
             quality_tier=args.tier,
             max_cost=args.max_cost,
+            mascot=args.mascot,
         )
     except Exception as e:  # noqa: BLE001
         logger.error(f"Story video failed: {e}")
@@ -943,6 +948,7 @@ def run_interactive_mode(args):
             music_source=args.music_source,
             quality_tier=args.tier,
             max_cost=args.max_cost,
+            mascot=args.mascot,
         )
 
         print()
