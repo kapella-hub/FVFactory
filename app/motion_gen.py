@@ -89,7 +89,25 @@ class MotionGenerator:
             logger.warning(f"Motion clip {index} generation failed (non-fatal): {e}")
             return None
 
-    def _generate_fal(self, image_path: str, motion_prompt: str, index: int) -> Optional[str]:
+    def generate_clip(self, image_path: str, prompt: str, output_path: str,
+                      duration: Optional[float] = None, model_key: Optional[str] = None) -> Optional[str]:
+        """One generation attempt for the shot editor. Returns output_path, or None on any failure
+        (missing fal_client, HTTP error, quota...). Retries/fallbacks live in app.cin.clip_sourcing."""
+        provider = settings.motion_provider
+        try:
+            if provider == "replicate":
+                return self._generate_replicate(image_path, prompt, 0, output_path=output_path)
+            if provider == "local":
+                return self._generate_local(image_path, prompt, 0, output_path=output_path, duration=duration)
+            return self._generate_fal(image_path, prompt, 0, output_path=output_path,
+                                      duration=duration, model_key=model_key)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Motion clip %s failed: %s", Path(output_path).name, e)
+            return None
+
+    def _generate_fal(self, image_path: str, motion_prompt: str, index: int,
+                      output_path: Optional[str] = None, duration: Optional[float] = None,
+                      model_key: Optional[str] = None) -> Optional[str]:
         """Generate motion clip using fal.ai (Minimax Hailuo default)."""
         import fal_client
 
@@ -98,10 +116,12 @@ class MotionGenerator:
         if fal_key:
             os.environ['FAL_KEY'] = fal_key
 
-        model = settings.fal_video_model
-        endpoint = FAL_MODELS.get(model, FAL_MODELS["hailuo"])
+        model = CLIP_MODELS.get(model_key or settings.fal_video_model, CLIP_MODELS["hailuo"])
+        if model.endpoint is None:
+            model = CLIP_MODELS["hailuo"]
+        endpoint = model.endpoint
 
-        logger.info(f"Generating motion clip {index} via fal.ai ({model}): {motion_prompt[:50]}...")
+        logger.info(f"Generating motion clip {index} via fal.ai ({model.key}): {motion_prompt[:50]}...")
 
         # Upload image to fal
         image_url = fal_client.upload_file(image_path)
@@ -112,9 +132,10 @@ class MotionGenerator:
             "image_url": image_url,
         }
 
-        # Kling supports extra params
-        if "kling" in model:
-            args["duration"] = "5"
+        # Kling takes a length ("5"/"10") and an aspect ratio; Minimax/hailuo takes neither
+        if model.sends_duration:
+            length = snap_duration(duration or min(model.durations), model.durations) or max(model.durations)
+            args["duration"] = str(int(length))
             args["aspect_ratio"] = "9:16"
 
         def on_queue_update(update):
@@ -131,7 +152,7 @@ class MotionGenerator:
         video_url = result["video"]["url"]
 
         # Download video
-        output_path = self.temp_dir / f"motion_{index:03d}.mp4"
+        output_path = Path(output_path) if output_path else self.temp_dir / f"motion_{index:03d}.mp4"
         response = requests.get(video_url, timeout=120)
         if response.status_code != 200:
             logger.warning(f"Motion clip {index}: download failed ({response.status_code})")
@@ -143,7 +164,8 @@ class MotionGenerator:
         logger.info(f"Motion clip {index} saved: {output_path} ({len(response.content) // 1024}KB)")
         return str(output_path)
 
-    def _generate_replicate(self, image_path: str, motion_prompt: str, index: int) -> Optional[str]:
+    def _generate_replicate(self, image_path: str, motion_prompt: str, index: int,
+                            output_path: Optional[str] = None) -> Optional[str]:
         """Generate motion clip using Replicate API (legacy)."""
         from app.replicate_api import replicate_run
 
@@ -156,7 +178,7 @@ class MotionGenerator:
         )
 
         video_url = output if isinstance(output, str) else str(output)
-        output_path = self.temp_dir / f"motion_{index:03d}.mp4"
+        output_path = Path(output_path) if output_path else self.temp_dir / f"motion_{index:03d}.mp4"
         response = requests.get(video_url, stream=True, timeout=120)
 
         if response.status_code != 200:
@@ -169,13 +191,14 @@ class MotionGenerator:
         logger.info(f"Motion clip {index} saved: {output_path}")
         return str(output_path)
 
-    def _generate_local(self, image_path: str, motion_prompt: str, index: int) -> Optional[str]:
+    def _generate_local(self, image_path: str, motion_prompt: str, index: int,
+                        output_path: Optional[str] = None, duration: Optional[float] = None) -> Optional[str]:
         """Generate motion clip using local enhanced motion effects."""
         from app.local_video_gen import LocalVideoGenerator
 
-        output_path = str(self.temp_dir / f"motion_{index:03d}.mp4")
+        output_path = str(output_path or self.temp_dir / f"motion_{index:03d}.mp4")
         gen = LocalVideoGenerator()
-        gen.generate(image_path, motion_prompt, output_path)
+        gen.generate(image_path, motion_prompt, output_path, duration=duration or 5.0)
         logger.info("Local motion clip %d saved: %s", index, output_path)
         return output_path
 

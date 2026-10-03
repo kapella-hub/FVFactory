@@ -135,3 +135,64 @@ def test_clip_model_for_providers():
     assert clip_model_for("local", "hailuo").durations is None
     assert CLIP_MODELS["hailuo"].durations == (6.0,)
     assert CLIP_MODELS["kling"].sends_duration is True
+
+
+def _fake_fal():
+    fal = MagicMock()
+    fal.upload_file.return_value = "https://fal.media/in.png"
+    fal.subscribe.return_value = {"video": {"url": "https://fal.media/out.mp4"}}
+    return fal
+
+
+def _ok_response():
+    response = MagicMock()
+    response.status_code = 200
+    response.content = b"fake_mp4"
+    return response
+
+
+def _clip_paths(tmp_path):
+    image = tmp_path / "in.png"
+    image.write_bytes(b"png")
+    out = tmp_path / "clips" / "scene00_a.mp4"
+    out.parent.mkdir()
+    return image, out
+
+
+def test_generate_clip_kling_requests_snapped_duration(tmp_path, monkeypatch):
+    from app.config import settings
+    from app.motion_gen import CLIP_MODELS, MotionGenerator
+    monkeypatch.setattr(settings, "motion_provider", "fal")
+    fal = _fake_fal()
+    image, out = _clip_paths(tmp_path)
+    with patch.dict("sys.modules", {"fal_client": fal}), \
+            patch("app.motion_gen.requests.get", return_value=_ok_response()):
+        result = MotionGenerator(temp_dir=str(tmp_path)).generate_clip(
+            str(image), "orbit", str(out), duration=6.2, model_key="kling")
+    assert result == str(out) and out.read_bytes() == b"fake_mp4"
+    assert fal.subscribe.call_args.args[0] == CLIP_MODELS["kling"].endpoint
+    arguments = fal.subscribe.call_args.kwargs["arguments"]
+    assert arguments["duration"] == "10" and arguments["aspect_ratio"] == "9:16"
+
+
+def test_generate_clip_hailuo_sends_no_duration(tmp_path, monkeypatch):
+    from app.config import settings
+    from app.motion_gen import MotionGenerator
+    monkeypatch.setattr(settings, "motion_provider", "fal")
+    fal = _fake_fal()
+    image, out = _clip_paths(tmp_path)
+    with patch.dict("sys.modules", {"fal_client": fal}), \
+            patch("app.motion_gen.requests.get", return_value=_ok_response()):
+        MotionGenerator(temp_dir=str(tmp_path)).generate_clip(
+            str(image), "push in", str(out), duration=4.0, model_key="hailuo")
+    assert "duration" not in fal.subscribe.call_args.kwargs["arguments"]
+
+
+def test_missing_fal_client_counts_as_clip_failure(tmp_path, monkeypatch):
+    from app.config import settings
+    from app.motion_gen import MotionGenerator
+    monkeypatch.setattr(settings, "motion_provider", "fal")
+    image, out = _clip_paths(tmp_path)
+    with patch.dict("sys.modules", {"fal_client": None}):
+        assert MotionGenerator(temp_dir=str(tmp_path)).generate_clip(str(image), "p", str(out)) is None
+    assert not out.exists()
