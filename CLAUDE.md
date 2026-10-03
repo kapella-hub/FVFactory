@@ -77,8 +77,16 @@ python main.py --auto --no-motion --subtitle-style neon_glow
 python main.py --auto --mock  # Use mock images (free)
 python main.py --auto --no-sfx --no-music
 
-# Streamlit dashboard
-streamlit run app/dashboard.py
+# Web UI
+python main.py --serve
+
+# Shot editor options (default pacing: standard)
+python main.py --auto --pacing fast          # calm | standard | fast
+python main.py --auto --strict               # fail instead of shipping a still when a clip fails
+python main.py --auto --classic              # old Ken Burns editor
+
+# Rebuild a finished job from output/<job>/sources with zero API calls
+python main.py --rerender output/<job> --pacing fast --subtitle-style neon_glow --color-grade tech
 
 # Run tests
 python -m pytest tests/ -v
