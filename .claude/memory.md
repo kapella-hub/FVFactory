@@ -145,9 +145,9 @@ use_persona: bool = False
 default_persona: str = ""
 
 # Mascot settings
-mascot_enabled: bool = True
+mascot_enabled: bool = False  # never on photoreal (sub-project 2)
 mascot_prompt: str = "A cute, futuristic robot with glowing blue eyes..."
-image_style: str = "vector art style, vibrant colors, clean lines"
+image_style: str = ""  # "" = derived from video_style
 
 # Background music settings
 music_enabled: bool = True
@@ -234,3 +234,16 @@ streamlit run app/dashboard.py
   first live ElevenLabs music/SFX library build unverified (request shape);
   fastapi/apscheduler routes and scheduler untested locally (only py_compiled; verify in Docker/VPS, incl. live browser pass);
   a real paid end-to-end run with motion clips has not been done.
+## Script upgrades (sub-project 2) - done (2026-10-03)
+- app/script_quality.py: word budget 2.6 words/s +-15% (short 30 s / medium 45 s / long 60 s), scene ranges
+  short 6-8 / medium 9-11 / long 11-14 (keeps a scene inside one 6 s clip), scene roles hook|open_loop|body|rehook|payoff|loop.
+- ScriptGenerator.write_script -> ScriptResult(script, warnings, length): one revision call when the draft is off budget;
+  never loses a valid draft. ScriptOutput gains hook_headline + scene_roles (null/mistyped values coerced, never a failure).
+- Roles stored in shot_plan.json (Scene.role); styled transitions land on rehook/payoff/loop; hook headline comes from the
+  script; --rerender keeps both. run_report.json has a "script" section (words, words_per_second, revision, roles).
+- Image style follows video_style (STYLE_SUFFIX); explicit IMAGE_STYLE in .env overrides every style. mascot_enabled defaults
+  False and the mascot is never used on photorealistic runs. Web UI duration labels show seconds.
+- Spec docs/superpowers/specs/2026-10-03-script-upgrades-design.md; plan docs/superpowers/plans/2026-10-03-script-upgrades.md.
+- Deferred to sub-project 3: cost-log the revision call (OpenAI fallback only); calibrate WORDS_PER_SECOND from
+  run_report script.words_per_second after the first paid runs.
+- Next: sub-project 3 - quality tiers (motion model/resolution/cost per tier, selectable), cost estimate + cap.
