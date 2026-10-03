@@ -272,7 +272,7 @@ def _run_shot_editor(job, script, narration: str, duration: float, options: Rend
         )
     plan = build_shot_plan(alignment, options.pacing, specs, roles=script.scene_roles or None)
     plan.hook_headline = make_hook_headline(script.hook, plan.duration, headline=script.hook_headline)
-    if script_headline_text(script.hook_headline) is None:
+    if options.enable_subtitles and script_headline_text(script.hook_headline) is None:   # headline is drawn only with captions
         report.warn("hook_headline_fallback",
                     "Script hook_headline missing or longer than 6 words; "
                     + ("using the hook's first sentence" if plan.hook_headline else "no headline shown"),

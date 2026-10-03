@@ -2,7 +2,7 @@
 
 Two phases around clip generation:
   plan_segments(alignment, durations)  -> [SegmentRequest]  (what clips to ask for)
-  build_shot_plan(alignment, pacing, clip_specs) -> ShotPlan  (how to cut what came back)
+  build_shot_plan(alignment, pacing, clip_specs, roles=None) -> ShotPlan  (how to cut what came back)
 ShotPlan.to_json() is the shot_plan.json contract (spec §6.6).
 """
 from __future__ import annotations

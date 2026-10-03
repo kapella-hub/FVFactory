@@ -382,3 +382,10 @@ def test_run_video_style_reaches_the_image_prompts(offline, monkeypatch):
     monkeypatch.setattr(main, "render_job", fake_render)
     main.run_pipeline("Gold facts", use_mock_images=True, video_style="cartoon")
     assert seen and set(seen) == {"cartoon"}
+
+
+def test_no_headline_warning_when_subtitles_are_off(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True, enable_subtitles=False)
+    codes = [w["code"] for w in report_of(only_job(offline.out))["warnings"]]
+    assert "hook_headline_fallback" not in codes

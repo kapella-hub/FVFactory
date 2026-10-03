@@ -152,3 +152,19 @@ def test_warnings_come_from_the_script_that_is_used(llm):
     llm(script_data(200, roles=["body"] * 8), script_data(118))
     result = ScriptGenerator().write_script("watches", video_duration="medium")
     assert result.length["revision"] == "accepted" and result.warnings == []
+
+
+def test_null_roles_and_headline_never_fail_the_run(llm):
+    llm(script_data(117) | {"scene_roles": None, "hook_headline": None})
+    result = ScriptGenerator().write_script("watches", video_duration="medium")
+    assert codes(result) == ["scene_roles_derived"]
+    assert result.script.hook_headline == ""
+
+
+def test_script_output_coerces_mistyped_retention_fields():
+    from app.content_engine import ScriptOutput
+    base = {k: v for k, v in script_data(117).items() if k not in ("scene_roles", "hook_headline")}
+    s = ScriptOutput(**base, scene_roles="hook, body", hook_headline=["A", "B"], hook_variants=None)
+    assert s.scene_roles == [] and s.hook_headline == "" and s.hook_variants == []
+    s = ScriptOutput(**base, scene_roles=["hook", None, 3], hook_headline=42)
+    assert s.scene_roles == ["hook", "3"] and s.hook_headline == ""

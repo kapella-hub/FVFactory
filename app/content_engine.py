@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
 from app.llm import generate_json
-from app.script_quality import DURATION_SECONDS, WordBudget, check_roles, count_words, word_budget
+from app.script_quality import DURATION_SECONDS, WordBudget, canonical_role, check_roles, count_words, word_budget
 
 logger = logging.getLogger(__name__)
 
@@ -26,13 +26,13 @@ class ScriptOutput(BaseModel):
     )
     body: str = Field(
         ...,
-        description="Main content, 25-85 seconds reading time depending on topic depth"
+        description="Main content; length follows the duration word budget (app.script_quality.word_budget)"
     )
     image_prompts: List[str] = Field(
         ...,
         min_length=5,
         max_length=20,
-        description="5-14 distinct, highly visual descriptions for AI image generation"
+        description="One distinct, highly visual description per scene (6-14 scenes depending on duration; see SCENE_RANGE)"
     )
     keywords: List[str] = Field(
         ...,
@@ -51,6 +51,19 @@ class ScriptOutput(BaseModel):
     # Retention fields (spec 2026-10-03, optional, backward compatible)
     hook_headline: str = Field(default="", description="<= 6 punchy words for the top band; not the hook sentence")
     scene_roles: List[str] = Field(default=[], description="One per scene: hook|open_loop|body|rehook|payoff|loop")
+
+    @field_validator("scene_roles", "hook_variants", mode="before")
+    @classmethod
+    def _coerce_list_fields(cls, v):
+        """LLMs return null or a bare string for optional lists; never fail the run for that (spec §4.2)."""
+        if not isinstance(v, list):
+            return []
+        return [x if isinstance(x, str) else str(x) for x in v if x is not None]
+
+    @field_validator("hook_headline", mode="before")
+    @classmethod
+    def _coerce_headline(cls, v):
+        return v if isinstance(v, str) else ""
 
     @field_validator("image_prompts")
     @classmethod
@@ -96,7 +109,11 @@ def normalize_prompt_counts(script: "ScriptOutput") -> Tuple["ScriptOutput", Opt
     if len(roles) > n:      # same merge rule as scene_texts: the merged last scene keeps the last role
         roles = roles[:max(n - 1, 0)] + roles[-1:] if n else []
     elif roles:
-        roles += ["body"] * (n - len(roles))
+        pad = ["body"] * (n - len(roles))
+        if canonical_role(roles[-1]) == "loop":     # keep the loop scene last
+            roles = roles[:-1] + pad + roles[-1:]
+        else:
+            roles += pad
     new = script.model_copy(update={"image_prompts": list(script.image_prompts[:n]),
                                     "motion_prompts": motion, "scene_texts": scenes,
                                     "pacing_hints": hints, "scene_roles": roles})

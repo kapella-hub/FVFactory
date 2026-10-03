@@ -75,3 +75,10 @@ def test_extra_scene_roles_merge_like_scene_texts_and_keep_the_last_role():
     script = make(scenes=8).model_copy(update={"scene_roles": roles})
     out, _ = normalize_prompt_counts(script)
     assert out.scene_roles == ["hook", "open_loop", "body", "rehook", "body", "loop"]
+
+
+def test_role_padding_goes_before_a_trailing_loop():
+    script = make(images=6, motion=6, scenes=6).model_copy(
+        update={"scene_roles": ["hook", "body", "body", "payoff", "Loop"]})
+    out, _ = normalize_prompt_counts(script)
+    assert out.scene_roles == ["hook", "body", "body", "payoff", "body", "Loop"]
