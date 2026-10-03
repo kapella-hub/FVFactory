@@ -89,7 +89,7 @@ async def generate_video(req: GenerateRequest) -> GenerateResponse:
             from main import run_pipeline, resolve_voice
 
             if story:                         # never trend discovery for a story
-                topic, source = story["title"], "story"
+                topic, source = story["title"] or req.topic.strip(), "story"
                 extra = {"story": story["story"], "story_mode": story["story_mode"]}
                 label = f"Story: {topic or default_title(story['story'])} ({story['story_mode']})"
             else:

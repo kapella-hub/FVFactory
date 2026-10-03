@@ -88,9 +88,8 @@ input, select, textarea {
   overflow: hidden;
 }
 
-.topbar__brand-icon { flex-shrink: 0; }
-
 .topbar__brand-icon {
+  flex-shrink: 0;
   width: 28px;
   height: 28px;
   background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
