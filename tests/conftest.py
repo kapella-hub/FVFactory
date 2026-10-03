@@ -76,3 +76,30 @@ def make_silence(path, seconds: float) -> Path:
     subprocess.run([ffmpeg_exe(), "-v", "error", "-y", "-f", "lavfi",
                     "-i", "anullsrc=r=48000:cl=stereo", "-t", str(seconds), str(path)], check=True)
     return Path(path)
+
+
+# ---------------------------------------------------------------- job builder (Task 11)
+
+def build_gold_job(tmp_path, durations=(5.0, 10.0), clip_size: str = "360x640", topic: str = "gold test"):
+    """A ready-to-render job from the gold fixture: tone narration, scene images, synthetic clips.
+    Returns (job, alignment, clip_specs). durations=(5, 10) keeps one segment per scene."""
+    from PIL import Image
+    from app.cin.job import create_job
+    from app.cin.shot_plan import ClipSpec, plan_segments
+
+    fx = load_fixture("words_gold_8s.json")
+    alignment = fixture_alignment("words_gold_8s.json")
+    job = create_job(topic, Path(tmp_path) / "output")
+    make_tone(job.narration, fx["duration"])
+    job.words.write_text(json.dumps(fx["words"]), encoding="utf-8")
+    job.alignment.write_text(json.dumps(alignment.to_json()), encoding="utf-8")
+    specs = []
+    for seg in plan_segments(alignment, durations):
+        image = job.image(seg.scene)
+        if not image.exists():
+            Image.new("RGB", (1080, 1920), (60 + 90 * seg.scene, 80, 150)).save(image)
+        clip = make_test_clip(job.clip(seg.name), seg.requested_len, size=clip_size,
+                              color=("red", "blue", "green")[seg.scene % 3])
+        specs.append(ClipSpec(seg.scene, seg.index, seg.t0, seg.t1, seg.requested_len, job.rel(image),
+                              path=job.rel(clip), duration=seg.requested_len, model="kling", attempts=1))
+    return job, alignment, specs
