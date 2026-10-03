@@ -57,3 +57,6 @@ data/
 
 # Screenshot artifacts
 library-*.png
+
+# Per-run job folders
+output/*/

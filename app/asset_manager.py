@@ -3,6 +3,7 @@ Asset Manager - Audio and image generation for video creation
 """
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -68,7 +69,8 @@ class AssetManager:
     def generate_audio(
         self,
         text: str,
-        voice_id: Optional[str] = None
+        voice_id: Optional[str] = None,
+        output_path: Optional[Path] = None,
     ) -> AudioResult:
         """
         Generate audio from text using ElevenLabs or OpenAI TTS fallback.
@@ -86,7 +88,9 @@ class AssetManager:
         if not text or not text.strip():
             raise AssetManagerError("Text cannot be empty")
 
-        output_path = self.TEMP_DIR / "audio.mp3"
+        # Per-job path (spec §9.2); the shared temp path is kept only for legacy callers.
+        output_path = Path(output_path) if output_path else self.TEMP_DIR / "audio.mp3"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Try ElevenLabs first
         if settings.elevenlabs_api_key:
@@ -164,10 +168,18 @@ class AssetManager:
         except Exception as e:
             raise AssetManagerError(f"Failed to get audio duration: {e}")
 
+    def _image_path(self, index: int, output_dir: Optional[Path]) -> Path:
+        """sources/images/sceneNN.png inside a job folder, or the legacy temp name."""
+        if output_dir is None:
+            return self.TEMP_DIR / f"image_{index}.png"
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+        return Path(output_dir) / f"scene{index:02d}.png"
+
     def generate_images(
         self,
         prompts: List[str],
-        use_mock: bool = True
+        use_mock: bool = True,
+        output_dir: Optional[Path] = None,
     ) -> List[str]:
         """
         Generate images from prompts with consistent styling.
@@ -189,19 +201,19 @@ class AssetManager:
 
         if use_mock:
             for i, prompt in enumerate(prompts):
-                output_path = self.TEMP_DIR / f"image_{i}.png"
+                output_path = self._image_path(i, output_dir)
                 styled_prompt = self._enhance_prompt_with_style(prompt)
                 self._generate_mock_image(styled_prompt, output_path, i)
                 file_paths[i] = str(output_path)
         elif settings.image_provider == "fal":
-            return self._generate_images_fal(prompts)
+            return self._generate_images_fal(prompts, output_dir)
         elif settings.image_provider == "local":
-            return self._generate_images_local(prompts)
+            return self._generate_images_local(prompts, output_dir)
         else:
             # Replicate: sequential generation with delay to respect rate limits
             import time
             for i, prompt in enumerate(prompts):
-                output_path = self.TEMP_DIR / f"image_{i}.png"
+                output_path = self._image_path(i, output_dir)
                 styled_prompt = self._enhance_prompt_with_style(prompt)
                 self._generate_image_flux(styled_prompt, output_path)
                 file_paths[i] = str(output_path)
@@ -262,7 +274,7 @@ class AssetManager:
 
         img.save(output_path, "PNG")
 
-    def _generate_images_fal(self, prompts: list[str]) -> list[str]:
+    def _generate_images_fal(self, prompts: list[str], output_dir: Optional[Path] = None) -> list[str]:
         """Generate images using fal.ai FLUX API."""
         import os
         import fal_client
@@ -291,7 +303,7 @@ class AssetManager:
             # Download image
             image_url = result["images"][0]["url"]
             response = requests.get(image_url, timeout=60)
-            output_path = self.TEMP_DIR / f"image_{i}.png"
+            output_path = self._image_path(i, output_dir)
             with open(output_path, "wb") as f:
                 f.write(response.content)
 
@@ -300,7 +312,7 @@ class AssetManager:
 
         return file_paths
 
-    def _generate_images_local(self, prompts: list[str]) -> list[str]:
+    def _generate_images_local(self, prompts: list[str], output_dir: Optional[Path] = None) -> list[str]:
         """Generate images using local FLUX model."""
         from app.local_image_gen import LocalImageGenerator
 
@@ -308,7 +320,14 @@ class AssetManager:
         try:
             enhanced = [self._enhance_prompt_with_style(p) for p in prompts]
             paths = gen.generate_batch(enhanced, self.IMAGE_WIDTH, self.IMAGE_HEIGHT, str(self.TEMP_DIR))
-            return paths
+            if output_dir is None:
+                return paths
+            moved = []
+            for i, path in enumerate(paths):
+                dest = self._image_path(i, output_dir)
+                os.replace(path, dest)
+                moved.append(str(dest))
+            return moved
         finally:
             gen.unload()
 

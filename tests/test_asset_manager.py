@@ -78,3 +78,38 @@ def test_elevenlabs_uses_v2_model():
         assert payload["model_id"] == "eleven_multilingual_v2"
     finally:
         settings.elevenlabs_api_key = original_key
+
+
+def test_generate_audio_writes_to_requested_job_path(tmp_path):
+    from app.config import settings
+    manager = AssetManager()
+    response = MagicMock(status_code=200, content=b"fake_audio")
+    target = tmp_path / "job" / "sources" / "narration.mp3"
+    original_key = settings.elevenlabs_api_key
+    try:
+        settings.elevenlabs_api_key = "fake_key"
+        with patch("app.asset_manager.requests.post", return_value=response), \
+                patch.object(manager, "_get_audio_duration", return_value=3.0):
+            result = manager.generate_audio("Hello world", output_path=target)
+    finally:
+        settings.elevenlabs_api_key = original_key
+    assert result.file_path == str(target)
+    assert target.read_bytes() == b"fake_audio"
+
+
+def test_mock_images_written_as_scene_files(tmp_path):
+    paths = AssetManager().generate_images(["p1", "p2"], use_mock=True, output_dir=tmp_path / "images")
+    assert paths == [str(tmp_path / "images" / "scene00.png"), str(tmp_path / "images" / "scene01.png")]
+    assert all(Path(p).exists() for p in paths)
+
+
+def test_fal_images_written_into_output_dir(tmp_path, monkeypatch):
+    from app.config import settings
+    fal = MagicMock()
+    fal.subscribe.return_value = {"images": [{"url": "https://fal.media/img.png"}]}
+    monkeypatch.setattr(settings, "image_provider", "fal")
+    with patch.dict("sys.modules", {"fal_client": fal}), \
+            patch("app.asset_manager.requests.get", return_value=MagicMock(status_code=200, content=b"png")):
+        paths = AssetManager().generate_images(["a", "b"], use_mock=False, output_dir=tmp_path)
+    assert paths == [str(tmp_path / "scene00.png"), str(tmp_path / "scene01.png")]
+    assert (tmp_path / "scene01.png").read_bytes() == b"png"
