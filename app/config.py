@@ -117,12 +117,14 @@ class Settings(BaseSettings):
 
     # Cost tracking (overridable via .env)
     cost_flux_image: float = 0.03
-    # Motion clip pricing per model: {"per_clip": usd} or {"per_second": usd}.
-    # fal list prices checked 2026-10-02 — verify against billing.
+    # Motion clip pricing per model: {"per_clip": usd} or {"per_second": usd}. Every CLIP_MODELS key
+    # needs an entry. fal list prices (audio off) checked 2026-10-03, subject to change; no promo prices.
     clip_pricing: dict = {
-        "hailuo": {"per_clip": 0.50},
-        "kling": {"per_second": 0.045},
-        "kling-pro": {"per_second": 0.10},
+        "kling": {"per_second": 0.084},          # Kling v3 Standard
+        "kling-pro": {"per_second": 0.112},      # Kling v3 Pro
+        "hailuo": {"per_clip": 0.50},            # Minimax video-01, 6 s fixed
+        "h3-turbo": {"per_second": 0.04},        # MiniMax H3 Max Turbo 768P
+        "h3": {"per_second": 0.08},              # MiniMax H3 Max 768P
         "replicate-minimax": {"per_clip": 0.50},
         "local": {"per_clip": 0.0},
     }
@@ -152,7 +154,7 @@ class Settings(BaseSettings):
 
     # fal.ai settings
     fal_api_key: str = ""                   # fal.ai API key (or set FAL_KEY env var)
-    fal_video_model: str = "hailuo"         # "hailuo" | "kling" | "kling-pro"
+    fal_video_model: str = "hailuo"         # custom tier model: kling | kling-pro | hailuo | h3-turbo | h3
     fal_image_model: str = "fal-ai/flux/schnell"  # fal.ai image generation endpoint
 
     # Local model settings

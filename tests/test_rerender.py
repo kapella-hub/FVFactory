@@ -249,3 +249,24 @@ def test_rerender_carries_script_section_and_script_warnings(tmp_path, monkeypat
     assert rep.script == {"preset": "medium", "words": 150, "narration_seconds": 58.1}
     assert [w["code"] for w in rep.warnings] == ["script_length_off_target", "scene_roles_derived",
                                                  "hook_headline_fallback"]
+
+
+def test_rerender_of_a_kling_plan_makes_no_generator_calls(tmp_path, monkeypatch):
+    """Quality tiers (spec 2026-10-03 §4.2): "kling" now names Kling v3; a re-render of an old plan
+    that names it reuses the saved clips and never calls a motion generator."""
+    job, plan = saved_job(tmp_path)                 # build_gold_job made every clip with model "kling"
+    prev = RunReport.load(job.report)
+    prev.clips = {"requested": 2, "generated": 2, "failed": 0, "by_model": {"kling": 2}}
+    prev.save(job.report)
+
+    def no_generation(*args, **kwargs):
+        raise AssertionError("motion generator called during rerender")
+
+    monkeypatch.setattr("app.motion_gen.MotionGenerator.generate_clip", no_generation)
+    monkeypatch.setattr("app.motion_gen.MotionGenerator._generate_fal", no_generation)
+    monkeypatch.setattr("app.cin.clip_sourcing.generate_segment_clips", no_generation)
+    monkeypatch.setitem(sys.modules, "fal_client", None)
+    monkeypatch.setattr("app.cin.editor.render_job", lambda *a, **k: job.final)
+    assert rerender_job(job.root, pacing="fast") == str(job.final)
+    assert all(s.source.type == "clip" for s in ShotPlan.load(job.shot_plan).shots)
+    assert RunReport.load(job.report).clips["by_model"] == {"kling": 2}

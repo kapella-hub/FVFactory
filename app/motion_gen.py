@@ -16,21 +16,36 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ClipModel:
-    """A motion model and the clip lengths it can return (spec §6.4)."""
+    """A motion model: endpoint, clip lengths and request format (spec 2026-10-03 §5)."""
     key: str
     endpoint: Optional[str]                    # fal endpoint; None for non-fal providers
     durations: Optional[Tuple[float, ...]]     # supported lengths in seconds; None = any length
-    sends_duration: bool = False               # pass a "duration" argument to the endpoint
+    duration_format: str = "none"              # "none" | "int_str" ("5") | "number" (5)
+    image_arg: str = "image_url"               # Kling v3: "start_image_url"
+    extra_args: Tuple[Tuple[str, object], ...] = ()   # constant arguments, e.g. (("generate_audio", False),)
+    label: str = ""                            # human label for the Settings page / API
 
 
-# Kling v1 / v1.5 fal endpoints are marked deprecated on fal.ai (checked 2026-10-02); they stay
-# for existing configs. Sub-project 3 replaces this table with current models.
+KLING_V3_LENGTHS = tuple(float(d) for d in range(3, 16))
+H3_LENGTHS = tuple(float(d) for d in range(5, 16))        # upper bound unverified (spec §4.4)
+_KLING_ARGS = (("generate_audio", False),)                 # fal default is true and bills more
+_H3_ARGS = (("resolution", "768P"), ("prompt_expansion_mode", "balanced"))
+CLASSIC_CLIP_SECONDS = 5.0     # the classic editor's clip length (old Kling minimum); see main._log_costs
+
+# fal list prices live in settings.clip_pricing (checked 2026-10-03). Kling v1/v1.5 are dead on
+# fal; the "kling" / "kling-pro" keys now name Kling v3 so saved configs stay valid.
 CLIP_MODELS = {
-    "hailuo": ClipModel("hailuo", "fal-ai/minimax-video/image-to-video", (6.0,)),
-    "kling": ClipModel("kling", "fal-ai/kling-video/v1/standard/image-to-video", (5.0, 10.0), True),
-    "kling-pro": ClipModel("kling-pro", "fal-ai/kling-video/v1.5/pro/image-to-video", (5.0, 10.0), True),
-    "replicate-minimax": ClipModel("replicate-minimax", None, (6.0,)),
-    "local": ClipModel("local", None, None),
+    "kling": ClipModel("kling", "fal-ai/kling-video/v3/standard/image-to-video", KLING_V3_LENGTHS,
+                       "int_str", "start_image_url", _KLING_ARGS, "Kling v3 Standard"),
+    "kling-pro": ClipModel("kling-pro", "fal-ai/kling-video/v3/pro/image-to-video", KLING_V3_LENGTHS,
+                           "int_str", "start_image_url", _KLING_ARGS, "Kling v3 Pro"),
+    "hailuo": ClipModel("hailuo", "fal-ai/minimax-video/image-to-video", (6.0,), label="Minimax video-01"),
+    "h3-turbo": ClipModel("h3-turbo", "minimax/h3-max-turbo/image-to-video", H3_LENGTHS, "number",
+                          extra_args=_H3_ARGS, label="MiniMax H3 Max Turbo (unverified 9:16)"),
+    "h3": ClipModel("h3", "minimax/h3-max/image-to-video", H3_LENGTHS, "number",
+                    extra_args=_H3_ARGS, label="MiniMax H3 Max (unverified 9:16)"),
+    "replicate-minimax": ClipModel("replicate-minimax", None, (6.0,), label="Replicate Minimax"),
+    "local": ClipModel("local", None, None, label="Local (free)"),
 }
 
 # fal.ai model endpoints (kept for older call sites)
@@ -59,6 +74,16 @@ def snap_duration(needed: float, durations: Optional[Tuple[float, ...]]) -> Opti
     return None
 
 
+def build_fal_arguments(model: ClipModel, image_url: str, prompt: str, duration: Optional[float]) -> dict:
+    """The fal request body for one clip (spec 2026-10-03 §5). No model sends aspect_ratio: Kling v3
+    and H3 follow the 9:16 start image, hailuo never took one. duration None = the shortest length."""
+    args = {"prompt": prompt, model.image_arg: image_url, **dict(model.extra_args)}
+    if model.duration_format != "none":
+        length = snap_duration(duration or min(model.durations), model.durations) or max(model.durations)
+        args["duration"] = str(int(length)) if model.duration_format == "int_str" else int(length)
+    return args
+
+
 class MotionGenerator:
     """Generates motion clips from static images."""
 
@@ -76,14 +101,14 @@ class MotionGenerator:
 
         try:
             if provider == "fal":
-                return self._generate_fal(image_path, motion_prompt, index)
+                return self._generate_fal(image_path, motion_prompt, index, duration=CLASSIC_CLIP_SECONDS)
             elif provider == "replicate":
                 return self._generate_replicate(image_path, motion_prompt, index)
             elif provider == "local":
                 return self._generate_local(image_path, motion_prompt, index)
             else:
                 # Default: try fal first, fall back to replicate
-                return self._generate_fal(image_path, motion_prompt, index)
+                return self._generate_fal(image_path, motion_prompt, index, duration=CLASSIC_CLIP_SECONDS)
 
         except Exception as e:
             logger.warning(f"Motion clip {index} generation failed (non-fatal): {e}")
@@ -132,17 +157,7 @@ class MotionGenerator:
         # Upload image to fal
         image_url = fal_client.upload_file(image_path)
 
-        # Build arguments
-        args = {
-            "prompt": motion_prompt,
-            "image_url": image_url,
-        }
-
-        # Kling takes a length ("5"/"10") and an aspect ratio; Minimax/hailuo takes neither
-        if model.sends_duration:
-            length = snap_duration(duration or min(model.durations), model.durations) or max(model.durations)
-            args["duration"] = str(int(length))
-            args["aspect_ratio"] = "9:16"
+        args = build_fal_arguments(model, image_url, motion_prompt, duration)
 
         def on_queue_update(update):
             if isinstance(update, fal_client.InProgress):

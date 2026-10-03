@@ -77,9 +77,12 @@ def test_hailuo_clip_priced_per_clip(tmp_path):
     assert item["unit_cost"] == 0.5
 
 
-def test_kling_clip_priced_per_second(tmp_path):
+def test_kling_clip_priced_per_second(tmp_path, monkeypatch):
+    from app.config import Settings, settings
+    monkeypatch.setattr(settings, "clip_pricing", Settings(_env_file=None).clip_pricing)
     tracker = CostTracker(output_dir=str(tmp_path))
-    assert tracker.log_clip("v1", "kling", seconds=10.0) == 0.45
+    assert tracker.log_clip("v1", "kling", seconds=10.0) == 0.84          # Kling v3 Standard $0.084/s
+    assert tracker.log_clip("v1", "kling-pro", seconds=5.0) == 0.56       # Kling v3 Pro $0.112/s
 
 
 def test_unknown_clip_model_raises(tmp_path):
