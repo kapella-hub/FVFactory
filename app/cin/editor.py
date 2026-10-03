@@ -16,7 +16,8 @@ from app.cin.align import Alignment
 from app.cin.clip_sourcing import probe_clip_duration
 from app.cin.job import JobPaths, open_job
 from app.cin.mix import mix_audio
-from app.cin.renderer import ShotRenderer, caption_overlays
+from app.cin.captions import build_caption_layer
+from app.cin.renderer import ShotRenderer
 from app.cin.report import RunReport
 from app.cin.shot_plan import ClipSpec, SegmentRequest, ShotPlan, build_shot_plan
 from app.config import settings
@@ -65,9 +66,10 @@ def render_job(job: JobPaths, plan: ShotPlan, options: RenderOptions, report: Ru
     final_tmp = job.render_tmp / "final.mp4"
 
     with report.stage("render"):
-        overlays = caption_overlays(plan, options.subtitle_style) if options.enable_subtitles else []
-        ShotRenderer(plan, job, video_style=options.video_style,
-                     color_grade=options.color_grade or None).render(video_tmp, overlays)
+        captions = build_caption_layer(plan, options.subtitle_style, report=report,
+                                       enable_subtitles=options.enable_subtitles)
+        ShotRenderer(plan, job, video_style=options.video_style, color_grade=options.color_grade or None,
+                     captions=captions).render(video_tmp)
 
     with report.stage("mix"):
         sfx_on = options.enable_sfx and settings.enable_sfx
@@ -145,7 +147,9 @@ def rebuild_plan(job: JobPaths, pacing: str, enable_motion: bool = True) -> Shot
     """Same scenes and clips, new cuts: --pacing only changes cuts within scenes (spec §9.3)."""
     alignment = Alignment.from_json(json.loads(job.alignment.read_text(encoding="utf-8")))
     old = ShotPlan.load(job.shot_plan)
-    return build_shot_plan(alignment, pacing, clip_specs_from_plan(old, job, enable_motion))
+    plan = build_shot_plan(alignment, pacing, clip_specs_from_plan(old, job, enable_motion))
+    plan.hook_headline = old.hook_headline        # set from script.hook at generation; not in alignment.json
+    return plan
 
 
 def rerender_job(job_dir, *, pacing: Optional[str] = None, subtitle_style: Optional[str] = None,

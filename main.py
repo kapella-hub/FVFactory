@@ -28,6 +28,7 @@ from app.cin.clip_sourcing import StrictModeError, generate_segment_clips
 from app.cin.editor import RenderOptions, render_job
 from app.cin.job import create_job, prune_sources
 from app.cin.report import RunReport
+from app.cin.caption_groups import make_hook_headline
 from app.cin.shot_plan import PACING, build_shot_plan, plan_segments
 
 # Configure logging
@@ -271,6 +272,7 @@ def _run_shot_editor(job, script, narration: str, duration: float, options: Rend
             fallback_model=settings.fal_video_fallback_model if settings.motion_provider == "fal" else None,
         )
     plan = build_shot_plan(alignment, options.pacing, specs)
+    plan.hook_headline = make_hook_headline(script.hook, plan.duration)
     for w in plan.warnings:
         report.warn(w["code"], w["message"], w["detail"])
     plan.save(job.shot_plan)

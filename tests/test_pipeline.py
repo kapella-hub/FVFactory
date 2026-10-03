@@ -231,3 +231,11 @@ def test_mock_run_end_to_end(offline):
     assert report["status"] == "ok" and report["platform_safe"]["ok"] is True
     assert -15.0 <= report["loudness"]["I"] <= -13.0
     assert (job / "sources/mix.wav").exists() and not (job / "_render").exists()
+
+
+def test_shot_plan_gets_hook_headline_from_script(offline, monkeypatch):
+    """Spec §7: the hook's first sentence (<= 8 words) becomes the top-band headline for [0, 2.5 s]."""
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True)
+    plan = json.loads((only_job(offline.out) / "sources/shot_plan.json").read_text(encoding="utf-8"))
+    assert plan["hook_headline"] == {"text": "Gold is heavier than you think", "t0": 0.0, "t1": 2.5}

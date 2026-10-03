@@ -102,8 +102,10 @@ class _Sources:
 
 class ShotRenderer:
     def __init__(self, plan: ShotPlan, job, *, video_style: str = "photorealistic",
-                 color_grade: Optional[str] = None, width: int = WIDTH, height: int = HEIGHT):
+                 color_grade: Optional[str] = None, width: int = WIDTH, height: int = HEIGHT,
+                 captions=None):
         self.plan, self.job, self.w, self.h = plan, job, width, height
+        self.captions = captions          # app.cin.captions.CaptionLayer or None
         self.sources = _Sources(job, width, height)
         self.particles = ParticleSystem(preset=STYLE_PARTICLES.get(video_style, "dust"),
                                         width=width, height=height)
@@ -140,17 +142,19 @@ class ShotRenderer:
         if overlay.size and overlay.shape[2] == 4 and overlay[:, :, 3].any():
             alpha = overlay[:, :, 3:4].astype(np.float32) / 255.0
             frame = (frame.astype(np.float32) * (1 - alpha) + overlay[:, :, :3] * alpha).astype(np.uint8)
-        return np.ascontiguousarray(frame, dtype=np.uint8)
+        frame = np.ascontiguousarray(frame, dtype=np.uint8)
+        if self.captions is not None:                     # spec §7: composited inside the frame function
+            # Copy first: an unzoomed still or clip frame can be the cached source array itself.
+            frame = self.captions.composite(frame.copy(), t)
+        return frame
 
-    def render(self, out_path, overlays: Optional[list] = None) -> Path:
-        from moviepy import CompositeVideoClip, VideoClip
+    def render(self, out_path) -> Path:
+        from moviepy import VideoClip
         clip = None
         try:
-            # Built inside the try: a first-frame failure (CompositeVideoClip samples one) must
-            # still close opened clip readers and surface as RenderError.
+            # Built inside the try: a first-frame failure (VideoClip samples one) must still close
+            # opened clip readers and surface as RenderError.
             clip = VideoClip(self.frame_at, duration=self.plan.duration).with_fps(self.plan.fps)
-            if overlays:
-                clip = CompositeVideoClip([clip] + list(overlays), size=(self.w, self.h)).with_duration(self.plan.duration)
             write_video(clip, out_path, fps=self.plan.fps)
         except RenderError:
             raise
@@ -161,16 +165,3 @@ class ShotRenderer:
             if clip is not None:
                 clip.close()
         return Path(out_path)
-
-
-def caption_overlays(plan: ShotPlan, subtitle_style: str, width: int = WIDTH, height: int = HEIGHT) -> list:
-    """Phase A adapter: aligned caption groups -> the existing karaoke clips.
-
-    Known debt, fixed by the Phase B caption rewrite: _create_karaoke_clips splits a group's time
-    evenly across its words (app/video_editor.py:495) and places captions at y = 1570 (:512)."""
-    from app.subtitle_styles import SubtitleRenderer
-    from app.video_editor import SubtitleSegment, VideoEditor
-    segments = [SubtitleSegment(text=" ".join(w.text for w in g.words), start=g.t0, end=g.t1)
-                for g in plan.captions if g.words and g.t1 > g.t0]
-    renderer = SubtitleRenderer(style=subtitle_style, width=width, height=height)
-    return VideoEditor()._create_karaoke_clips(segments, renderer, skip_until=0.0)
