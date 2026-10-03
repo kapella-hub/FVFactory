@@ -668,3 +668,11 @@ def test_partial_cost_logging_never_masks_the_original_error(offline, monkeypatc
     monkeypatch.setattr(main, "_log_costs", _raise(KeyError("broken helper")))
     with pytest.raises(main.CostCapError):
         main.run_pipeline("Gold facts", max_cost=1.0)
+
+
+def test_mock_image_run_that_fails_logs_no_images(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", _raise(RuntimeError("encoder crashed")))
+    with pytest.raises(RuntimeError):
+        main.run_pipeline("Gold facts", use_mock_images=True)
+    items = [i["item"] for i in report_of(only_job(offline.out))["cost"]["actual"]]
+    assert items == ["claude_cli", "claude_cli"]
