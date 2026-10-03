@@ -31,6 +31,9 @@ RUN fc-cache -f -v
 
 # Copy requirements and install Python dependencies
 COPY requirements.txt .
+# CPU-only PyTorch first (Whisper alignment, local image fallback): the default CUDA wheels add ~4 GB of
+# NVIDIA libraries a CPU container never loads. requirements.txt's unpinned `torch` is then satisfied.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code

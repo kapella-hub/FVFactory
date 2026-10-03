@@ -1,0 +1,27 @@
+# Never bake secrets or local state into the image: .env is mounted read-only at run time.
+.env
+.env.*
+!.env.example
+client_secrets.json
+youtube_token.json
+data/
+# Large or machine-local
+.venv/
+venv/
+.git/
+output/
+assets/temp/
+*.mp4
+*.png
+!assets/**/*.png
+!app/**/*.png
+# Tooling / scratch
+.claude/
+.superpowers/
+.agent/
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+nul

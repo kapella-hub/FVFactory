@@ -122,8 +122,14 @@ headless) | `openai` (paid API). `LLM_FALLBACK` (default `codex,openai`; `none` 
 fails. Models: `CLAUDE_CLI_MODEL`, `CODEX_MODEL`, `OPENAI_MODEL`. The provider that answered is recorded at
 `run_report.json` `script.llm_provider` and picks the LLM cost-log item. A provider that fails, or answers with empty
 or invalid JSON, falls through to the next. The Docker image installs both CLIs; auth via `CLAUDE_CODE_OAUTH_TOKEN`
-(`claude setup-token`) and `codex login` (mounted `~/.codex`) or `CODEX_API_KEY`, all in `.env` (no compose
+(`claude setup-token`) and `codex login` (copy `~/.codex/auth.json` to `data/codex/auth.json`) or `CODEX_API_KEY`, all in `.env` (no compose
 `env_file`). The CLIs never inherit `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `CODEX_API_KEY` /
 `CLAUDE_CODE_OAUTH_TOKEN` from the environment; each gets only its own setting. Model names are restricted to
 `[A-Za-z0-9._:-]` (the Windows `codex.cmd` shim runs through cmd.exe). Web UI CORS is off unless `CORS_ORIGINS`
 lists origins; `CORS_ORIGINS` and the two CLI tokens cannot be set from the Settings page.
+
+**Docker (local)**: `docker compose up -d --build web` serves the web UI at http://localhost:8000 (published on
+127.0.0.1 only: the UI has no login). Mounted: `output/`, `data/` (Settings `config.json`, music history, Codex
+login in `data/codex/`), `assets/music`, `assets/sfx`, `.env` (read-only). `.dockerignore` keeps `.env`, `.venv`,
+`output/` and `data/` out of the image; PyTorch is the CPU build (~5.8 GB image). One-off runs:
+`docker compose exec web python main.py --auto --topic "..." --tier standard --max-cost 4`.
