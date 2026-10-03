@@ -67,6 +67,7 @@ const GeneratePage = (() => {
   // /api/generate/options; these fallbacks match app/story.py and app/script_quality.py.
   let genOptions = { story_max_chars: 4000, words_per_second: 2.2, scene_seconds: 5,
                      personas: [], persona_ready: false, upload_ready: false };
+  let storySupported = false;      // set by loadOptions from /api/generate/options
 
   let currentJobId = null;
   let wsCleanup = [];
@@ -339,7 +340,11 @@ const GeneratePage = (() => {
   async function loadOptions() {
     try {
       const res = await fetch('/api/generate/options');
-      if (res.ok) genOptions = { ...genOptions, ...(await res.json()) };
+      const data = res.ok ? await res.json() : {};
+      // A server started before "Your story" existed answers {"error": "Not found"} here and would ignore the
+      // story fields (and auto-discover a topic instead), so stories are refused until it is restarted.
+      storySupported = typeof data.story_max_chars === 'number';
+      genOptions = { ...genOptions, ...(storySupported ? data : {}) };
     } catch (e) {
       // Fallback values stay; the server validates every option anyway.
     }
@@ -540,6 +545,10 @@ const GeneratePage = (() => {
 
     if (source === 'topic' && !topic) {
       FVToast.show('Enter a topic, or choose Auto-discover or Your story', 'warning');
+      return;
+    }
+    if (source === 'story' && !storySupported) {
+      FVToast.show('This server is running an older build without story support; restart it (python main.py --serve)', 'error', 6000);
       return;
     }
     if (source === 'story' && !story) {
