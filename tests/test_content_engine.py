@@ -71,10 +71,31 @@ def test_system_prompt_asks_for_retention_structure_and_new_fields():
 
 
 def test_cartoon_style_still_replaces_the_photoreal_image_rules():
-    prompt = ScriptGenerator()._build_system_prompt(video_style="cartoon")
-    assert "MUST describe a photorealistic scene" not in prompt
-    assert "MUST describe a CARTOON style scene" in prompt
-    assert 'NEVER use words like "cartoon"' not in prompt
+    for v2 in (False, True):
+        prompt = ScriptGenerator()._build_system_prompt(enable_v2=v2, video_style="cartoon")
+        assert "MUST describe a photorealistic scene" not in prompt
+        assert "MUST describe a CARTOON style scene" in prompt
+        assert 'NEVER use words like "cartoon"' not in prompt
+
+
+def test_motion_prompts_must_describe_the_subjects_action():
+    """User feedback 2026-10-03: camera-drift prompts gave near-static clips. Prompts name what moves."""
+    prompt = ScriptGenerator()._build_system_prompt(enable_v2=True)
+    bullet = prompt[prompt.index('- "motion_prompts"'):prompt.index('- "pacing_hints"')]
+    assert "visible physical action" in bullet and "what moves and how" in bullet
+    assert "ONE camera move" in bullet
+    assert "NEVER" in bullet and "static" in bullet and "parallax" in bullet
+    assert "rust flakes crumble off the chain as it swings" in bullet
+    for old in ("static shot with subtle parallax", "how the camera moves", "slow zoom in on the subject",
+                "One camera/motion description"):
+        assert old not in prompt, old
+
+
+def test_generic_motion_prompt_is_action_first():
+    from app.content_engine import GENERIC_MOTION_PROMPT
+    assert GENERIC_MOTION_PROMPT.startswith("the main subject moves")
+    for word in ("subtle", "slight", "slow", "drift", "parallax"):
+        assert word not in GENERIC_MOTION_PROMPT, word
 
 
 def test_duration_guide_matches_word_budget():

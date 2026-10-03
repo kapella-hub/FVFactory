@@ -43,7 +43,7 @@ class ScriptOutput(BaseModel):
     # V2 fields (optional, backward compatible)
     hook_variants: List[str] = Field(default=[], description="3 alternative hook options")
     hook_viral_score: int = Field(default=0, description="1-10 scroll-stopping score for the hook")
-    motion_prompts: List[str] = Field(default=[], description="Camera/motion descriptions, one per image_prompt")
+    motion_prompts: List[str] = Field(default=[], description="Subject-action motion descriptions (what moves and how), one per image_prompt")
     pacing_hints: List[str] = Field(default=[], description="Pacing values, one per image_prompt")
     scene_texts: List[str] = Field(default=[], description="Narration text segments, one per image_prompt")
     emoji_subtitles: List[str] = Field(default=[], description="Key phrases with contextual emojis for subtitles")
@@ -73,7 +73,7 @@ class ScriptOutput(BaseModel):
         return v
 
 
-GENERIC_MOTION_PROMPT = "slow cinematic push-in with subtle camera drift"
+GENERIC_MOTION_PROMPT = "the main subject moves with clear, natural motion while the camera pushes in"
 
 
 def _prompt_counts(script: "ScriptOutput") -> dict:
@@ -195,10 +195,12 @@ Each image prompt should be detailed enough for an AI to generate a compelling p
 
 ADDITIONAL REQUIRED FIELDS:
 - "hook_variants": 3 alternative hook options (list of strings), each following the HOOK rules
-- "motion_prompts": One camera/motion description per image prompt (same count as image_prompts).
-  Each should describe how the camera moves or what animates in the scene.
-  Examples: "slow zoom in on the subject, particles floating upward",
-  "dramatic pan left revealing the landscape", "static shot with subtle parallax"
+- "motion_prompts": One motion description per image prompt (same count as image_prompts).
+  Each MUST name the main subject's visible physical action: what moves and how it moves.
+  You may add ONE camera move after the action. The clip must clearly move from start to finish.
+  NEVER write a static shot, a camera move over a still subject, or "subtle", "slight" or parallax-only motion.
+  Examples: "rust flakes crumble off the chain as it swings",
+  "waves roll over the scattered coins, sand swirls", "molten gold pours into a mold and splashes, camera pushes in"
 - "pacing_hints": One pacing value per scene (same count as image_prompts). Use: "fast" for exciting moments,
   "normal" for standard pacing, "slow" for emotional moments, "dramatic_pause" for reveals.
 - "scene_texts": Split the full narration (hook + body) into segments, one per image prompt.
