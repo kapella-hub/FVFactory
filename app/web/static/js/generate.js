@@ -35,6 +35,19 @@ const GeneratePage = (() => {
   ];
   const STAGES = ['script', 'audio', 'images', 'motion', 'assembly'];
 
+  // Shot editor options (spec §11). The "" option means "use the Settings default".
+  const PACINGS = [
+    { id: 'calm',     label: 'Calm (~4 s shots)' },
+    { id: 'standard', label: 'Standard (~3 s shots)' },
+    { id: 'fast',     label: 'Fast (~2 s shots)' },
+  ];
+  const MUSIC_SOURCES = [
+    { id: 'any',       label: 'Any (my tracks + generated)' },
+    { id: 'mine',      label: 'My tracks only' },
+    { id: 'generated', label: 'Generated library only' },
+    { id: 'none',      label: 'No music' },
+  ];
+
   let currentJobId = null;
   let wsCleanup = [];
   let logEntries = [];
@@ -124,6 +137,24 @@ const GeneratePage = (() => {
           </div>
         </div>
 
+        <!-- Pacing + Music Source -->
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Pacing</label>
+            <select class="form-select" id="gen-pacing">
+              <option value="">Default</option>
+              ${PACINGS.map(p => `<option value="${p.id}">${p.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Music Source</label>
+            <select class="form-select" id="gen-music-source">
+              <option value="">Default</option>
+              ${MUSIC_SOURCES.map(m => `<option value="${m.id}">${m.label}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
         <!-- Toggles -->
         <div style="display:flex;gap:var(--space-8);flex-wrap:wrap;margin-bottom:var(--space-5)">
           <div class="toggle toggle--active" id="toggle-motion" onclick="GeneratePage.toggleSwitch('toggle-motion')">
@@ -145,6 +176,14 @@ const GeneratePage = (() => {
           <div class="checkbox" id="cb-mock" onclick="GeneratePage.toggleCheckbox('cb-mock')">
             <div class="checkbox__box">&#10003;</div>
             <span class="checkbox__label">Use mock images (free, for testing)</span>
+          </div>
+        </div>
+
+        <!-- Strict checkbox (pre-checked from Settings by loadDefaults) -->
+        <div class="form-group">
+          <div class="checkbox" id="cb-strict" onclick="GeneratePage.toggleCheckbox('cb-strict')">
+            <div class="checkbox__box">&#10003;</div>
+            <span class="checkbox__label">Strict: fail the run instead of shipping a still when a motion clip fails</span>
           </div>
         </div>
 
@@ -172,8 +211,27 @@ const GeneratePage = (() => {
         </div>
 
         <div class="progress-log" id="progress-log"></div>
+
+        <!-- Run report (spec §10): filled from the WebSocket complete/error payload -->
+        <div class="hidden" id="run-report" style="margin-top:var(--space-4)"></div>
       </div>
     `;
+    loadDefaults();
+  }
+
+  async function loadDefaults() {
+    try {
+      const cfg = await (await fetch('/api/config')).json();
+      const label = (selectId, value) => {
+        const opt = document.querySelector(`#${selectId} option[value=""]`);
+        if (opt && value) opt.textContent = `Default (${value})`;
+      };
+      label('gen-pacing', cfg.pacing);
+      label('gen-music-source', cfg.music_source);
+      if (cfg.strict === true) document.getElementById('cb-strict')?.classList.add('checkbox--checked');
+    } catch (e) {
+      // Labels stay "Default"; the server applies the Settings defaults anyway.
+    }
   }
 
   function toggleAuto() {
@@ -215,7 +273,7 @@ const GeneratePage = (() => {
   }
 
   function getSelectedStyle() {
-    return document.querySelector('.style-card--selected')?.dataset.style || 'bold_impact';
+    return document.querySelector('#style-grid .style-card--selected')?.dataset.style || 'bold_impact';
   }
 
   function isToggleActive(id) {
@@ -253,6 +311,9 @@ const GeneratePage = (() => {
       use_mock: isChecked('cb-mock'),
       video_style: getSelectedVideoStyle(),
       video_duration: getSelectedDuration(),
+      pacing: document.getElementById('gen-pacing').value || null,
+      music_source: document.getElementById('gen-music-source').value || null,
+      strict: isChecked('cb-strict'),
     };
 
     try {
@@ -269,7 +330,7 @@ const GeneratePage = (() => {
         listenToWs();
         FVToast.show('Generation started', 'info');
       } else {
-        throw new Error('No job_id in response');
+        throw new Error(typeof data.detail === 'string' ? data.detail : 'No job_id in response');
       }
     } catch (e) {
       FVToast.show('Failed to start generation: ' + e.message, 'error');
@@ -280,6 +341,7 @@ const GeneratePage = (() => {
 
   function showProgress() {
     document.getElementById('progress-panel')?.classList.remove('hidden');
+    document.getElementById('run-report')?.classList.add('hidden');
     logEntries = [];
   }
 
@@ -298,7 +360,10 @@ const GeneratePage = (() => {
       STAGES.forEach(s => updateStage(s, 'complete'));
       updateBar(1);
       addLog('Pipeline complete!');
-      FVToast.show('Video generated successfully!', 'success');
+      const n = ((data.result && data.result.warnings) || []).length;
+      FVToast.show(n ? `Video generated with ${n} warning${n === 1 ? '' : 's'} (see Run Report)`
+                     : 'Video generated successfully!', n ? 'warning' : 'success');
+      showRunReport(data.result, null);
       resetButton();
     };
 
@@ -308,6 +373,7 @@ const GeneratePage = (() => {
       const activeStage = document.querySelector('.progress-stage--active');
       if (activeStage) activeStage.className = 'progress-stage progress-stage--error';
       FVToast.show('Generation failed: ' + (data.error || 'Unknown'), 'error');
+      showRunReport(data.result, data.error || 'Unknown error');
       resetButton();
     };
 
@@ -352,6 +418,31 @@ const GeneratePage = (() => {
       `<div class="progress-log__entry"><span class="progress-log__time">${e.time}</span>${escapeHtml(e.message)}</div>`
     ).join('');
     log.scrollTop = log.scrollHeight;
+  }
+
+  function showRunReport(result, error) {
+    const el = document.getElementById('run-report');
+    if (!el) return;
+    const warnings = (result && result.warnings) || [];
+    const status = error
+      ? '<span class="badge badge--red">failed</span>'
+      : warnings.length
+        ? `<span class="badge badge--yellow">${warnings.length} warning${warnings.length === 1 ? '' : 's'}</span>`
+        : '<span class="badge badge--green">no warnings</span>';
+    const rows = warnings.map(w => `
+      <div class="progress-log__entry">
+        <span class="badge badge--yellow">${escapeHtml(w.code)}</span> ${escapeHtml(w.message)}
+      </div>`).join('');
+    const where = result && result.video_id
+      ? `<div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-2)">Job: ${escapeHtml(result.video_id)}</div>`
+      : '';
+    const open = !error && result && result.video_id
+      ? `<button class="btn btn--secondary" style="margin-top:var(--space-3)" onclick="FVRouter.navigate('/library')">Open Library</button>`
+      : '';
+    el.innerHTML = `
+      <div class="section__title"><span class="section__title-icon">&#128203;</span>Run Report ${status}</div>
+      ${rows}${where}${open}`;
+    el.classList.remove('hidden');
   }
 
   function resetButton() {

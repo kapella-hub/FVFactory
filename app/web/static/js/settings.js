@@ -104,11 +104,29 @@ const SettingsPage = (() => {
           </div>
         </div>
 
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Default Pacing</label>
+            <select class="form-select" data-key="pacing">
+              ${['calm', 'standard', 'fast']
+                .map(p => `<option value="${p}" ${(config.pacing || 'standard') === p ? 'selected' : ''}>${p}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Default Music Source</label>
+            <select class="form-select" data-key="music_source">
+              ${['any', 'mine', 'generated', 'none']
+                .map(m => `<option value="${m}" ${(config.music_source || 'any') === m ? 'selected' : ''}>${m}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
         <div style="display:flex;gap:var(--space-8);flex-wrap:wrap;margin-top:var(--space-2)">
-          ${settingToggle('cinematic_enabled', 'Cinematic Engine', config.cinematic_enabled !== false)}
+          ${settingToggle('cinematic_enabled', 'Shot editor (off = classic)', config.cinematic_enabled !== false)}
           ${settingToggle('enable_motion', 'Motion', config.enable_motion !== false)}
           ${settingToggle('enable_sfx', 'SFX', config.enable_sfx !== false)}
           ${settingToggle('music_enabled', 'Music', config.music_enabled !== false)}
+          ${settingToggle('strict', 'Strict (fail instead of a still)', config.strict === true)}
         </div>
 
         <div class="form-group mt-4">
@@ -255,7 +273,10 @@ const SettingsPage = (() => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error('Server error');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(typeof err.detail === 'string' ? err.detail : 'Server error');
+      }
       config = { ...config, ...updates };
       FVToast.show('Settings saved', 'success');
     } catch (e) {

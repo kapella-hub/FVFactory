@@ -223,6 +223,36 @@ const SchedulerPage = (() => {
             </div>
           </div>
 
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Pacing</label>
+              <select class="form-select" id="sched-pacing">
+                <option value="">Default</option>
+                ${['calm', 'standard', 'fast'].map(p =>
+                  `<option value="${p}" ${config.pacing === p ? 'selected' : ''}>${p.charAt(0).toUpperCase() + p.slice(1)}</option>`
+                ).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Music Source</label>
+              <select class="form-select" id="sched-music-source">
+                <option value="">Default</option>
+                ${['any', 'mine', 'generated', 'none'].map(m =>
+                  `<option value="${m}" ${config.music_source === m ? 'selected' : ''}>${m.charAt(0).toUpperCase() + m.slice(1)}</option>`
+                ).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Strict (fail instead of a still)</label>
+            <select class="form-select" id="sched-strict">
+              <option value="" ${config.strict === true || config.strict === false ? '' : 'selected'}>Default</option>
+              <option value="true" ${config.strict === true ? 'selected' : ''}>On</option>
+              <option value="false" ${config.strict === false ? 'selected' : ''}>Off</option>
+            </select>
+          </div>
+
           <div style="display:flex;gap:var(--space-8);flex-wrap:wrap">
             <div class="toggle ${config.enable_motion !== false ? 'toggle--active' : ''}" id="sched-motion" onclick="SchedulerPage._toggleEl('sched-motion')">
               <div class="toggle__track"><div class="toggle__thumb"></div></div>
@@ -231,6 +261,10 @@ const SchedulerPage = (() => {
             <div class="toggle ${config.enable_sfx !== false ? 'toggle--active' : ''}" id="sched-sfx" onclick="SchedulerPage._toggleEl('sched-sfx')">
               <div class="toggle__track"><div class="toggle__thumb"></div></div>
               <span class="toggle__label">SFX</span>
+            </div>
+            <div class="toggle ${config.enable_music !== false ? 'toggle--active' : ''}" id="sched-music" onclick="SchedulerPage._toggleEl('sched-music')">
+              <div class="toggle__track"><div class="toggle__thumb"></div></div>
+              <span class="toggle__label">Music</span>
             </div>
           </div>
         </div>
@@ -273,11 +307,18 @@ const SchedulerPage = (() => {
     if (!name) return FVToast.show('Please enter a name', 'warning');
     if (!cron) return FVToast.show('Please select or enter a schedule', 'warning');
 
+    const previous = (editId && jobs.find(j => j.id === editId)?.config) || {};
+    const strict = document.getElementById('sched-strict').value;
     const config = {
+      ...previous,               // keep keys this form does not edit (e.g. subtitle_style set via the API)
       niche: document.getElementById('sched-niche').value,
       voice: document.getElementById('sched-voice').value,
       enable_motion: document.getElementById('sched-motion').classList.contains('toggle--active'),
       enable_sfx: document.getElementById('sched-sfx').classList.contains('toggle--active'),
+      enable_music: document.getElementById('sched-music').classList.contains('toggle--active'),
+      pacing: document.getElementById('sched-pacing').value || null,              // null = Settings default
+      music_source: document.getElementById('sched-music-source').value || null,
+      strict: strict === '' ? null : strict === 'true',
     };
 
     const body = { name, cron_expression: cron, enabled: true, config };
@@ -290,7 +331,10 @@ const SchedulerPage = (() => {
         body: JSON.stringify(body),
       });
 
-      if (!res.ok) throw new Error('Server error');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(typeof err.detail === 'string' ? err.detail : 'Server error');
+      }
 
       document.getElementById('sched-modal')?.remove();
       FVToast.show(editId ? 'Schedule updated' : 'Schedule created', 'success');

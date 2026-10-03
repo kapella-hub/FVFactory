@@ -94,6 +94,7 @@ const LibraryPage = (() => {
           <div class="video-card__meta">
             <span class="video-card__date">${timeAgo(video.created)}</span>
             <span class="flex gap-2 items-center">
+              ${(video.warnings || []).length ? `<span class="badge badge--yellow" title="Run report warnings">&#9888; ${video.warnings.length}</span>` : ''}
               ${niche ? `<span class="badge badge--${nicheColor}">${escapeHtml(niche)}</span>` : ''}
               <span class="video-card__size">${video.size_mb} MB</span>
             </span>
@@ -149,6 +150,16 @@ const LibraryPage = (() => {
                 <div class="video-detail__meta-section">
                   <div class="video-detail__meta-label">Best Posting Time</div>
                   <div class="video-detail__meta-value">${escapeHtml(bestTime)}</div>
+                </div>
+              ` : ''}
+
+              ${(video.warnings || []).length ? `
+                <div class="video-detail__meta-section">
+                  <div class="video-detail__meta-label">Run Report Warnings</div>
+                  ${video.warnings.map(w => `
+                    <div class="video-detail__meta-value">
+                      <span class="badge badge--yellow">${escapeHtml(w.code)}</span> ${escapeHtml(w.message)}
+                    </div>`).join('')}
                 </div>
               ` : ''}
 
