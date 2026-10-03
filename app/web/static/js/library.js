@@ -77,7 +77,7 @@ const LibraryPage = (() => {
     const title = video.metadata?.title || video.filename.replace('.mp4', '').replace(/_/g, ' ');
     const niche = video.metadata?.niche || '';
     const nicheColor = NICHE_COLORS[niche] || 'muted';
-    const thumbUrl = video.has_thumbnail ? `/api/library/${video.id}/thumbnail` : '';
+    const thumbUrl = video.has_thumbnail ? `/api/library/${escapeAttr(video.id)}/thumbnail` : '';
 
     return `
       <div class="video-card" onclick="LibraryPage.openDetail(${index})">
@@ -127,19 +127,19 @@ const LibraryPage = (() => {
         <div class="modal__body">
           <div class="video-detail">
             <div class="video-detail__player">
-              <video controls preload="metadata" src="/api/library/${video.id}/video"></video>
+              <video controls preload="metadata" src="/api/library/${escapeAttr(video.id)}/video"></video>
             </div>
             <div>
               ${description ? `
                 <div class="video-detail__meta-section">
-                  <div class="video-detail__meta-label">Description <button class="copy-btn" onclick="LibraryPage.copy(this, '${escapeAttr(description)}')">&#128203; Copy</button></div>
+                  <div class="video-detail__meta-label">Description <button class="copy-btn" data-copy="${escapeAttr(description)}">&#128203; Copy</button></div>
                   <div class="video-detail__meta-value">${escapeHtml(description)}</div>
                 </div>
               ` : ''}
 
               ${hashtags.length ? `
                 <div class="video-detail__meta-section">
-                  <div class="video-detail__meta-label">Hashtags <button class="copy-btn" onclick="LibraryPage.copy(this, '${escapeAttr(hashtags.join(' '))}')">&#128203; Copy</button></div>
+                  <div class="video-detail__meta-label">Hashtags <button class="copy-btn" data-copy="${escapeAttr(hashtags.join(' '))}">&#128203; Copy</button></div>
                   <div class="video-detail__tags">
                     ${hashtags.map(t => `<span class="badge badge--cyan">${escapeHtml(t.startsWith('#') ? t : '#' + t)}</span>`).join('')}
                   </div>
@@ -169,7 +169,7 @@ const LibraryPage = (() => {
               </div>
 
               <div style="display:flex;gap:var(--space-3);margin-top:var(--space-4)">
-                <a class="btn btn--primary" href="/api/library/${video.id}/video" download="${video.filename}">
+                <a class="btn btn--primary" href="/api/library/${escapeAttr(video.id)}/video" download="${escapeAttr(video.filename)}">
                   &#11015; Download
                 </a>
               </div>
@@ -178,6 +178,11 @@ const LibraryPage = (() => {
         </div>
       </div>
     `;
+
+    // data-copy values are attribute-escaped above; the browser decodes them back to the raw text.
+    overlay.querySelectorAll('[data-copy]').forEach(btn => {
+      btn.addEventListener('click', () => copy(btn, btn.getAttribute('data-copy')));
+    });
 
     document.body.appendChild(overlay);
   }
@@ -203,9 +208,11 @@ const LibraryPage = (() => {
     return div.innerHTML;
   }
 
+  // Attribute-safe: escapes & " ' < > for any server value placed inside an HTML attribute.
   function escapeAttr(str) {
-    if (!str) return '';
-    return str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, ' ');
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
+      .replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   return { render, openDetail, copy };

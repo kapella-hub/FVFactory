@@ -181,7 +181,7 @@ const GeneratePage = (() => {
 
         <!-- Strict checkbox (pre-checked from Settings by loadDefaults) -->
         <div class="form-group">
-          <div class="checkbox" id="cb-strict" onclick="GeneratePage.toggleCheckbox('cb-strict')">
+          <div class="checkbox" id="cb-strict" data-defaults-loaded="false" style="pointer-events:none;opacity:.6" onclick="GeneratePage.toggleCheckbox('cb-strict')">
             <div class="checkbox__box">&#10003;</div>
             <span class="checkbox__label">Strict: fail the run instead of shipping a still when a motion clip fails</span>
           </div>
@@ -232,6 +232,17 @@ const GeneratePage = (() => {
     } catch (e) {
       // Labels stay "Default"; the server applies the Settings defaults anyway.
     }
+    enableStrict();
+  }
+
+  // The strict box stays locked until Settings defaults are known (or failed to load), so a fast
+  // submit cannot send strict:false over a Settings value of true.
+  function enableStrict() {
+    const el = document.getElementById('cb-strict');
+    if (!el) return;
+    el.dataset.defaultsLoaded = 'true';
+    el.style.pointerEvents = '';
+    el.style.opacity = '';
   }
 
   function toggleAuto() {
@@ -313,7 +324,8 @@ const GeneratePage = (() => {
       video_duration: getSelectedDuration(),
       pacing: document.getElementById('gen-pacing').value || null,
       music_source: document.getElementById('gen-music-source').value || null,
-      strict: isChecked('cb-strict'),
+      // null = server uses Settings, until the defaults have loaded
+      strict: document.getElementById('cb-strict')?.dataset.defaultsLoaded === 'true' ? isChecked('cb-strict') : null,
     };
 
     try {
@@ -424,11 +436,15 @@ const GeneratePage = (() => {
     const el = document.getElementById('run-report');
     if (!el) return;
     const warnings = (result && result.warnings) || [];
+    // A report that never loaded (status not "ok") must not read as a clean run.
+    const unavailable = !error && !warnings.length && !(result && result.status === 'ok');
     const status = error
       ? '<span class="badge badge--red">failed</span>'
       : warnings.length
         ? `<span class="badge badge--yellow">${warnings.length} warning${warnings.length === 1 ? '' : 's'}</span>`
-        : '<span class="badge badge--green">no warnings</span>';
+        : unavailable
+          ? '<span class="badge badge--yellow">report unavailable</span>'
+          : '<span class="badge badge--green">no warnings</span>';
     const rows = warnings.map(w => `
       <div class="progress-log__entry">
         <span class="badge badge--yellow">${escapeHtml(w.code)}</span> ${escapeHtml(w.message)}
