@@ -11,6 +11,8 @@ import logging
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from pydantic import TypeAdapter, ValidationError
+
 from app.cin.music_library import MUSIC_SOURCES
 from app.cin.report import load_summary
 from app.cin.shot_plan import PACING
@@ -100,15 +102,34 @@ def clean_settings_updates(updates: Mapping[str, Any]) -> dict:
     return cleaned
 
 
-def apply_settings_updates(target, updates: Mapping[str, Any]) -> list:
-    """setattr every key the Settings object knows (pydantic-settings does not validate
-    assignment, so callers clean first). Returns the applied keys."""
-    applied = []
+def validate_settings_updates(target, updates: Mapping[str, Any]) -> tuple:
+    """Check every key against the Settings model: the key must be a declared field and the value
+    must validate against that field's type (pydantic-settings does not validate setattr, and
+    hasattr() also matches methods such as model_dump). Returns (valid {key: coerced value},
+    errors {key: message}); never raises."""
+    fields = type(target).model_fields
+    valid, errors = {}, {}
     for key, value in (updates or {}).items():
-        if hasattr(target, key):
-            setattr(target, key, value)
-            applied.append(key)
-    return applied
+        field = fields.get(key)
+        if field is None:
+            errors[key] = "unknown setting"
+            continue
+        try:
+            valid[key] = TypeAdapter(field.annotation).validate_python(value)
+        except ValidationError as e:
+            errors[key] = e.errors()[0]["msg"]
+    return valid, errors
+
+
+def apply_settings_updates(target, updates: Mapping[str, Any]) -> list:
+    """setattr every update that is a Settings field with a valid value; skip (with a warning)
+    anything else. Never raises. Returns the applied keys."""
+    valid, errors = validate_settings_updates(target, updates)
+    for key, msg in errors.items():
+        logger.warning("Ignoring setting %s: %s", key, msg)
+    for key, value in valid.items():
+        setattr(target, key, value)
+    return list(valid)
 
 
 def apply_saved_settings(target, saved: Mapping[str, Any]) -> list:

@@ -4,7 +4,7 @@ import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
 from app.config import settings
-from app.run_options import OptionError, apply_settings_updates, clean_settings_updates, load_config_file
+from app.run_options import OptionError, apply_settings_updates, clean_settings_updates, load_config_file, validate_settings_updates
 
 router = APIRouter()
 CONFIG_PATH = Path("data/config.json")
@@ -63,6 +63,9 @@ async def update_config(updates: dict):
         updates = clean_settings_updates(updates)      # pydantic-settings does not validate setattr
     except OptionError as e:
         raise HTTPException(status_code=422, detail=str(e))
+    updates, errors = validate_settings_updates(settings, updates)   # every key checked before anything is saved
+    if errors:
+        raise HTTPException(status_code=422, detail="; ".join(f"{k}: {m}" for k, m in errors.items()))
     config = _load_config()
     config.update(updates)
     _save_config(config)

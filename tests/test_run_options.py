@@ -7,7 +7,7 @@ import pytest
 from app.config import Settings, settings
 from app.run_options import (MUSIC_SOURCE_CHOICES, PACING_CHOICES, OptionError, apply_saved_settings,
                              apply_settings_updates, clean_settings_updates, load_config_file,
-                             pipeline_kwargs, to_bool)
+                             pipeline_kwargs, to_bool, validate_settings_updates)
 
 
 def test_choices_follow_spec_order():
@@ -92,6 +92,28 @@ def test_apply_settings_updates_sets_known_keys_only():
     s = Settings(_env_file=None)
     applied = apply_settings_updates(s, {"pacing": "fast", "not_a_setting": 1})
     assert applied == ["pacing"] and s.pacing == "fast" and not hasattr(s, "not_a_setting")
+
+
+def test_non_field_keys_are_skipped_not_raised():
+    s = Settings(_env_file=None)
+    assert apply_settings_updates(s, {"model_dump": 1}) == []
+    assert apply_saved_settings(s, {"model_dump": 1, "model_config": {}}) == []
+    assert callable(s.model_dump)
+
+
+def test_wrong_typed_values_are_skipped_good_ones_applied():
+    s = Settings(_env_file=None)
+    before = s.music_volume
+    assert apply_settings_updates(s, {"music_volume": "loud"}) == []
+    assert s.music_volume == before
+    assert apply_settings_updates(s, {"music_volume": 0.2}) == ["music_volume"] and s.music_volume == 0.2
+    applied = apply_saved_settings(s, {"music_volume": "x", "niche": "tech", "model_dump": 1, "enable_sfx": False})
+    assert sorted(applied) == ["enable_sfx", "niche"] and s.music_volume == 0.2
+
+
+def test_validate_settings_updates_reports_each_bad_key():
+    valid, errors = validate_settings_updates(Settings(_env_file=None), {"music_volume": "loud", "niche": "tech", "nope": 1})
+    assert valid == {"niche": "tech"} and set(errors) == {"music_volume", "nope"}
 
 
 def test_saved_config_with_bad_values_never_stops_startup():
