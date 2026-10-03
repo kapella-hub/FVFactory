@@ -32,6 +32,13 @@ class AssetManagerError(Exception):
     pass
 
 
+# Style keywords appended to image prompts when settings.image_style is "" (spec 2026-10-03 §9).
+# Styles not listed get nothing: their keywords come from the script's image prompts.
+STYLE_SUFFIX = {
+    "photorealistic": "photorealistic photograph, natural light, realistic textures, sharp focus",
+}
+
+
 class AssetManager:
     """Manages generation of audio and image assets"""
 
@@ -45,7 +52,8 @@ class AssetManager:
     IMAGE_WIDTH = 1080
     IMAGE_HEIGHT = 1920
 
-    def __init__(self):
+    def __init__(self, video_style: Optional[str] = None):
+        self.video_style = video_style or settings.video_style   # the run's style, not just the global default
         self.openai_client = None
         if settings.openai_api_key:
             self.openai_client = OpenAI(api_key=settings.openai_api_key)
@@ -55,14 +63,10 @@ class AssetManager:
 
     def _enhance_prompt_with_style(self, prompt: str) -> str:
         """
-        Enhance an image prompt with consistent style keywords.
-        Prevents style drift between scenes.
-        Only appends the default image_style for photorealistic mode —
-        non-photorealistic styles already have style keywords from the LLM.
+        Append consistent style keywords to an image prompt (prevents style drift between scenes).
+        settings.image_style wins when set (.env override); otherwise STYLE_SUFFIX[self.video_style].
         """
-        if settings.video_style != "photorealistic":
-            return prompt
-        style = settings.image_style
+        style = settings.image_style or STYLE_SUFFIX.get(self.video_style, "")
         if style and style.lower() not in prompt.lower():
             return f"{prompt}, {style}"
         return prompt
@@ -252,7 +256,7 @@ class AssetManager:
 
         # Add mascot indicator if enabled
         mascot_text = ""
-        if settings.mascot_enabled:
+        if settings.mascot_enabled and self.video_style != "photorealistic":
             mascot_text = f"\n[MASCOT: {settings.mascot_prompt[:50]}...]"
 
         # Add prompt text (truncated)

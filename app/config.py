@@ -34,14 +34,16 @@ class Settings(BaseSettings):
     use_persona: bool = False         # If True, use animated portrait instead of images
     default_persona: str = ""         # Default persona image filename (e.g., "alex_master.png")
 
-    # Mascot settings for visual branding consistency
-    mascot_enabled: bool = True
+    # Mascot settings for visual branding consistency. Never applied to photorealistic runs
+    # (spec 2026-10-03 §9): a cartoon robot cannot appear in a photographic scene.
+    mascot_enabled: bool = False
     mascot_prompt: str = (
         "A cute, futuristic robot with glowing blue eyes and a cracked screen, "
         "vector art style"
     )
-    # Style keywords appended to all image prompts for consistency
-    image_style: str = "vector art style, vibrant colors, clean lines"
+    # Extra style keywords appended to every image prompt. "" = derive from the run's video_style
+    # (photorealistic -> photographic keywords; other styles rely on the LLM's style keywords).
+    image_style: str = ""
 
     # Background music settings
     music_enabled: bool = True
@@ -160,7 +162,7 @@ class Settings(BaseSettings):
 
     # Video style and duration
     video_style: str = "photorealistic"     # "photorealistic" | "cartoon" | "illustration"
-    video_duration: str = "medium"          # "short" (~30s, 5-7 scenes) | "medium" (~60s, 8-10) | "long" (~90s, 11-14)
+    video_duration: str = "medium"          # "short" (~30s, 6-8 scenes) | "medium" (~45s, 9-11) | "long" (~60s, 11-14)
     cinematic_enabled: bool = True          # False = classic Ken Burns editor for every run (as --classic)
 
     # === Shot-based editor (spec 2026-10-02) ===

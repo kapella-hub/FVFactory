@@ -457,7 +457,7 @@ def run_pipeline(
         _print_script(script)
 
         logger.info("Generating audio narration...")
-        asset_manager = AssetManager()
+        asset_manager = AssetManager(video_style=options.video_style)
         full_narration = f"{script.hook} {script.body}"
         with report.stage("tts"):
             audio_result = asset_manager.generate_audio(full_narration, voice_id=voice, output_path=job.narration)

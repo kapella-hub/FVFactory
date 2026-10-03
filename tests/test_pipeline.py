@@ -371,3 +371,14 @@ def test_roles_survive_alignment_fallback(offline, monkeypatch):
     plan = json.loads((job / "sources/shot_plan.json").read_text(encoding="utf-8"))
     assert [s["role"] for s in plan["scenes"]] == ["hook", "loop"]
     assert [s["scene"] for s in plan["shots"] if s["transition_in"] != "cut"] == [1]
+
+
+
+def test_run_video_style_reaches_the_image_prompts(offline, monkeypatch):
+    seen = []
+    original = AssetManager._enhance_prompt_with_style
+    monkeypatch.setattr(AssetManager, "_enhance_prompt_with_style",
+                        lambda self, prompt: seen.append(self.video_style) or original(self, prompt))
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True, video_style="cartoon")
+    assert seen and set(seen) == {"cartoon"}

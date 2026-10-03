@@ -151,3 +151,52 @@ def test_local_images_are_written_into_the_job_folder_not_shared_temp(tmp_path, 
     assert seen["dir"] == images and seen["unloaded"] is True
     assert not list(images.glob("scene_*.png"))                 # renamed in place, no leftovers
     assert not list(shared.glob("*.png"))                       # shared temp untouched
+
+
+
+# ------------------------------------------------------------------ style suffix (spec 2026-10-03 §9)
+
+def test_photoreal_prompts_get_photographic_keywords_not_vector_art(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "image_style", "")
+    out = AssetManager(video_style="photorealistic")._enhance_prompt_with_style("a gold bar on a scale")
+    assert out.startswith("a gold bar on a scale, ") and "photorealistic photograph" in out
+    for word in ("vector", "cartoon", "clean lines", "robot"):
+        assert word not in out
+
+
+def test_non_photoreal_prompts_keep_their_own_style(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "image_style", "")
+    prompt = "a gold bar on a scale, cartoon style, vibrant colors"
+    assert AssetManager(video_style="cartoon")._enhance_prompt_with_style(prompt) == prompt
+
+
+def test_explicit_image_style_setting_still_overrides(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "image_style", "35mm film grain")
+    out = AssetManager(video_style="photorealistic")._enhance_prompt_with_style("a vault door")
+    assert out == "a vault door, 35mm film grain"
+    assert AssetManager(video_style="cartoon")._enhance_prompt_with_style("a vault door") == "a vault door, 35mm film grain"
+
+
+def test_run_style_defaults_to_the_setting(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "video_style", "anime")
+    assert AssetManager().video_style == "anime"
+    assert AssetManager(video_style="noir").video_style == "noir"
+
+
+def test_mock_image_never_mentions_the_mascot_for_photoreal(monkeypatch, tmp_path):
+    from PIL import ImageDraw
+    from app.config import settings
+    monkeypatch.setattr(settings, "mascot_enabled", True)
+    drawn = []
+    original = ImageDraw.ImageDraw.text
+    monkeypatch.setattr(ImageDraw.ImageDraw, "text",
+                        lambda self, xy, text, *a, **k: drawn.append(text) or original(self, xy, text, *a, **k))
+    AssetManager(video_style="photorealistic").generate_images(["p"], use_mock=True, output_dir=tmp_path / "a")
+    assert drawn and not any("MASCOT" in t for t in drawn)
+    drawn.clear()
+    AssetManager(video_style="cartoon").generate_images(["p"], use_mock=True, output_dir=tmp_path / "b")
+    assert any("MASCOT" in t for t in drawn)

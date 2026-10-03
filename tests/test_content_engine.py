@@ -84,3 +84,13 @@ def test_duration_guide_matches_word_budget():
         guide = ScriptGenerator.DURATION_GUIDE[preset]
         assert f"{b.target} words" in guide and f"{b.lo} to {b.hi}" in guide
         assert f"{b.scenes[0]}-{b.scenes[1]} scenes" in guide
+
+
+
+def test_mascot_never_added_to_photoreal_prompts(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "mascot_enabled", True)
+    monkeypatch.setattr(settings, "mascot_prompt", "A cute robot, vector art style")
+    gen = ScriptGenerator()
+    assert "MASCOT" not in gen._build_system_prompt(video_style="photorealistic")
+    assert "A cute robot" in gen._build_system_prompt(video_style="cartoon")

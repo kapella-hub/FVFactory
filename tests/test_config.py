@@ -59,7 +59,8 @@ def test_v1_settings_unchanged():
     assert s.openai_api_key == "test"
     assert s.elevenlabs_api_key == "test2"
     assert s.output_dir == "output"
-    assert s.mascot_enabled is True
+    assert s.mascot_enabled is False         # spec 2026-10-03 §9
+    assert s.image_style == ""                # "" = derive from video_style
 
 
 def test_provider_settings_defaults():

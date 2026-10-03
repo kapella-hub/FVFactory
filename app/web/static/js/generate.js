@@ -29,9 +29,9 @@ const GeneratePage = (() => {
     { id: 'noir',           label: 'Film Noir',       desc: 'B&W, dramatic shadows' },
   ];
   const DURATIONS = [
-    { id: 'short',  label: 'Short',  desc: '~30s, 5-7 scenes' },
-    { id: 'medium', label: 'Medium', desc: '~60s, 8-10 scenes' },
-    { id: 'long',   label: 'Long',   desc: '~90s, 11-14 scenes' },
+    { id: 'short',  label: 'Short',  desc: '~30s, 6-8 scenes' },
+    { id: 'medium', label: 'Medium', desc: '~45s, 9-11 scenes' },
+    { id: 'long',   label: 'Long',   desc: '~60s, 11-14 scenes' },
   ];
   const STAGES = ['script', 'audio', 'images', 'motion', 'assembly'];
 

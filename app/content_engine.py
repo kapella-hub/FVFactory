@@ -223,7 +223,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
                 f"ALWAYS use style-specific keywords for {style_label} in every image prompt."
             )
 
-        if settings.mascot_enabled and settings.mascot_prompt:
+        if settings.mascot_enabled and settings.mascot_prompt and video_style != "photorealistic":
             mascot_section = self.MASCOT_INSTRUCTION.format(
                 mascot_prompt=settings.mascot_prompt
             )
