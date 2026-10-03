@@ -36,6 +36,26 @@ def _isolated_music_usage(tmp_path, monkeypatch):
                         lambda: tmp_path / "data" / "music_usage.json")
 
 
+@pytest.fixture(autouse=True)
+def _no_real_scheduler(tmp_path, monkeypatch):
+    """No test may start the real APScheduler on data/scheduler.db or fire a scheduled (paid) run.
+    get_scheduler() returns an un-started FVScheduler on a tmp DB; _run_job always raises."""
+    import app.scheduler as sched
+
+    def refuse(self, job_id):
+        raise AssertionError("real scheduled run attempted in tests")
+
+    monkeypatch.setattr(sched.FVScheduler, "_run_job", refuse)
+    monkeypatch.setattr(sched, "_scheduler_instance", None)
+    holder = {}
+
+    def fake_get_scheduler():
+        if "s" not in holder:
+            holder["s"] = sched.FVScheduler(db_path=str(tmp_path / "web_scheduler.db"))   # never started
+        return holder["s"]
+    monkeypatch.setattr(sched, "get_scheduler", fake_get_scheduler)
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",

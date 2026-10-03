@@ -3,6 +3,12 @@ import pytest
 from app.scheduler import FVScheduler
 
 
+def test_real_run_job_is_blocked_in_tests(tmp_path):
+    s = FVScheduler(db_path=str(tmp_path / "x.db"))
+    with pytest.raises(AssertionError, match="real scheduled run attempted in tests"):
+        s._run_job("anything")
+
+
 @pytest.fixture
 def scheduler(tmp_path):
     db_path = str(tmp_path / "test_scheduler.db")
@@ -42,7 +48,17 @@ def test_get_nonexistent_job(scheduler):
     assert scheduler.get_job("nonexistent") is None
 
 
-def test_run_now(scheduler):
+def test_run_now(scheduler, monkeypatch):
+    started = []
+
+    class FakeThread:
+        def __init__(self, target, args=(), daemon=None):
+            started.append((target, args))
+
+        def start(self):
+            pass
+    monkeypatch.setattr("app.scheduler.threading.Thread", FakeThread)
     job = scheduler.add_job("Run Me", "0 9 * * *", {})
     assert scheduler.run_now(job["id"]) is True
+    assert started == [(scheduler._run_job, (job["id"],))]
     assert scheduler.run_now("nonexistent") is False

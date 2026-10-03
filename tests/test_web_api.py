@@ -51,6 +51,18 @@ def test_scheduler_jobs_endpoint(client):
     assert "jobs" in resp.json()
 
 
+def test_web_client_never_touches_the_real_scheduler_db(client):
+    import os
+    from pathlib import Path
+    real = Path("data/scheduler.db")
+    before = (real.exists(), real.stat().st_mtime_ns, real.stat().st_size) if real.exists() else (False,)
+    assert client.get("/api/scheduler/jobs").status_code == 200
+    import app.scheduler as sched
+    assert sched._scheduler_instance is None                 # the real singleton was never created/started
+    after = (real.exists(), real.stat().st_mtime_ns, real.stat().st_size) if real.exists() else (False,)
+    assert before == after
+
+
 # ---------------------------------------------------------------- no stale builds
 
 @pytest.mark.parametrize("path", ["/", "/generate", "/library", "/static/js/app.js", "/static/css/styles.css",
