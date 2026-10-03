@@ -100,3 +100,15 @@ def test_shot_editor_settings_defaults():
 def test_pacing_rejects_unknown_value():
     with pytest.raises(ValidationError):
         make(pacing="hyper")
+
+
+def test_env_example_documents_shot_editor_settings():
+    import re
+    from pathlib import Path
+    text = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
+    keys = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text, flags=re.M))
+    for name in ("PACING", "STRICT", "MUSIC_SOURCE", "ELEVENLABS_MUSIC_MODEL",
+                 "COST_ELEVENLABS_MUSIC_PER_MINUTE", "COST_ELEVENLABS_SFX_PER_MINUTE"):
+        assert name in keys, name
+    assert all(k.lower() in Settings.model_fields for k in keys), sorted(
+        k for k in keys if k.lower() not in Settings.model_fields)
