@@ -94,3 +94,49 @@ def test_render_job_full_size_meets_delivery_spec(tmp_path):
     assert report.loudness["TP"] <= -1.0
     assert report.platform_safe == {"ok": True, "issues": []}
     assert set(report.durations) >= {"render", "mix", "encode"}
+
+
+def _tiny_render(tmp_path, monkeypatch):
+    job, alignment, specs = build_gold_job(tmp_path)
+    make_silence(job.narration, 8.0)
+    monkeypatch.setattr("app.cin.editor.ShotRenderer", _TinyRenderer)
+    plan = build_shot_plan(alignment, "standard", specs)
+    opts = RenderOptions(enable_music=False, enable_sfx=False, enable_subtitles=False)
+    return job, plan, opts
+
+
+def test_locked_final_swap_writes_timestamped_file_and_warns(tmp_path, monkeypatch):
+    import os
+    import app.cin.editor as editor
+    job, plan, opts = _tiny_render(tmp_path, monkeypatch)
+    job.final.write_bytes(b"old render")
+    real_replace = os.replace
+
+    def locked(src, dst, *a, **k):
+        if os.fspath(src) == os.fspath(job.final) or os.fspath(dst) == os.fspath(job.final_prev):
+            raise PermissionError("locked by player")
+        return real_replace(src, dst, *a, **k)
+
+    monkeypatch.setattr(editor.os, "replace", locked)
+    monkeypatch.setattr(editor.time, "sleep", lambda s: None)
+    report = RunReport(job=job.name)
+    out = render_job(job, plan, opts, report)
+    assert out != job.final and out.parent == job.root and out.name.startswith("final.")
+    assert probe_video(out)["has_audio"] is True
+    assert job.final.read_bytes() == b"old render"
+    warn = [w for w in report.warnings if w["code"] == "final_swap_failed"]
+    assert warn and warn[0]["detail"]["path"] == str(out)
+
+
+def test_platform_check_failure_is_warned(tmp_path, monkeypatch):
+    job, plan, opts = _tiny_render(tmp_path, monkeypatch)
+    monkeypatch.setattr("app.cin.editor.is_platform_safe", lambda p: (False, ["bad tp"]))
+    report = RunReport(job=job.name)
+    render_job(job, plan, opts, report)
+    warn = [w for w in report.warnings if w["code"] == "platform_check_failed"]
+    assert warn and warn[0]["detail"]["issues"] == ["bad tp"]
+
+
+def test_new_warning_codes_registered():
+    from app.cin.report import WARNING_CODES
+    assert "platform_check_failed" in WARNING_CODES and "final_swap_failed" in WARNING_CODES

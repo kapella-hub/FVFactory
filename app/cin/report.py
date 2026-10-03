@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 WARNING_CODES = (
     "still_fallback", "alignment_fallback", "font_fallback", "music_missing", "sfx_missing",
     "speed_adjusted", "prompt_count_normalized", "clip_retry", "loudness_skipped",
+    "platform_check_failed", "final_swap_failed",
 )
 
 

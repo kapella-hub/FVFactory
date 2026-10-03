@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import shutil
+import time
+from datetime import datetime
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Optional
@@ -80,18 +82,38 @@ def render_job(job: JobPaths, plan: ShotPlan, options: RenderOptions, report: Ru
         if measured is None:
             report.warn("loudness_skipped", "Mix is silent or unmeasurable; loudnorm skipped", {})
         mux_final(video_tmp, job.mix, final_tmp, measured)
-        if job.final.exists():
-            os.replace(job.final, job.final_prev)
-        os.replace(final_tmp, job.final)
-        loud = measure_loudness(job.final)
+        written = _swap_final(job, final_tmp, report)
+        loud = measure_loudness(written)
         report.loudness = ({"I": loud["input_i"], "TP": loud["input_tp"], "LRA": loud["input_lra"]}
                            if loud else None)
-        ok, issues = is_platform_safe(job.final)
+        ok, issues = is_platform_safe(written)
         report.platform_safe = {"ok": ok, "issues": issues}
+        if not ok:
+            report.warn("platform_check_failed", f"Platform check failed: {issues}", {"issues": list(issues)})
+            logger.warning("Platform check failed for %s: %s", written, issues)
 
     shutil.rmtree(job.render_tmp, ignore_errors=True)
-    logger.info("Rendered %s", job.final)
-    return job.final
+    logger.info("Rendered %s", written)
+    return written
+
+
+def _swap_final(job: JobPaths, final_tmp: Path, report: RunReport, tries: int = 3, delay: float = 0.5) -> Path:
+    """Move final_tmp into place, keeping the old final as final.prev.mp4. On Windows either file may
+    be open in a player; retry briefly, then keep the render as final.<timestamp>.mp4 (never discard it)."""
+    for attempt in range(tries):
+        try:
+            if job.final.exists():
+                os.replace(job.final, job.final_prev)
+            os.replace(final_tmp, job.final)
+            return job.final
+        except PermissionError:
+            if attempt < tries - 1:
+                time.sleep(delay)
+    alt = job.root / f"final.{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    os.replace(final_tmp, alt)
+    report.warn("final_swap_failed", f"final.mp4 is locked; render kept as {alt.name}", {"path": str(alt)})
+    logger.warning("final.mp4 locked (open in a player?); new render written to %s", alt)
+    return alt
 
 
 # ---------------------------------------------------------------- re-render (spec §9.3)
@@ -147,13 +169,15 @@ def rerender_job(job_dir, *, pacing: Optional[str] = None, subtitle_style: Optio
     report.cost = prev.cost                      # no new spend
     report.clips = prev.clips
     report.warnings = [w for w in prev.warnings if w.get("code") in _CARRIED_WARNINGS]
+    if job.report.exists():                      # keep the good render's record next to final.prev.mp4
+        shutil.copy2(job.report, job.root / "run_report.prev.json")
     try:
         with report.stage("plan"):
             plan = rebuild_plan(job, opts.pacing, enable_motion=bool(prev.options.get("enable_motion", True)))
         for w in plan.warnings:
             report.warn(w["code"], w["message"], w["detail"])
-        plan.save(job.shot_plan)
         final = render_job(job, plan, opts, report)
+        plan.save(job.shot_plan)             # only once the new render exists
         report.status = "ok"
         return str(final)
     except Exception as e:
