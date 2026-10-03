@@ -92,7 +92,13 @@ def test_pacing_and_strict_flags():
 
 def test_pacing_and_strict_default_to_settings():
     args = parse_args([])
-    assert args.pacing is None and args.strict is False and args.classic is False
+    assert args.pacing is None and args.strict is None and args.classic is False
+
+
+def test_strict_has_an_opt_out():
+    assert parse_args(["--no-strict"]).strict is False
+    assert parse_args(["--strict"]).strict is True
+    assert parse_args([]).strict is None
 
 
 def test_unknown_pacing_rejected():

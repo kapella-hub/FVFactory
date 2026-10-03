@@ -554,7 +554,7 @@ def parse_args(argv=None):
                         help="Use the classic Ken Burns editor instead of the shot editor")
     parser.add_argument("--pacing", choices=sorted(PACING), default=None,
                         help="Shot pacing: calm, standard or fast (default: settings.pacing)")
-    parser.add_argument("--strict", action="store_true",
+    parser.add_argument("--strict", action=argparse.BooleanOptionalAction, default=None,
                         help="Fail the run instead of shipping a still when a motion clip fails")
     parser.add_argument("--rerender", type=str, default=None, metavar="JOB_DIR",
                         help="Rebuild output/<job>/final.mp4 from its sources/ with zero API calls")
@@ -610,7 +610,7 @@ def run_auto_mode(args):
                 upload=args.upload,
                 niche=args.niche,
                 pacing=args.pacing,
-                strict=args.strict or None,
+                strict=args.strict,
                 classic=args.classic,
                 music_source=args.music_source,
             )
@@ -707,7 +707,7 @@ def run_interactive_mode(args):
             subtitle_style=args.subtitle_style or settings.subtitle_style,
             enable_sfx=not args.no_sfx,
             pacing=args.pacing,
-            strict=args.strict or None,
+            strict=args.strict,
             classic=args.classic,
             music_source=args.music_source,
         )
