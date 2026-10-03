@@ -47,6 +47,13 @@ const GeneratePage = (() => {
     { id: 'generated', label: 'Generated library only' },
     { id: 'none',      label: 'No music' },
   ];
+  // Quality tiers (spec 2026-10-03 section 9): the motion model per video. "" = the Settings default.
+  const TIERS = [
+    { id: 'standard', label: 'Standard (Kling v3 Standard)' },
+    { id: 'premium',  label: 'Premium (Kling v3 Pro)' },
+    { id: 'custom',   label: 'Custom (Settings model)' },
+  ];
+  let defaults = {};
 
   let currentJobId = null;
   let wsCleanup = [];
@@ -155,6 +162,23 @@ const GeneratePage = (() => {
           </div>
         </div>
 
+        <!-- Quality tier + spending cap (spec 2026-10-03 section 9) -->
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Quality Tier</label>
+            <select class="form-select" id="gen-tier" onchange="GeneratePage.updateTierHint()">
+              <option value="">Default</option>
+              ${TIERS.map(t => `<option value="${t.id}">${t.label}</option>`).join('')}
+            </select>
+            <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1)" id="gen-tier-hint"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Cost (USD)</label>
+            <input class="form-input" id="gen-max-cost" type="number" min="0" step="0.5" placeholder="Default">
+            <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1)">Stops the run before the next paid stage if the estimate is higher. 0 = no cap.</div>
+          </div>
+        </div>
+
         <!-- Toggles -->
         <div style="display:flex;gap:var(--space-8);flex-wrap:wrap;margin-bottom:var(--space-5)">
           <div class="toggle toggle--active" id="toggle-motion" onclick="GeneratePage.toggleSwitch('toggle-motion')">
@@ -228,11 +252,32 @@ const GeneratePage = (() => {
       };
       label('gen-pacing', cfg.pacing);
       label('gen-music-source', cfg.music_source);
+      label('gen-tier', cfg.quality_tier);
+      const cap = document.getElementById('gen-max-cost');
+      if (cap) cap.placeholder = cfg.max_cost_per_video > 0 ? `Default ($${cfg.max_cost_per_video})` : 'Default (no cap)';
       if (cfg.strict === true) document.getElementById('cb-strict')?.classList.add('checkbox--checked');
+      defaults = cfg;
     } catch (e) {
       // Labels stay "Default"; the server applies the Settings defaults anyway.
     }
     enableStrict();
+    updateTierHint();
+  }
+
+  // "about $X of motion for a medium video" from /api/config tier_estimates (list prices, estimate only).
+  function updateTierHint() {
+    const hint = document.getElementById('gen-tier-hint');
+    if (!hint) return;
+    const tier = document.getElementById('gen-tier')?.value || defaults.quality_tier || 'standard';
+    const dur = getSelectedDuration();
+    const est = (defaults.tier_estimates || {})[tier];
+    if (est && typeof est[dur] === 'number') {
+      hint.textContent = `\u2248 $${est[dur].toFixed(2)} of motion for a ${dur} video (${est.model}, list-price estimate)`;
+    } else if (tier === 'custom' && defaults.tier_estimates) {
+      hint.textContent = 'Custom uses the fal.ai video model from Settings, which is not a known model.';
+    } else {
+      hint.textContent = '';
+    }
   }
 
   // The strict box stays locked until Settings defaults are known (or failed to load), so a fast
@@ -265,6 +310,7 @@ const GeneratePage = (() => {
   function selectDuration(durId) {
     document.querySelectorAll('#duration-grid .style-card').forEach(c => c.classList.remove('style-card--selected'));
     document.querySelector(`[data-dur="${durId}"]`)?.classList.add('style-card--selected');
+    updateTierHint();
   }
 
   function getSelectedVideoStyle() {
@@ -324,6 +370,8 @@ const GeneratePage = (() => {
       video_duration: getSelectedDuration(),
       pacing: document.getElementById('gen-pacing').value || null,
       music_source: document.getElementById('gen-music-source').value || null,
+      quality_tier: document.getElementById('gen-tier').value || null,                 // null = Settings default
+      max_cost: document.getElementById('gen-max-cost').value.trim() || null,         // text: the server validates
       // null = server uses Settings, until the defaults have loaded
       strict: document.getElementById('cb-strict')?.dataset.defaultsLoaded === 'true' ? isChecked('cb-strict') : null,
     };
@@ -476,5 +524,6 @@ const GeneratePage = (() => {
     return div.innerHTML;
   }
 
-  return { render, toggleAuto, selectStyle, selectVideoStyle, selectDuration, toggleSwitch, toggleCheckbox, submit };
+  return { render, toggleAuto, selectStyle, selectVideoStyle, selectDuration, toggleSwitch, toggleCheckbox, submit,
+           updateTierHint };
 })();

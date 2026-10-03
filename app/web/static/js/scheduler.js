@@ -244,6 +244,23 @@ const SchedulerPage = (() => {
             </div>
           </div>
 
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Quality Tier</label>
+              <select class="form-select" id="sched-tier">
+                <option value="">Default</option>
+                ${[['standard', 'Standard (Kling v3 Standard)'], ['premium', 'Premium (Kling v3 Pro)'], ['custom', 'Custom (Settings model)']].map(([t, label]) =>
+                  `<option value="${t}" ${config.quality_tier === t ? 'selected' : ''}>${label}</option>`
+                ).join('')}
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Max Cost (USD, blank = Settings)</label>
+              <input class="form-input" id="sched-max-cost" type="number" min="0" step="0.5" placeholder="Default"
+                     value="${escapeHtml(config.max_cost == null ? '' : String(config.max_cost))}">
+            </div>
+          </div>
+
           <div class="form-group">
             <label class="form-label">Strict (fail instead of a still)</label>
             <select class="form-select" id="sched-strict">
@@ -309,6 +326,7 @@ const SchedulerPage = (() => {
 
     const previous = (editId && jobs.find(j => j.id === editId)?.config) || {};
     const strict = document.getElementById('sched-strict').value;
+    const maxCost = document.getElementById('sched-max-cost').value.trim();
     const config = {
       ...previous,               // keep keys this form does not edit (e.g. subtitle_style set via the API)
       niche: document.getElementById('sched-niche').value,
@@ -319,6 +337,8 @@ const SchedulerPage = (() => {
       pacing: document.getElementById('sched-pacing').value || null,              // null = Settings default
       music_source: document.getElementById('sched-music-source').value || null,
       strict: strict === '' ? null : strict === 'true',
+      quality_tier: document.getElementById('sched-tier').value || null,           // null = Settings default
+      max_cost: maxCost === '' ? null : maxCost,                                   // text: the server validates
     };
 
     const body = { name, cron_expression: cron, enabled: true, config };

@@ -76,10 +76,18 @@ python main.py --auto --no-motion --subtitle-style neon_glow
 python main.py --auto --mock  # Use mock images (free)
 python main.py --auto --no-sfx --no-music
 
-# Web UI. Generate form, Scheduler slots and Settings page carry pacing, music source and strict
+# Web UI. Generate form, Scheduler slots and Settings page carry pacing, music source, strict, quality tier and max cost
 # ("Default" = the Settings value; Settings persist in data/config.json and are re-applied at start).
 # After a run the Generate page shows output/<job>/run_report.json warnings; the Library flags them.
 python main.py --serve
+
+# Quality tiers: the motion model per video (every shot stays motion). Default: settings.quality_tier
+python main.py --auto --tier standard        # Kling v3 Standard (~$4 of motion for a medium video)
+python main.py --auto --tier premium         # Kling v3 Pro (~$5.6)
+python main.py --auto --tier custom          # settings.fal_video_model: kling | kling-pro | hailuo | h3-turbo | h3
+python main.py --auto --max-cost 5           # stop before the next paid stage if the estimate exceeds $5 (0 = no cap)
+# Estimates (pre_tts, pre_clips) and the cap land in output/<job>/run_report.json "cost". List prices
+# live in settings.clip_pricing; a cap never swaps in stills or a cheaper model.
 
 # Shot editor options (default pacing: standard)
 python main.py --auto --pacing fast          # calm | standard | fast

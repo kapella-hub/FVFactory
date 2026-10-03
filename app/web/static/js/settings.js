@@ -78,8 +78,9 @@ const SettingsPage = (() => {
           <div class="form-group">
             <label class="form-label">fal.ai Video Model</label>
             <select class="form-select" data-key="fal_video_model">
-              ${['hailuo', 'kling', 'kling-pro'].map(m => `<option value="${m}" ${config.fal_video_model === m ? 'selected' : ''}>${m === 'hailuo' ? 'Minimax Hailuo (best value)' : m === 'kling' ? 'Kling Standard' : 'Kling Pro'}</option>`).join('')}
+              ${falModelOptions().map(m => `<option value="${escapeHtml(m.key)}" ${config.fal_video_model === m.key ? 'selected' : ''}>${escapeHtml(m.label)}${m.price_text ? ` (${escapeHtml(m.price_text)})` : ''}</option>`).join('')}
             </select>
+            <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1)">Used by the Custom quality tier and the classic editor.</div>
           </div>
         </div>
       `)}
@@ -118,6 +119,21 @@ const SettingsPage = (() => {
               ${['any', 'mine', 'generated', 'none']
                 .map(m => `<option value="${m}" ${(config.music_source || 'any') === m ? 'selected' : ''}>${m}</option>`).join('')}
             </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Default Quality Tier</label>
+            <select class="form-select" data-key="quality_tier">
+              ${[['standard', 'Standard (Kling v3 Standard)'], ['premium', 'Premium (Kling v3 Pro)'], ['custom', 'Custom (fal.ai video model)']]
+                .map(([t, label]) => `<option value="${t}" ${(config.quality_tier || 'standard') === t ? 'selected' : ''}>${label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Max Cost per Video (USD, 0 = no cap)</label>
+            <input class="form-input" type="number" min="0" step="0.5" data-key="max_cost_per_video"
+                   value="${Number(config.max_cost_per_video) || 0}">
           </div>
         </div>
 
@@ -247,6 +263,18 @@ const SettingsPage = (() => {
     config.wan_model_size = size;
   }
 
+  // fal_video_model choices from /api/config clip_models; a saved key that is no longer known stays
+  // selectable (marked unknown) so saving the page never changes it silently.
+  function falModelOptions() {
+    const models = Array.isArray(config.clip_models) && config.clip_models.length
+      ? config.clip_models.slice()
+      : [{ key: 'hailuo', label: 'Minimax video-01', price_text: '' }];
+    if (config.fal_video_model && !models.some(m => m.key === config.fal_video_model)) {
+      models.push({ key: config.fal_video_model, label: `${config.fal_video_model} (unknown)`, price_text: '' });
+    }
+    return models;
+  }
+
   async function save() {
     const updates = {};
 
@@ -255,6 +283,7 @@ const SettingsPage = (() => {
       const key = el.dataset.key;
       let val = el.value;
       if (el.type === 'range') val = parseFloat(val);
+      if (key === 'max_cost_per_video' && String(val).trim() === '') val = 0;   // blank = no cap
       updates[key] = val;
     });
 
