@@ -5,13 +5,16 @@ Pipeline: Topic -> Script -> Audio/Images or Animated Portrait -> MP4
 """
 
 import argparse
+import json
 import logging
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Optional
 
 from app.config import settings
-from app.content_engine import ScriptGenerator, ScriptGeneratorError
+from app.content_engine import ScriptGenerator, ScriptGeneratorError, normalize_prompt_counts
 from app.asset_manager import AssetManager, AssetManagerError
 from app.video_editor import VideoEditor, VideoEditorError
 from app.animator import PortraitAnimator, AnimatorError
@@ -20,6 +23,12 @@ from app.motion_gen import MotionGenerator, clip_model_for, snap_duration
 from app.cost_tracker import CostTracker
 from app.metadata_gen import MetadataGenerator
 from app.uploader import YouTubeUploader, UploaderError
+from app.cin.align import align
+from app.cin.clip_sourcing import StrictModeError, generate_segment_clips
+from app.cin.editor import RenderOptions, render_job
+from app.cin.job import create_job, prune_sources
+from app.cin.report import RunReport
+from app.cin.shot_plan import PACING, build_shot_plan, plan_segments
 
 # Configure logging
 logging.basicConfig(
@@ -33,8 +42,9 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def validate_config() -> bool:
-    """Validate that required API keys are configured for selected providers."""
+def validate_config(use_mock: bool = False, enable_motion: bool = True) -> bool:
+    """Validate that required API keys are configured for selected providers.
+    --mock makes no image or motion API calls, so those keys are not required then."""
     errors = []
 
     # LLM: only need OpenAI key if using OpenAI provider
@@ -42,21 +52,23 @@ def validate_config() -> bool:
         if not settings.openai_api_key:
             errors.append("OPENAI_API_KEY is required when llm_provider=openai")
 
-    # Image: check key for selected provider
-    if settings.image_provider == "fal":
-        if not settings.fal_api_key:
-            errors.append("FAL_API_KEY is required when image_provider=fal")
-    elif settings.image_provider == "replicate":
-        if not settings.replicate_api_token:
-            errors.append("REPLICATE_API_TOKEN is required when image_provider=replicate")
+    if not use_mock:
+        # Image: check key for selected provider
+        if settings.image_provider == "fal":
+            if not settings.fal_api_key:
+                errors.append("FAL_API_KEY is required when image_provider=fal")
+        elif settings.image_provider == "replicate":
+            if not settings.replicate_api_token:
+                errors.append("REPLICATE_API_TOKEN is required when image_provider=replicate")
 
-    # Motion: check key for selected provider
-    if settings.motion_provider == "fal":
-        if not settings.fal_api_key:
-            errors.append("FAL_API_KEY is required when motion_provider=fal")
-    elif settings.motion_provider == "replicate":
-        if not settings.replicate_api_token:
-            errors.append("REPLICATE_API_TOKEN is required when motion_provider=replicate")
+    if not use_mock and enable_motion:
+        # Motion: check key for selected provider
+        if settings.motion_provider == "fal":
+            if not settings.fal_api_key:
+                errors.append("FAL_API_KEY is required when motion_provider=fal")
+        elif settings.motion_provider == "replicate":
+            if not settings.replicate_api_token:
+                errors.append("REPLICATE_API_TOKEN is required when motion_provider=replicate")
 
     # TTS: always needs at least one TTS key
     if not settings.elevenlabs_api_key and not settings.openai_api_key:
@@ -210,6 +222,146 @@ def resolve_subtitle_style(subtitle_style: str, video_style: Optional[str] = Non
     return subtitle_style
 
 
+def _print_script(script) -> None:
+    print()
+    print("=" * 50)
+    print("GENERATED SCRIPT")
+    print("=" * 50)
+    print(f"\nHOOK: {script.hook}")
+    print(f"\nBODY:\n{script.body}")
+    print("\nIMAGE PROMPTS:")
+    for i, prompt in enumerate(script.image_prompts, 1):
+        print(f"  {i}. {prompt}")
+    print(f"\nKEYWORDS: {', '.join(script.keywords)}")
+    print("=" * 50)
+    print()
+
+
+def _run_shot_editor(job, script, narration: str, duration: float, options: RenderOptions,
+                     report: RunReport, asset_manager: AssetManager, use_mock_images: bool,
+                     motion_on: bool):
+    """Spec §4 order: (align || images) -> segments -> clips -> shot plan -> render + encode."""
+    model = clip_model_for(settings.motion_provider, settings.fal_video_model)
+
+    def make_images():
+        start = time.perf_counter()
+        try:
+            return asset_manager.generate_images(script.image_prompts, use_mock=use_mock_images,
+                                                 output_dir=job.images)
+        finally:
+            report.durations["images"] = round(time.perf_counter() - start, 2)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        images_future = pool.submit(make_images)
+        with report.stage("align"):
+            alignment, words = align(job.narration, script.scene_texts, narration, duration,
+                                     num_scenes=len(script.image_prompts))
+        image_paths = images_future.result()
+    job.words.write_text(json.dumps(words, indent=1), encoding="utf-8")
+    job.alignment.write_text(json.dumps(alignment.to_json(), indent=1), encoding="utf-8")
+    if alignment.fallback:
+        report.warn("alignment_fallback", f"Scene timing fell back to word counts ({alignment.reason})",
+                    {"reason": alignment.reason, "match_ratio": round(alignment.match_ratio, 4)})
+
+    requests_ = plan_segments(alignment, model.durations if motion_on else None)
+    with report.stage("clips"):
+        specs = generate_segment_clips(
+            requests_, image_paths, script.motion_prompts, job, report,
+            enable_motion=motion_on, model_key=model.key,
+            fallback_model=settings.fal_video_fallback_model if settings.motion_provider == "fal" else None,
+        )
+    plan = build_shot_plan(alignment, options.pacing, specs)
+    for w in plan.warnings:
+        report.warn(w["code"], w["message"], w["detail"])
+    plan.save(job.shot_plan)
+    if options.strict and any(w["code"] == "still_fallback" for w in plan.warnings):
+        raise StrictModeError("strict mode: the plan contains still-fallback shots (see run_report.json); "
+                              f"sources kept in {job.root} for --rerender")
+    final = render_job(job, plan, options, report)
+    return str(final), image_paths, specs
+
+
+def _run_classic(job, script, audio_result, options: RenderOptions, asset_manager: AssetManager,
+                 use_mock_images: bool, enable_motion: bool, persona: Optional[str], use_chroma_key: bool):
+    """The pre-shot-editor path (--classic, or persona hybrid mode), writing into the job folder."""
+    image_paths = asset_manager.generate_images(script.image_prompts, use_mock=use_mock_images,
+                                                output_dir=job.images)
+    motion_clip_paths = None
+    if enable_motion and script.motion_prompts and not use_mock_images:
+        motion_clip_paths = MotionGenerator(temp_dir=str(job.clips)).generate_all_clips(
+            image_paths, script.motion_prompts)
+
+    video_editor = VideoEditor(music_mood=options.music_mood)
+    video_editor.output_dir = job.root
+
+    if persona:
+        animator = PortraitAnimator()
+        persona_path = animator.get_persona_path(persona)
+        if not persona_path:
+            raise AnimatorError(f"Persona not found: {persona}")
+        animated = animator.animate_portrait(audio_path=audio_result.file_path,
+                                             persona_image_path=str(persona_path),
+                                             output_filename=f"animated_{job.name}.mp4")
+        if animated:
+            output = video_editor.assemble_hybrid_video(
+                audio_path=audio_result.file_path, image_paths=image_paths, talking_head_path=animated,
+                output_filename="final.mp4", enable_subtitles=options.enable_subtitles,
+                enable_music=options.enable_music, use_chroma_key=use_chroma_key)
+            return output, image_paths, motion_clip_paths
+        logger.warning("Portrait animation failed (content filter), falling back to standard mode")
+
+    output = video_editor.assemble_video(
+        audio_path=audio_result.file_path, image_paths=image_paths, output_filename="final.mp4",
+        hook_text=script.hook, enable_subtitles=options.enable_subtitles, enable_music=options.enable_music,
+        motion_clip_paths=motion_clip_paths, pacing_hints=script.pacing_hints or None,
+        subtitle_style=options.subtitle_style, color_grade=options.color_grade or None,
+        enable_sfx=options.enable_sfx, title=script.hook, scene_texts=script.scene_texts or None,
+    )
+    return output, image_paths, motion_clip_paths
+
+
+def _log_costs(video_id: str, report: RunReport, narration: str, use_mock_images: bool,
+               image_count: int, specs=None, classic_clips=None) -> float:
+    """Cost bookkeeping after a successful render. It must never fail the run (an unknown clip
+    model or a cost-file error is logged as a warning and skipped)."""
+    tracker = CostTracker()
+
+    def attempt(label: str, fn):
+        try:
+            fn()
+        except Exception as e:  # noqa: BLE001 - cost logging is best-effort
+            logger.warning("Cost logging skipped (%s): %s", label, e)
+
+    attempt("gpt4o", lambda: tracker.log_cost(video_id, "openai_gpt4o"))
+    if settings.elevenlabs_api_key:
+        attempt("tts", lambda: tracker.log_cost(video_id, "elevenlabs_tts", quantity=max(1, len(narration) // 1000)))
+    elif settings.openai_api_key:
+        attempt("tts", lambda: tracker.log_cost(video_id, "openai_tts", quantity=max(1, len(narration) // 1000)))
+    if not use_mock_images:
+        attempt("images", lambda: tracker.log_cost(video_id, "flux_image", quantity=image_count))
+    for spec in specs or []:
+        if spec.path:
+            attempt(f"clip {spec.model}",
+                    lambda spec=spec: tracker.log_clip(video_id, spec.model, seconds=spec.requested_len))
+    if classic_clips:
+        done = sum(1 for c in classic_clips if c is not None)
+        if done:
+            def classic_cost():
+                model = clip_model_for(settings.motion_provider, settings.fal_video_model)
+                tracker.log_clip(video_id, model.key, seconds=snap_duration(5.0, model.durations) or 5.0,
+                                 count=done)
+            attempt("classic clips", classic_cost)
+    attempt("save", tracker.save)
+    total = 0.0
+    try:
+        total = tracker.get_video_cost(video_id)
+        report.cost = {"estimated": None, "actual": tracker.get_video_items(video_id), "total": total}
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Cost summary skipped: %s", e)
+    logger.info(f"Total cost for this video: ${total:.2f}")
+    return total
+
+
 def run_pipeline(
     topic: str,
     use_mock_images: bool = False,
@@ -227,234 +379,100 @@ def run_pipeline(
     # V3 parameters
     video_style: str = "",
     video_duration: str = "",
+    # Shot editor (spec 2026-10-02)
+    pacing: Optional[str] = None,
+    strict: Optional[bool] = None,
+    classic: bool = False,
 ) -> str:
     """
-    Run the full video generation pipeline.
+    Run the full video generation pipeline into output/<job>/ and return the path of final.mp4.
 
-    Args:
-        topic: The topic for the video
-        use_mock_images: If True, use placeholder images instead of DALL-E
-        enable_subtitles: If True, generate word-level subtitles using Whisper
-        enable_music: If True, add background music with ducking
-        persona: Optional persona image filename for hybrid/talking head mode
-        use_chroma_key: If True, use chroma key for green screen personas
-        enable_motion: If True, generate motion clips via Minimax
-        subtitle_style: Subtitle preset name (default bold_impact)
-        enable_sfx: If True, enable sound effects
-
-    Returns:
-        str: Path to the generated video file
-
-    Raises:
-        Exception: If any step of the pipeline fails
+    Order (spec §4): script -> TTS -> (align || images) -> clip segments -> motion clips ->
+    shot plan -> render -> encode. Sources stay in output/<job>/sources/ (also after a failure),
+    so a fixed run can be rebuilt with `python main.py --rerender output/<job>`.
+    pacing/strict default to settings.pacing / settings.strict. classic=True (or --classic, or a
+    persona) uses the old VideoEditor path; renderer errors never fall back to it silently.
     """
-    asset_manager = None
+    pacing = pacing or settings.pacing
+    if pacing not in PACING:
+        raise ValueError(f"Unknown pacing {pacing!r}; choose one of {sorted(PACING)}")
+    strict = settings.strict if strict is None else strict
+    classic = classic or not settings.cinematic_enabled or bool(persona)
+    motion_on = enable_motion and not use_mock_images
+
+    prune_sources(settings.output_dir, settings.keep_sources_days)
+    job = create_job(topic, settings.output_dir)
+    options = RenderOptions(
+        pacing=pacing, subtitle_style=subtitle_style, video_style=video_style or settings.video_style,
+        color_grade=settings.color_grade, enable_subtitles=enable_subtitles, enable_music=enable_music,
+        enable_sfx=enable_sfx, music_mood=resolve_music_mood(niche, video_style), strict=strict,
+    )
+    report = RunReport(job=job.name, options={
+        **options.to_json(), "topic": topic, "niche": niche or "", "enable_motion": motion_on,
+        "use_mock_images": use_mock_images, "classic": classic,
+    })
+    logger.info(f"Job folder: {job.root}")
 
     try:
-        # Step 1: Generate Script
         logger.info("Generating script...")
-        script_gen = ScriptGenerator()
-        # Use v2 script generation when motion is enabled
-        script = script_gen.generate_script(
-            topic, enable_v2=enable_motion,
-            video_style=video_style, video_duration=video_duration,
-        )
+        with report.stage("script"):
+            script = ScriptGenerator().generate_script(
+                topic, enable_v2=enable_motion, video_style=video_style, video_duration=video_duration)
+        script, change = normalize_prompt_counts(script)
+        if change:
+            report.warn("prompt_count_normalized",
+                        "LLM returned mismatched prompt counts; normalized before any paid generation", change)
+        options.subtitle_style = resolve_subtitle_style(subtitle_style, video_style)
+        report.options["subtitle_style"] = options.subtitle_style
+        _print_script(script)
 
-        # Resolve subtitle style based on video style if set to auto
-        subtitle_style = resolve_subtitle_style(subtitle_style, video_style)
-        logger.info("Script generated successfully!")
-        print()
-        print("=" * 50)
-        print("GENERATED SCRIPT")
-        print("=" * 50)
-        print(f"\nHOOK: {script.hook}")
-        print(f"\nBODY:\n{script.body}")
-
-        # Always show image prompts (needed for hybrid mode too)
-        print(f"\nIMAGE PROMPTS:")
-        for i, prompt in enumerate(script.image_prompts, 1):
-            print(f"  {i}. {prompt}")
-
-        print(f"\nKEYWORDS: {', '.join(script.keywords)}")
-        print("=" * 50)
-        print()
-
-        # Step 2: Generate Audio
         logger.info("Generating audio narration...")
         asset_manager = AssetManager()
-
-        # Combine hook and body for narration
         full_narration = f"{script.hook} {script.body}"
-        audio_result = asset_manager.generate_audio(full_narration, voice_id=voice)
-
+        with report.stage("tts"):
+            audio_result = asset_manager.generate_audio(full_narration, voice_id=voice, output_path=job.narration)
         logger.info(f"Audio generated: {audio_result.duration:.1f} seconds")
 
-        # Step 3: Generate visuals
-        output_filename = generate_output_filename(topic)
-
-        # Always generate background images (for both standard and hybrid mode)
-        logger.info("Generating background images...")
-        image_paths = asset_manager.generate_images(
-            script.image_prompts,
-            use_mock=use_mock_images
-        )
-        logger.info(f"Generated {len(image_paths)} images")
-
-        # Generate motion clips if enabled
-        motion_clip_paths = None
-        if enable_motion and script.motion_prompts and not use_mock_images:
-            logger.info("Generating motion clips...")
-            motion_gen = MotionGenerator()
-            motion_clip_paths = motion_gen.generate_all_clips(
-                image_paths, script.motion_prompts
-            )
-            success = sum(1 for c in motion_clip_paths if c is not None)
-            logger.info(f"Motion clips: {success}/{len(motion_clip_paths)} generated")
-
-        # Check if hybrid mode is requested and possible
-        animated_video_path = None
-        use_hybrid_mode = False
-
-        if persona:
-            # HYBRID MODE: Background images + Talking head overlay
-            logger.info(f"Using hybrid mode with persona: {persona}")
-
-            animator = PortraitAnimator()
-            persona_path = animator.get_persona_path(persona)
-
-            if not persona_path:
-                raise AnimatorError(f"Persona not found: {persona}")
-
-            # Generate animated portrait (may return None if content filter blocks)
-            logger.info("Generating animated portrait with SadTalker...")
-            animated_video_path = animator.animate_portrait(
-                audio_path=audio_result.file_path,
-                persona_image_path=str(persona_path),
-                output_filename=f"animated_{output_filename}"
-            )
-
-            if animated_video_path:
-                logger.info(f"Portrait animation complete: {animated_video_path}")
-                use_hybrid_mode = True
-            else:
-                logger.warning("Portrait animation failed (content filter), falling back to standard mode")
-
-        if use_hybrid_mode and animated_video_path:
-            # Render hybrid video (background images + talking head overlay)
-            logger.info("Rendering hybrid video...")
-            video_editor = VideoEditor(music_mood=resolve_music_mood(niche, video_style))
-
-            output_path = video_editor.assemble_hybrid_video(
-                audio_path=audio_result.file_path,
-                image_paths=image_paths,
-                talking_head_path=animated_video_path,
-                output_filename=output_filename,
-                enable_subtitles=enable_subtitles,
-                enable_music=enable_music,
-                use_chroma_key=use_chroma_key,
-            )
-
+        specs, classic_clips = None, None
+        if classic:
+            output_path, image_paths, classic_clips = _run_classic(
+                job, script, audio_result, options, asset_manager, use_mock_images, enable_motion,
+                persona, use_chroma_key)
         else:
-            # STANDARD MODE: Just background images
-            logger.info("Rendering video...")
-            video_editor = VideoEditor(music_mood=resolve_music_mood(niche, video_style))
-
-            output_path = video_editor.assemble_video(
-                audio_path=audio_result.file_path,
-                image_paths=image_paths,
-                output_filename=output_filename,
-                hook_text=script.hook,
-                enable_subtitles=enable_subtitles,
-                enable_music=enable_music,
-                # V2 params
-                motion_clip_paths=motion_clip_paths,
-                pacing_hints=script.pacing_hints if script.pacing_hints else None,
-                subtitle_style=subtitle_style,
-                color_grade=settings.color_grade if settings.color_grade else None,
-                enable_sfx=enable_sfx,
-                title=script.hook,
-                scene_texts=script.scene_texts if script.scene_texts else None,
-                # V3 params
-                cinematic=True,
-                video_style=video_style,
-            )
-
+            output_path, image_paths, specs = _run_shot_editor(
+                job, script, full_narration, audio_result.duration, options, report, asset_manager,
+                use_mock_images, motion_on)
         logger.info(f"Video rendered successfully: {output_path}")
 
-        # Cost tracking
-        video_id = output_filename.replace(".mp4", "")
-        tracker = CostTracker()
-        tracker.log_cost(video_id, "openai_gpt4o")
+        video_id = job.name
+        _log_costs(video_id, report, full_narration, use_mock_images, len(image_paths), specs, classic_clips)
 
-        if settings.elevenlabs_api_key:
-            chars = len(full_narration)
-            tracker.log_cost(video_id, "elevenlabs_tts", quantity=max(1, chars // 1000))
-        elif settings.openai_api_key:
-            chars = len(full_narration)
-            tracker.log_cost(video_id, "openai_tts", quantity=max(1, chars // 1000))
-
-        if not use_mock_images:
-            tracker.log_cost(video_id, "flux_image", quantity=len(image_paths))
-
-        if motion_clip_paths:
-            success_count = sum(1 for c in motion_clip_paths if c is not None)
-            if success_count > 0:
-                model = clip_model_for(settings.motion_provider, settings.fal_video_model)
-                tracker.log_clip(video_id, model.key, seconds=snap_duration(5.0, model.durations) or 5.0,
-                                 count=success_count)
-
-        tracker.save()
-        total_cost = tracker.get_video_cost(video_id)
-        logger.info(f"Total cost for this video: ${total_cost:.2f}")
-
-        # Generate metadata
         logger.info("Generating metadata...")
         meta_gen = MetadataGenerator()
-        metadata = meta_gen.generate_metadata(
-            topic=topic,
-            hook=script.hook,
-            keywords=script.keywords,
-            niche=settings.niche,
-        )
+        metadata = meta_gen.generate_metadata(topic=topic, hook=script.hook, keywords=script.keywords,
+                                              niche=settings.niche)
         meta_gen.save_metadata(video_id, metadata)
-
-        # Generate thumbnail
         logger.info("Generating thumbnail...")
-        meta_gen.generate_thumbnail(
-            video_path=output_path,
-            video_id=video_id,
-            title=metadata.get("title_tiktok", topic),
-        )
+        meta_gen.generate_thumbnail(video_path=output_path, video_id=video_id,
+                                    title=metadata.get("title_tiktok", topic))
 
-        # Upload to YouTube if requested
         if upload:
             try:
-                yt_uploader = YouTubeUploader()
-                video_url = yt_uploader.upload(
-                    video_path=output_path,
-                    video_id=video_id,
-                    niche=niche,
-                )
+                video_url = YouTubeUploader().upload(video_path=output_path, video_id=video_id, niche=niche)
                 logger.info(f"YouTube upload complete: {video_url}")
             except UploaderError as e:
                 logger.error(f"YouTube upload failed: {e}")
 
-        # Step 5: Cleanup temporary assets
-        logger.info("Cleaning up temporary files...")
-        asset_manager.cleanup_temp()
-        logger.info("Cleanup complete")
-
+        report.status = "ok"
         return output_path
 
-    except (ScriptGeneratorError, AssetManagerError, VideoEditorError, AnimatorError) as e:
-        logger.error(f"Pipeline failed: {e}")
-        # Attempt cleanup even on failure
-        if asset_manager:
-            try:
-                asset_manager.cleanup_temp()
-            except Exception:
-                pass
+    except Exception as e:
+        report.status = "failed"
+        report.error = f"{type(e).__name__}: {e}"
+        logger.error(f"Pipeline failed: {e} (sources kept in {job.root}; fix and --rerender)")
         raise
+    finally:
+        report.save(job.report)
 
 
 def list_personas() -> list:
@@ -502,7 +520,11 @@ def parse_args(argv=None):
     parser.add_argument("--serve", action="store_true",
                         help="Start the FastAPI web server")
     parser.add_argument("--classic", action="store_true",
-                        help="Use classic Ken Burns video assembly instead of cinematic engine")
+                        help="Use the classic Ken Burns editor instead of the shot editor")
+    parser.add_argument("--pacing", choices=sorted(PACING), default=None,
+                        help="Shot pacing: calm, standard or fast (default: settings.pacing)")
+    parser.add_argument("--strict", action="store_true",
+                        help="Fail the run instead of shipping a still when a motion clip fails")
 
     return parser.parse_args(argv)
 
@@ -538,6 +560,9 @@ def run_auto_mode(args):
                 voice=voice_id,
                 upload=args.upload,
                 niche=args.niche,
+                pacing=args.pacing,
+                strict=args.strict or None,
+                classic=args.classic,
             )
         except Exception as e:
             logger.error(f"Failed: {e}")
@@ -631,6 +656,9 @@ def run_interactive_mode(args):
             enable_motion=not args.no_motion,
             subtitle_style=args.subtitle_style,
             enable_sfx=not args.no_sfx,
+            pacing=args.pacing,
+            strict=args.strict or None,
+            classic=args.classic,
         )
 
         print()
@@ -672,7 +700,7 @@ def main():
     print("=" * 50)
     print()
 
-    if not validate_config():
+    if not validate_config(use_mock=args.mock, enable_motion=not args.no_motion):
         logger.error("Configuration validation failed. Check your .env file.")
         sys.exit(1)
 

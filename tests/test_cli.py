@@ -83,3 +83,19 @@ def test_resolve_voice_auto_unknown_niche():
 def test_resolve_voice_raw_id():
     voice_id = resolve_voice("some_custom_id_123")
     assert voice_id == "some_custom_id_123"
+
+
+def test_pacing_and_strict_flags():
+    args = parse_args(["--auto", "--pacing", "fast", "--strict", "--classic"])
+    assert args.pacing == "fast" and args.strict is True and args.classic is True
+
+
+def test_pacing_and_strict_default_to_settings():
+    args = parse_args([])
+    assert args.pacing is None and args.strict is False and args.classic is False
+
+
+def test_unknown_pacing_rejected():
+    import pytest
+    with pytest.raises(SystemExit):
+        parse_args(["--pacing", "hyper"])
