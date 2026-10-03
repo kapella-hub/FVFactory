@@ -196,3 +196,17 @@ def test_missing_fal_client_counts_as_clip_failure(tmp_path, monkeypatch):
     with patch.dict("sys.modules", {"fal_client": None}):
         assert MotionGenerator(temp_dir=str(tmp_path)).generate_clip(str(image), "p", str(out)) is None
     assert not out.exists()
+
+
+def test_unknown_or_non_fal_model_key_fails_clip(tmp_path, monkeypatch):
+    from app.config import settings
+    from app.motion_gen import MotionGenerator
+    monkeypatch.setattr(settings, "motion_provider", "fal")
+    image, out = _clip_paths(tmp_path)
+    for key in ("nonsense", "replicate-minimax", "local"):
+        fal = _fake_fal()
+        with patch.dict("sys.modules", {"fal_client": fal}), \
+                patch("app.motion_gen.requests.get", return_value=_ok_response()):
+            assert MotionGenerator(temp_dir=str(tmp_path)).generate_clip(
+                str(image), "p", str(out), model_key=key) is None
+        fal.subscribe.assert_not_called()

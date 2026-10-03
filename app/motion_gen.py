@@ -109,6 +109,12 @@ class MotionGenerator:
                       output_path: Optional[str] = None, duration: Optional[float] = None,
                       model_key: Optional[str] = None) -> Optional[str]:
         """Generate motion clip using fal.ai (Minimax Hailuo default)."""
+        if model_key is not None:
+            requested = CLIP_MODELS.get(model_key)
+            if requested is None or requested.endpoint is None:
+                logger.error("Unknown or non-fal clip model %r; refusing to substitute another model", model_key)
+                return None
+
         import fal_client
 
         # Set API key from config or env
