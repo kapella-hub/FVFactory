@@ -4,6 +4,7 @@ import logging
 import threading
 from typing import Optional
 
+from app.run_options import pipeline_kwargs
 from main import run_pipeline, resolve_voice
 
 
@@ -30,10 +31,18 @@ class GeneratorWorker:
 
     def start(self, topic: str, niche: str = "", voice: str = "bill",
               subtitle_style: str = "bold_impact",
-              enable_motion: bool = True) -> bool:
-        """Start generation. Returns False if already busy."""
+              enable_motion: bool = True, enable_sfx: bool = True, enable_music: bool = True,
+              pacing: Optional[str] = None, music_source: Optional[str] = None,
+              strict: Optional[bool] = None) -> bool:
+        """Start generation. Returns False if already busy. pacing / music_source / strict = None
+        use the Settings defaults; an invalid value raises OptionError before the worker goes busy."""
         if self.status == "running":
             return False
+        options = pipeline_kwargs({
+            "niche": niche, "subtitle_style": subtitle_style, "enable_motion": enable_motion,
+            "enable_sfx": enable_sfx, "enable_music": enable_music,
+            "pacing": pacing, "music_source": music_source, "strict": strict,
+        })
 
         self.status = "running"
         self.logs = []
@@ -42,14 +51,7 @@ class GeneratorWorker:
 
         voice_id = resolve_voice(voice, niche=niche) if voice else None
 
-        self._kwargs = dict(
-            topic=topic,
-            enable_motion=enable_motion,
-            subtitle_style=subtitle_style,
-            enable_sfx=False,
-            voice=voice_id,
-            niche=niche or None,
-        )
+        self._kwargs = dict(topic=topic, voice=voice_id, **options)
 
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()

@@ -104,6 +104,8 @@ class FVScheduler:
 
         try:
             from main import run_pipeline, resolve_voice
+            from app.run_options import pipeline_kwargs
+            options = pipeline_kwargs(config)          # spec §11: slot options; missing = Settings default
             topic = config.get("topic", "")
             niche = config.get("niche", "")
             voice = resolve_voice(config.get("voice", "auto"), niche)
@@ -114,12 +116,7 @@ class FVScheduler:
                 topics = scout.discover_topics(niche=niche, count=1)
                 topic = topics[0].title if topics else "Interesting facts"
 
-            result = run_pipeline(
-                topic=topic, niche=niche, voice=voice,
-                enable_motion=config.get("enable_motion", True),
-                subtitle_style=config.get("subtitle_style", "bold_impact"),
-                enable_sfx=config.get("enable_sfx", True),
-            )
+            result = run_pipeline(topic=topic, voice=voice, **options)
 
             finished = datetime.now(timezone.utc).isoformat()
             conn.execute(
