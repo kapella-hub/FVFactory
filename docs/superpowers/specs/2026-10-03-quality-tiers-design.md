@@ -271,3 +271,18 @@ def estimate_pre_clips(requests_: list, *, model: ClipModel, motion_on: bool,
 - First paid Standard and Premium runs (≈ $4–6 each) to confirm 9:16 output and quality.
 - One H3 Turbo 480P clip (≈ $0.13) before H3 can become the Standard default.
 - Calibrate `WORDS_PER_SECOND` and scene ranges from `run_report.json` after those runs.
+
+## 14. Amendments from planning (2026-10-03)
+
+The implementation plan (`docs/superpowers/plans/2026-10-03-quality-tiers.md`, "Spec deviations")
+records 13 places where the code refined this spec; the controller accepted them. The ones that change
+behaviour a user sees:
+- LLM cost is logged by provider (`claude_cli` at $0) and TTS in the logger's whole 1k-character units;
+  estimates use the same rules (`stage_costs`), so an estimate and the logged total agree.
+- Estimates follow whole-second Kling billing: a typical medium video is ≈ $4.20 Standard / $5.60
+  Premium of motion (list price), above the rough band in §4.1; the UI shows the computed figure.
+- A non-fal key (`local`, `replicate-minimax`) as the `custom` model is rejected like an unknown key.
+- Classic / persona runs record the cap but do not enforce it (no checkpoints on the legacy path) —
+  open item for the user.
+- A run stopped by the cap at `pre_clips` writes no `cost_log.json` entry (true of every failed run
+  today); `run_report.json` keeps the `pre_clips` estimate with `spent` — open item.
