@@ -203,3 +203,13 @@ streamlit run app/dashboard.py
 - Verified: full suite = 12 known unrelated failures (4 test_uploader, 6 test_trends, 1 test_trend_scout, 1 test_local_image_gen); mock end-to-end and fast re-render OK.
 - Fixed since: alignment works (ffmpeg decode, 97.2% match on real narration); final true peak is now -1.38 dBTP (loudnorm target -1.5); Claude CLI output is decoded as UTF-8 (no PYTHONUTF8 needed).
 - Next: Phase B (hook headline, caption rewrite/safe zone), Phase C (music/SFX libraries, ducking, voice polish), Phase D (web/scheduler plumbing).
+
+## Shot editor Phase B - done (2026-10-03)
+
+- Shot editor Phase B (captions + fonts) done: app/fonts.py, app/cin/caption_groups.py, app/cin/captions.py;
+  captions composited in ShotRenderer.frame_at inside y 1254-1402 / x 94-986; hook headline top band
+  [0, 2.5 s] set in main._run_shot_editor and kept by --rerender; font_fallback reported. Next: Phase C.
+- Verified: render-marked end-to-end test (bold_impact, fire) passes on decoded final.mp4; full suite = only the 12 known failures.
+- OWED before first VPS deploy: Linux font check inside the Docker image (Docker daemon was not running on the dev box, so it was skipped). Command:
+  docker compose --profile generate run --rm --build generator python -c "from app.fonts import load_font; w=lambda f: f.getbbox('WILSDORF')[2]; t,_=load_font('Montserrat-Variable.ttf',75,100); b,fb=load_font('Montserrat-Variable.ttf',75,800); a,fa=load_font('Anton-Regular.ttf',75); n,fn=load_font('BebasNeue-Regular.ttf',75); print('fallback', fb, fa, fn, 'thin', w(t), 'extrabold', w(b)); assert not (fb or fa or fn) and w(b) - w(t) >= 15"
+  Expected: fallback False False False thin 417 extrabold 438 (+-1 px). Windows equivalent already passes (FreeType 2.13.3, axis Weight 100-900).

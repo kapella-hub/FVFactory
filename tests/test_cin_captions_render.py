@@ -140,3 +140,35 @@ def test_cached_still_unchanged_across_caption_states(tmp_path):
         assert np.array_equal(r.frame_at(0.5), a)         # deterministic, nothing leaked between frames
     finally:
         r.sources.close()
+
+
+def _frame(path, t):
+    raw = subprocess.run([ffmpeg_exe(), "-v", "error", "-ss", f"{t:.3f}", "-i", str(path), "-frames:v", "1",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], capture_output=True, check=True).stdout
+    return np.frombuffer(raw, np.uint8).reshape(1920, 1080, 3)
+
+
+@pytest.mark.render
+@pytest.mark.parametrize("style", ["bold_impact", "fire"])
+def test_render_job_caption_pixels_stay_in_safe_zone(tmp_path, style):
+    """Black clips, no particles: every bright pixel in the decoded final.mp4 is caption or headline."""
+    job, alignment, specs = build_gold_job(tmp_path)
+    for spec in specs:
+        make_color_clip(job.resolve(spec.path), spec.requested_len, "black", size="360x640")
+    plan = build_shot_plan(alignment, "standard", specs)
+    plan.hook_headline = dict(HEADLINE)
+    report = RunReport(job=job.name)
+    final = render_job(job, plan, RenderOptions(subtitle_style=style, video_style="comic_book",
+                                                enable_music=False, enable_sfx=False), report)
+    assert "font_fallback" not in [w["code"] for w in report.warnings]
+    peak_times = [g.words[-1].t0 + 0.09 for g in plan.captions]           # widest state of every group
+    for t in [0.0, 1.0] + peak_times:
+        f = _frame(final, t)
+        top, bottom = ink(f[:1000], 40), ink(f[1000:], 40)
+        assert bottom is not None, t
+        x0, y0, x1, y1 = bottom
+        assert 1250 <= y0 + 1000 and y1 + 1000 <= 1410 and x1 <= 990, (style, t, bottom)
+        if t < 2.4:
+            assert top is not None and 250 <= top[1] and top[3] <= 450, (style, t, top)
+        elif t > 2.6:
+            assert top is None, (style, t, top)

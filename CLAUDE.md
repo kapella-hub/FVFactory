@@ -43,7 +43,9 @@ FVFactory v2 is a professional-grade automated short-form video creation system 
 ```
 /app        - Application modules
 /output     - Generated videos, metadata, thumbnails
-/assets     - Static assets (fonts, music, SFX, personas)
+/assets     - Static assets (fonts, music, SFX, personas). assets/fonts/ holds the bundled OFL caption
+              fonts (Montserrat variable, Anton, Bebas Neue + OFL texts); subtitle presets reference
+              these files, so captions render the same on Windows and the Linux VPS.
 /tests      - Unit tests
 /docs       - Specs and plans
 ```
