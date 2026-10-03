@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.cin.align import Alignment
+from app.cin.caption_groups import CaptionGroup, CaptionWord, group_captions  # noqa: F401 (re-exported)
 from app.motion_gen import max_duration, snap_duration
 
 # spec §6.1 — (target, min, max) seconds
@@ -134,24 +135,6 @@ class Shot:
         return {"index": self.index, "scene": self.scene, "t0": round(self.t0, 3),
                 "t1": round(self.t1, 3), "source": self.source.to_json(),
                 "framing": self.framing, "transition_in": self.transition_in}
-
-
-@dataclass
-class CaptionWord:
-    text: str
-    t0: float
-    t1: float
-
-
-@dataclass
-class CaptionGroup:
-    t0: float
-    t1: float
-    words: list = field(default_factory=list)
-
-    def to_json(self) -> dict:
-        return {"t0": round(self.t0, 3), "t1": round(self.t1, 3),
-                "words": [{"text": w.text, "t0": round(w.t0, 3), "t1": round(w.t1, 3)} for w in self.words]}
 
 
 @dataclass
@@ -352,19 +335,6 @@ def _segment_shots(spec: ClipSpec, bounds: list, warnings: list) -> list:
     return pieces
 
 
-def _captions(alignment: Alignment) -> list:
-    """Phase A grouping: up to 3 script tokens, breaking after punctuation (Phase B replaces this)."""
-    groups, current = [], []
-    for tok in alignment.tokens:
-        current.append(CaptionWord(tok.text, tok.t0, tok.t1))
-        if len(current) == 3 or tok.sentence_end or tok.comma:
-            groups.append(CaptionGroup(current[0].t0, current[-1].t1, current))
-            current = []
-    if current:
-        groups.append(CaptionGroup(current[0].t0, current[-1].t1, current))
-    return groups
-
-
 def _pick_transitions(alignment: Alignment, shots: list) -> None:
     toks = alignment.tokens
     first_shot = {}
@@ -416,5 +386,5 @@ def build_shot_plan(alignment: Alignment, pacing: str, clip_specs: list, *, fps:
         duration=alignment.duration, fps=fps, pacing=pacing,
         alignment={"method": alignment.method, "fallback": alignment.fallback,
                    "match_ratio": round(alignment.match_ratio, 4)},
-        scenes=scenes, shots=shots, captions=_captions(alignment), warnings=warnings,
+        scenes=scenes, shots=shots, captions=group_captions(alignment.tokens), warnings=warnings,
     )

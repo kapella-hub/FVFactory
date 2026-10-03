@@ -162,6 +162,12 @@ def test_captions_use_script_spelling_in_groups_of_three():
     assert [w.text for w in plan.captions[0].words] == ["This", "watch", "costs"]
 
 
+def test_plan_captions_keep_number_runs_together():
+    _, _, plan = rolex_plan("standard")
+    joined = [" ".join(w.text for w in g.words) for g in plan.captions]
+    assert "40 percent above" in joined and "sell for" in joined
+
+
 def test_unknown_pacing_rejected():
     a = fixture_alignment("words_gold_8s.json")
     with pytest.raises(ValueError):
