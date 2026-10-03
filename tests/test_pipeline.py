@@ -303,3 +303,24 @@ def test_cost_tracker_construction_failure_never_fails_run(offline, monkeypatch)
     out_path = main.run_pipeline("Gold facts", use_mock_images=True)
     assert out_path.endswith("final.mp4")
     assert report_of(only_job(offline.out))["status"] == "ok"
+
+
+def test_post_render_plan_save_failure_does_not_fail_run(offline, monkeypatch):
+    """final.mp4 exists: a locked shot_plan.json on the post-render save warns, the run still succeeds."""
+    from app.cin.shot_plan import ShotPlan
+    monkeypatch.setattr(main, "render_job", fake_render)
+    real, calls = ShotPlan.save, []
+
+    def save(self, path):
+        calls.append(1)
+        if len(calls) >= 2:
+            raise PermissionError("shot_plan.json locked")
+        return real(self, path)
+
+    monkeypatch.setattr(ShotPlan, "save", save)
+    out_path = main.run_pipeline("Gold facts", use_mock_images=True)
+    assert out_path.endswith("final.mp4") and len(calls) == 2
+    rep = report_of(only_job(offline.out))
+    assert rep["status"] == "ok"
+    assert [w["code"] for w in rep["warnings"] if w["code"] == "plan_save_failed"] == ["plan_save_failed"]
+    assert rep["cost"]["actual"]            # cost logging still ran

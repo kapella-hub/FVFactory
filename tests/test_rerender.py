@@ -202,3 +202,16 @@ def test_rerender_drops_stale_alignment_fallback(tmp_path, monkeypatch):
     monkeypatch.setattr("app.cin.editor.render_job", lambda *a, **k: job.final)
     rerender_job(job.root)
     assert not [w for w in RunReport.load(job.report).warnings if w["code"] == "alignment_fallback"]
+
+
+def test_rerender_post_render_plan_save_failure_warns(tmp_path, monkeypatch):
+    job, _ = saved_job(tmp_path)
+    monkeypatch.setattr("app.cin.editor.render_job", lambda *a, **k: job.final)
+
+    def locked(self, path):
+        raise PermissionError("shot_plan.json locked")
+
+    monkeypatch.setattr(ShotPlan, "save", locked)
+    assert rerender_job(job.root) == str(job.final)
+    rep = RunReport.load(job.report)
+    assert rep.status == "ok" and [w["code"] for w in rep.warnings].count("plan_save_failed") == 1

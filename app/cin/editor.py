@@ -267,7 +267,11 @@ def rerender_job(job_dir, *, pacing: Optional[str] = None, subtitle_style: Optio
         for w in plan.warnings:
             report.warn(w["code"], w["message"], w["detail"])
         final = render_job(job, plan, opts, report)
-        plan.save(job.shot_plan)             # only once the new render exists
+        try:
+            plan.save(job.shot_plan)         # only once the new render exists
+        except Exception as e:  # noqa: BLE001 - the render succeeded; keep it
+            logger.warning("Could not save shot_plan.json after rerender: %s", e)
+            report.warn("plan_save_failed", f"shot_plan.json not updated after rerender ({e})", {"error": str(e)})
         report.status = "ok"
         return str(final)
     except Exception as e:

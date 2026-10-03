@@ -179,7 +179,7 @@ def test_save_is_atomic(tmp_path, monkeypatch):
     plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, HAILUO)))
     path = tmp_path / "shot_plan.json"
     plan.save(path)
-    assert not (tmp_path / "shot_plan.json.tmp").exists()
+    assert list(tmp_path.glob("*.tmp")) == []
     first = ShotPlan.load(path)
 
     def boom(*args, **kwargs):

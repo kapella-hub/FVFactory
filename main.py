@@ -269,7 +269,11 @@ def _run_shot_editor(job, script, narration: str, duration: float, options: Rend
         raise StrictModeError("strict mode: the plan contains still-fallback shots (see run_report.json); "
                               f"sources kept in {job.root} for --rerender")
     final = render_job(job, plan, options, report)
-    plan.save(job.shot_plan)               # again: render_job filled plan.music / plan.sfx
+    try:
+        plan.save(job.shot_plan)           # again: render_job filled plan.music / plan.sfx
+    except Exception as e:  # noqa: BLE001 - final.mp4 exists; a locked plan file must not fail the run
+        logger.warning("Could not save shot_plan.json after render: %s", e)
+        report.warn("plan_save_failed", f"shot_plan.json not updated after render ({e})", {"error": str(e)})
     return str(final), image_paths, specs
 
 
