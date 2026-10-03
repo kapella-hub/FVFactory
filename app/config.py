@@ -1,3 +1,4 @@
+import re
 from typing import Annotated, Literal
 
 from pydantic import Field, StringConstraints
@@ -9,6 +10,9 @@ ModelName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]*$")]    
 RequiredModelName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9._:-]+$")]
 
 
+_SECRET_FIELD = re.compile(r"(api_key|api_token|_token$|password|_secret$)")
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -16,6 +20,14 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",  # legacy .env keys (e.g. AYRSHARE_API_KEY) must not break startup
     )
+
+    def __repr_args__(self):
+        """Mask secret values: pytest and tracebacks print this object, and a leaked repr once put live
+        API keys into a session log. Set secrets show as '***'; unset ones stay ''."""
+        for name, value in super().__repr_args__():
+            if name and _SECRET_FIELD.search(name) and isinstance(value, str) and value:
+                value = "***"
+            yield name, value
 
     # OpenAI - Script generation
     openai_api_key: str = ""

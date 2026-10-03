@@ -155,3 +155,14 @@ def test_env_example_documents_low_motion_threshold():
     from pathlib import Path
     text = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
     assert "LOW_MOTION_THRESHOLD" in set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text, flags=re.M))
+
+
+def test_settings_repr_never_shows_secret_values():
+    """A failing test that prints Settings (pytest shows object reprs) must not leak API keys."""
+    s = Settings(_env_file=None, openai_api_key="sk-LEAKCHECK-123456", fal_api_key="id:LEAKCHECK-secret",
+                 claude_code_oauth_token="sk-ant-oat-LEAKCHECK", youtube_client_secrets="client_secrets.json")
+    for text in (repr(s), str(s)):
+        assert "LEAKCHECK" not in text
+        assert "openai_api_key='***'" in text and "fal_api_key='***'" in text
+    assert "client_secrets.json" in repr(s)          # file paths are not secrets
+    assert Settings(_env_file=None).openai_api_key == "" and "openai_api_key=''" in repr(Settings(_env_file=None))
