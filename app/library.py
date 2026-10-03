@@ -10,6 +10,29 @@ from typing import Optional
 from app.cin.report import load_summary
 
 _SAFE_ID = re.compile(r"[A-Za-z0-9_.\- ]+")
+_JOB_STAMP = re.compile(r"^\d{8}_\d{4,6}_")          # job folders: YYYYMMDD_HHMM[SS]_<slug>
+
+
+def _run_topic(report: Optional[Path]) -> str:
+    try:
+        topic = json.loads(report.read_text(encoding="utf-8")).get("options", {}).get("topic")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return topic.strip() if isinstance(topic, str) else ""
+
+
+def _title(video_id: str, metadata: Optional[dict], report: Optional[Path]) -> str:
+    """Every job's file is final.mp4, so the name shown comes from the metadata titles, then the run's
+    topic, then the folder name without its timestamp."""
+    for key in ("title_youtube", "title_tiktok", "title"):
+        value = (metadata or {}).get(key) if isinstance(metadata, dict) else None
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    topic = _run_topic(report) if report is not None else ""
+    if topic:
+        return topic
+    words = _JOB_STAMP.sub("", video_id).replace("_", " ").strip() or video_id
+    return words[:1].upper() + words[1:]
 
 
 def _entry(output_dir: Path, video_id: str, mp4: Path, report: Optional[Path] = None) -> dict:
@@ -26,6 +49,8 @@ def _entry(output_dir: Path, video_id: str, mp4: Path, report: Optional[Path] = 
     return {
         "id": video_id,
         "filename": mp4.name,
+        "title": _title(video_id, metadata, report),
+        "download_name": f"{video_id}.mp4",
         "path": str(mp4),
         "created": stat.st_mtime,
         "size_mb": round(stat.st_size / 1024 / 1024, 1),

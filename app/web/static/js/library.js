@@ -74,7 +74,7 @@ const LibraryPage = (() => {
   }
 
   function renderCard(video, index) {
-    const title = video.metadata?.title || video.filename.replace('.mp4', '').replace(/_/g, ' ');
+    const title = video.title || video.metadata?.title || video.filename.replace('.mp4', '').replace(/_/g, ' ');
     const niche = video.metadata?.niche || '';
     const nicheColor = NICHE_COLORS[niche] || 'muted';
     const thumbUrl = video.has_thumbnail ? `/api/library/${escapeAttr(video.id)}/thumbnail` : '';
@@ -109,7 +109,7 @@ const LibraryPage = (() => {
     if (!video) return;
 
     const meta = video.metadata || {};
-    const title = meta.title || video.filename.replace('.mp4', '').replace(/_/g, ' ');
+    const title = video.title || meta.title || video.filename.replace('.mp4', '').replace(/_/g, ' ');
     const description = meta.description || '';
     const hashtags = meta.hashtags || meta.tags || [];
     const bestTime = meta.best_posting_time || meta.posting_time || '';
@@ -169,7 +169,7 @@ const LibraryPage = (() => {
               </div>
 
               <div style="display:flex;gap:var(--space-3);margin-top:var(--space-4)">
-                <a class="btn btn--primary" href="/api/library/${escapeAttr(video.id)}/video" download="${escapeAttr(video.filename)}">
+                <a class="btn btn--primary" href="/api/library/${escapeAttr(video.id)}/video" download="${escapeAttr(video.download_name || video.filename)}">
                   &#11015; Download
                 </a>
               </div>

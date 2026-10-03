@@ -86,3 +86,40 @@ def test_missing_or_corrupt_report_never_breaks_the_listing(tmp_path):
     videos = {v["id"]: v for v in find_videos(tmp_path)}
     assert videos["a"]["status"] == "unknown" and videos["a"]["warnings"] == []
     assert videos["b"]["status"] == "unknown" and videos["b"]["warnings"] == []
+
+
+def _meta(root: Path, video_id: str, data: dict) -> None:
+    (root / "metadata").mkdir(exist_ok=True)
+    (root / "metadata" / f"{video_id}.json").write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_title_prefers_youtube_then_tiktok_title(tmp_path):
+    _touch(tmp_path / "20261003_153038_why_gold_never_rusts" / "final.mp4")
+    _touch(tmp_path / "20261003_000841_history_of_rolex" / "final.mp4")
+    _meta(tmp_path, "20261003_153038_why_gold_never_rusts",
+          {"title_youtube": "Why Gold Never Rusts", "title_tiktok": "gold never rusts?! #science"})
+    _meta(tmp_path, "20261003_000841_history_of_rolex", {"title_tiktok": "The Rolex story"})
+    titles = {v["id"]: v["title"] for v in find_videos(tmp_path)}
+    assert titles == {"20261003_153038_why_gold_never_rusts": "Why Gold Never Rusts",
+                      "20261003_000841_history_of_rolex": "The Rolex story"}
+
+
+def test_title_falls_back_to_run_topic_then_folder_name(tmp_path):
+    job = tmp_path / "20261003_120000_gold_facts"
+    _touch(job / "final.mp4")
+    (job / "run_report.json").write_text(json.dumps({"status": "ok", "options": {"topic": "Gold facts!"}}),
+                                         encoding="utf-8")
+    _touch(tmp_path / "20261002_2142_history_of_adp" / "final.mp4")      # no metadata, no report
+    _touch(tmp_path / "my_old_video.mp4")                                  # legacy flat file
+    titles = {v["id"]: v["title"] for v in find_videos(tmp_path)}
+    assert titles == {"20261003_120000_gold_facts": "Gold facts!",
+                      "20261002_2142_history_of_adp": "History of adp",
+                      "my_old_video": "My old video"}
+
+
+def test_download_name_is_the_job_not_final(tmp_path):
+    _touch(tmp_path / "20261003_120000_gold_facts" / "final.mp4")
+    _touch(tmp_path / "legacy_clip.mp4")
+    names = {v["id"]: v["download_name"] for v in find_videos(tmp_path)}
+    assert names == {"20261003_120000_gold_facts": "20261003_120000_gold_facts.mp4",
+                     "legacy_clip": "legacy_clip.mp4"}
