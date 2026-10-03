@@ -60,7 +60,7 @@ class Settings(BaseSettings):
         "vector art style"
     )
     # Extra style keywords appended to every image prompt. "" = derive from the run's video_style
-    # (photorealistic -> photographic keywords; other styles rely on the LLM's style keywords).
+    # (asset_manager.STYLE_SUFFIX: one set of keywords per video style).
     image_style: str = ""
 
     # Background music settings

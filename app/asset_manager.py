@@ -33,9 +33,19 @@ class AssetManagerError(Exception):
 
 
 # Style keywords appended to image prompts when settings.image_style is "" (spec 2026-10-03 §9).
-# Styles not listed get nothing: their keywords come from the script's image prompts.
+# One entry per ScriptGenerator.STYLE_GUIDE key (tests enforce it): the look must not depend on the
+# LLM's wording alone, and fast image models (FLUX schnell) hold a style better when it is restated.
 STYLE_SUFFIX = {
     "photorealistic": "photorealistic photograph, natural light, realistic textures, sharp focus",
+    "cartoon": "cartoon style, 3D animated, bold outlines, vibrant saturated colors, playful exaggerated proportions",
+    "anime": "anime style, Japanese animation, cel-shaded, expressive characters, detailed painted background",
+    "stop_motion": "stop motion claymation, handcrafted clay figures, miniature set, felt and wood textures",
+    "pixel_art": "pixel art, retro 16-bit video game style, limited color palette, crisp chunky pixels",
+    "comic_book": "comic book style, bold ink outlines, halftone dots, dramatic shadows, graphic novel panel",
+    "watercolor": "watercolor painting, soft translucent washes, bleeding edges, visible paper texture",
+    "3d_render": "3D render, CGI, volumetric lighting, global illumination, octane render, smooth surfaces",
+    "noir": "film noir, black and white, high contrast, dramatic hard shadows, moody atmosphere",
+    "oil_painting": "oil painting, thick visible brushstrokes, impasto texture, rich deep colors, classical art",
 }
 
 

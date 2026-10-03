@@ -165,11 +165,34 @@ def test_photoreal_prompts_get_photographic_keywords_not_vector_art(monkeypatch)
         assert word not in out
 
 
-def test_non_photoreal_prompts_keep_their_own_style(monkeypatch):
+def test_non_photoreal_prompts_get_their_style_suffix(monkeypatch):
     from app.config import settings
+    from app.asset_manager import STYLE_SUFFIX
     monkeypatch.setattr(settings, "image_style", "")
     prompt = "a gold bar on a scale, cartoon style, vibrant colors"
-    assert AssetManager(video_style="cartoon")._enhance_prompt_with_style(prompt) == prompt
+    assert AssetManager(video_style="cartoon")._enhance_prompt_with_style(prompt) == \
+        f"{prompt}, {STYLE_SUFFIX['cartoon']}"
+
+
+def test_every_video_style_has_a_suffix_that_is_appended(monkeypatch):
+    """The look must not depend on the LLM's wording alone (baba yaga anime run came out flat vector)."""
+    from app.config import settings
+    from app.asset_manager import STYLE_SUFFIX
+    from app.content_engine import ScriptGenerator
+    monkeypatch.setattr(settings, "image_style", "")
+    for key in ScriptGenerator.STYLE_GUIDE:
+        assert STYLE_SUFFIX.get(key), f"no STYLE_SUFFIX for video style {key!r}"
+        out = AssetManager(video_style=key)._enhance_prompt_with_style("an old witch in a hut on chicken legs")
+        assert out == f"an old witch in a hut on chicken legs, {STYLE_SUFFIX[key]}"
+    assert "anime" in STYLE_SUFFIX["anime"].lower() and "vector" not in " ".join(STYLE_SUFFIX.values())
+
+
+def test_style_suffix_is_not_repeated(monkeypatch):
+    from app.config import settings
+    from app.asset_manager import STYLE_SUFFIX
+    monkeypatch.setattr(settings, "image_style", "")
+    prompt = f"a hut, {STYLE_SUFFIX['anime']}"
+    assert AssetManager(video_style="anime")._enhance_prompt_with_style(prompt) == prompt
 
 
 def test_explicit_image_style_setting_still_overrides(monkeypatch):
