@@ -8,11 +8,13 @@ import argparse
 import json
 import logging
 import math
+import shutil
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
+from app import llm
 from app.config import settings
 from app.content_engine import ScriptGenerator
 from app.asset_manager import AssetManager
@@ -56,6 +58,12 @@ def validate_config(use_mock: bool = False, enable_motion: bool = True) -> bool:
     if settings.llm_provider == "openai" or settings.provider_mode == "api":
         if not settings.openai_api_key:
             errors.append("OPENAI_API_KEY is required when llm_provider=openai")
+    cli = llm.CLI_COMMANDS.get(settings.llm_provider)
+    if cli and not shutil.which(cli):            # not an error: the fallback chain may still answer
+        fallback = llm.provider_chain()[1:]
+        logger.warning("LLM provider %s: the %r CLI is not on PATH; scripts will use the fallback chain: %s",
+                       settings.llm_provider, cli,
+                       ", ".join(fallback) if fallback else "none (script generation will fail)")
 
     if not use_mock:
         # Image: check key for selected provider
@@ -289,7 +297,7 @@ def _run_shot_editor(job, script, narration: str, duration: float, options: Rend
 
     requests_ = plan_segments(alignment, model.durations if motion_on else None)
     costs = stage_costs(narration_chars=len(narration), image_count=len(image_paths),
-                        mock_images=use_mock_images, llm_calls=llm_n)
+                        mock_images=use_mock_images, llm_calls=llm_n, llm_provider=report.script.get("llm_provider"))
     _cost_checkpoint(report, estimate_pre_clips(requests_, model=model, motion_on=motion_on, costs=costs),
                      max_cost, job)
     with report.stage("clips"):
@@ -382,7 +390,7 @@ def _log_costs(video_id: str, report: RunReport, narration: str, use_mock_images
     if tracker is None:
         return 0.0
 
-    llm_item = llm_cost_item()
+    llm_item = llm_cost_item(report.script.get("llm_provider"))   # the provider that answered, when known
     for _ in range(llm_n):                       # the draft, plus the length revision when one was attempted
         attempt("llm", lambda: tracker.log_cost(video_id, llm_item))
     tts_item = tts_cost_item()
@@ -521,11 +529,13 @@ def run_pipeline(
 
     try:
         logger.info("Generating script...")
+        llm.reset_last_provider()                # a value left by an earlier run in this thread
         with report.stage("script"):
             result = ScriptGenerator().write_script(
                 topic, enable_v2=enable_motion, video_style=video_style, video_duration=video_duration)
         script = result.script
         report.script = dict(result.length)
+        report.script["llm_provider"] = llm.last_provider() or settings.llm_provider
         for w in result.warnings:
             report.warn(w["code"], w["message"], w["detail"])
         options.subtitle_style = resolve_subtitle_style(subtitle_style, video_style)
@@ -536,7 +546,8 @@ def run_pipeline(
         paid["llm_n"] = llm_n
         # checkpoint 1: nothing but the script is paid yet (spec 2026-10-03 §8.2)
         costs = stage_costs(narration_chars=len(full_narration), image_count=len(script.image_prompts),
-                            mock_images=use_mock_images, llm_calls=llm_n)
+                            mock_images=use_mock_images, llm_calls=llm_n,
+                            llm_provider=report.script["llm_provider"])
         if classic:              # one clip per image; the classic editor has no second checkpoint
             classic_motion = motion_on and bool(script.motion_prompts)
             estimate = estimate_classic(clip_count=len(script.image_prompts) if classic_motion else 0,

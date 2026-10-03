@@ -351,7 +351,8 @@ def test_report_records_word_budget_and_narration_timing(offline, monkeypatch):
     script = report_of(only_job(offline.out))["script"]
     assert script == {"preset": "short", "target_seconds": 30, "target_words": 66, "word_range": [57, 75],
                       "draft_words": 24, "words": 24, "revision": "failed",
-                      "narration_seconds": 8.0, "seconds_vs_target": -22.0, "words_per_second": 3.0}
+                      "narration_seconds": 8.0, "seconds_vs_target": -22.0, "words_per_second": 3.0,
+                      "llm_provider": "claude_cli"}
 
 
 def test_script_roles_and_headline_reach_the_shot_plan(offline, monkeypatch):
@@ -676,3 +677,57 @@ def test_mock_image_run_that_fails_logs_no_images(offline, monkeypatch):
         main.run_pipeline("Gold facts", use_mock_images=True)
     items = [i["item"] for i in report_of(only_job(offline.out))["cost"]["actual"]]
     assert items == ["claude_cli", "claude_cli"]
+
+
+def _answered_by(monkeypatch, provider):
+    """Wrap the offline fake script so the script stage reports `provider` as the LLM that answered."""
+    import app.llm
+    fake = main.ScriptGenerator.generate_script
+
+    def script(self, topic, **kwargs):
+        app.llm._set_last_provider(provider)
+        return fake(self, topic, **kwargs)
+
+    monkeypatch.setattr(main.ScriptGenerator, "generate_script", script)
+
+
+def test_report_records_the_llm_provider_that_answered(offline, monkeypatch):
+    """claude_cli is configured but the fallback (OpenAI) answered: the report, the estimate and the
+    cost log all follow the provider that answered."""
+    import app.llm
+    _answered_by(monkeypatch, "openai")
+    monkeypatch.setattr(main, "render_job", fake_render)
+    try:
+        main.run_pipeline("Gold facts", use_mock_images=True)
+    finally:
+        app.llm.reset_last_provider()
+    rep = report_of(only_job(offline.out))
+    assert rep["status"] == "ok" and rep["script"]["llm_provider"] == "openai"
+    items = [i["item"] for i in rep["cost"]["actual"]]
+    assert items.count("openai_gpt4o") == 2 and "claude_cli" not in items      # draft + failed revision
+    assert rep["cost"]["estimated"]["pre_tts"]["llm"] == 0.01
+
+
+def test_failed_run_logs_the_llm_provider_that_answered(offline, monkeypatch):
+    import app.llm
+    _answered_by(monkeypatch, "codex")
+    monkeypatch.setattr(main, "render_job", _raise(RuntimeError("encoder crashed")))
+    try:
+        with pytest.raises(RuntimeError, match="encoder crashed"):
+            main.run_pipeline("Gold facts", use_mock_images=True)
+    finally:
+        app.llm.reset_last_provider()
+    rep = report_of(only_job(offline.out))
+    assert rep["script"]["llm_provider"] == "codex"
+    assert [i["item"] for i in rep["cost"]["actual"]] == ["codex_cli", "codex_cli"]
+
+
+def test_report_llm_provider_is_the_setting_when_no_llm_answered(offline, monkeypatch):
+    """A stale thread-local value from an earlier run in this thread is never reused."""
+    import app.llm
+    app.llm._set_last_provider("codex")
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True)
+    rep = report_of(only_job(offline.out))
+    assert rep["script"]["llm_provider"] == "claude_cli"
+    assert [i["item"] for i in rep["cost"]["actual"]] == ["claude_cli", "claude_cli"]

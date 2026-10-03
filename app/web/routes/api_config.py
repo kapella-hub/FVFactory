@@ -27,6 +27,11 @@ async def get_config():
     current = {
         "provider_mode": settings.provider_mode,
         "llm_provider": settings.llm_provider,
+        "llm_fallback": settings.llm_fallback,
+        "claude_cli_model": settings.claude_cli_model,
+        "codex_model": settings.codex_model,
+        "openai_model": settings.openai_model,
+        "codex_cli_timeout": settings.codex_cli_timeout,
         "image_provider": settings.image_provider,
         "motion_provider": settings.motion_provider,
         "fal_video_model": settings.fal_video_model,

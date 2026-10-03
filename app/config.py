@@ -149,7 +149,15 @@ class Settings(BaseSettings):
     provider_mode: str = "api"
 
     # Individual provider selection
-    llm_provider: str = "claude_cli"        # "claude_cli" | "openai"
+    # Script LLM: the primary provider, then each llm_fallback name in order (skipping the primary and
+    # duplicates; "" or "none" = no fallback). claude_cli / codex are the headless CLIs (subscription
+    # logins, $0 in the cost log); openai is the paid API.
+    llm_provider: Literal["claude_cli", "codex", "openai"] = "claude_cli"
+    llm_fallback: str = "codex,openai"
+    claude_cli_model: str = "sonnet"        # claude -p --model
+    codex_model: str = ""                   # codex exec -m; "" = the Codex CLI default model
+    openai_model: str = "gpt-5.4-mini-2026-03-17"
+    codex_cli_timeout: int = 300            # seconds
     image_provider: str = "fal"             # "fal" | "local" | "replicate"
     motion_provider: str = "fal"            # "fal" | "replicate" | "local"
 
@@ -197,6 +205,7 @@ class Settings(BaseSettings):
     cost_local_image: float = 0.0
     cost_local_video: float = 0.0
     cost_claude_cli: float = 0.0
+    cost_codex_cli: float = 0.0
 
 
 settings = Settings()

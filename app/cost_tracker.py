@@ -28,6 +28,7 @@ def unit_costs() -> dict:
         "local_image": settings.cost_local_image,       # $0.00
         "local_video": settings.cost_local_video,       # $0.00
         "claude_cli": settings.cost_claude_cli,         # $0.00
+        "codex_cli": settings.cost_codex_cli,           # $0.00
     }
 
 

@@ -43,9 +43,13 @@ class CostEstimate:
         return asdict(self)
 
 
-def llm_cost_item() -> str:
-    """Cost-log item of one script LLM call: OpenAI is billed, the claude CLI is $0 (spec §4.7)."""
-    return "openai_gpt4o" if settings.llm_provider == "openai" else "claude_cli"
+def llm_cost_item(provider: Optional[str] = None) -> str:
+    """Cost-log item of one script LLM call by `provider` (None = settings.llm_provider): OpenAI is
+    billed, the claude and codex CLIs run on subscription logins and log $0 (spec §4.7)."""
+    provider = settings.llm_provider if provider is None else provider
+    if provider == "openai":
+        return "openai_gpt4o"
+    return "codex_cli" if provider == "codex" else "claude_cli"
 
 
 def tts_cost_item() -> Optional[str]:
@@ -68,14 +72,15 @@ def llm_calls(revision: Optional[str]) -> int:
 
 
 def stage_costs(*, narration_chars: int, image_count: int, mock_images: bool, llm_calls: int,
-                rates: Optional[dict] = None) -> dict:
-    """USD of TTS, images and the script LLM calls, with the rules main._log_costs logs."""
+                rates: Optional[dict] = None, llm_provider: Optional[str] = None) -> dict:
+    """USD of TTS, images and the script LLM calls, with the rules main._log_costs logs.
+    llm_provider = the provider that answered the script (None = settings.llm_provider)."""
     rates = unit_costs() if rates is None else rates
     tts_item = tts_cost_item()
     return {
         "tts": round(tts_units(narration_chars) * rates[tts_item], 4) if tts_item else 0.0,
         "images": 0.0 if mock_images else round(image_count * rates["flux_image"], 4),
-        "llm": round(llm_calls * rates[llm_cost_item()], 4),
+        "llm": round(llm_calls * rates[llm_cost_item(llm_provider)], 4),
     }
 
 

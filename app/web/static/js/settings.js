@@ -57,9 +57,20 @@ const SettingsPage = (() => {
           <div class="form-group">
             <label class="form-label">LLM Provider</label>
             <select class="form-select" data-key="llm_provider">
-              ${['openai', 'claude_cli', 'ollama'].map(p => `<option value="${p}" ${config.llm_provider === p ? 'selected' : ''}>${p}</option>`).join('')}
+              ${[['claude_cli', 'Claude Code (headless)'], ['codex', 'Codex CLI (headless)'], ['openai', 'OpenAI API']]
+                .map(([p, label]) => `<option value="${p}" ${(config.llm_provider || 'claude_cli') === p ? 'selected' : ''}>${label}</option>`).join('')}
             </select>
+            <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1)">Writes the scripts. The headless CLIs use their own logins (no API cost).</div>
           </div>
+          <div class="form-group">
+            <label class="form-label">LLM Fallback (comma list, tried in order)</label>
+            <input class="form-input mono" data-key="llm_fallback" type="text"
+                   value="${escapeHtml(config.llm_fallback ?? 'codex,openai')}" placeholder="codex,openai (none = no fallback)">
+            <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1)">Names: claude_cli, codex, openai. Used when the provider above fails.</div>
+          </div>
+        </div>
+
+        <div class="form-row">
           <div class="form-group">
             <label class="form-label">Image Provider</label>
             <select class="form-select" data-key="image_provider">
