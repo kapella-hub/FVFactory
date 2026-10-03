@@ -36,6 +36,7 @@ class RenderOptions:
     enable_music: bool = True
     enable_sfx: bool = True
     music_mood: str = ""
+    music_source: str = "any"          # mine | generated | any | none (spec §8.1)
     strict: bool = False
 
     def to_json(self) -> dict:

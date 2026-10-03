@@ -170,6 +170,12 @@ class Settings(BaseSettings):
     fal_video_fallback_model: str = ""      # e.g. "kling"; "" = no fallback model
     pacing: Literal["calm", "standard", "fast"] = "standard"
     strict: bool = False                    # True: fail the run instead of shipping a still shot
+    music_source: Literal["mine", "generated", "any", "none"] = "any"   # spec §8.1
+
+    # ElevenLabs music / SFX library builders (spec §8.1-8.2). Prices: https://elevenlabs.io/pricing/api
+    elevenlabs_music_model: str = "music_v1"        # API default; "music_v2" / "music_v2_5" also accepted
+    cost_elevenlabs_music_per_minute: float = 0.15
+    cost_elevenlabs_sfx_per_minute: float = 0.12
 
     # Data directory (scheduler DB, config.json)
     data_dir: str = "data"

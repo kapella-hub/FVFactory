@@ -29,6 +29,13 @@ def gold() -> dict:
     return load_fixture("words_gold_8s.json")
 
 
+@pytest.fixture(autouse=True)
+def _isolated_music_usage(tmp_path, monkeypatch):
+    """No test may write the real data/music_usage.json."""
+    monkeypatch.setattr("app.cin.music_library.default_usage_path",
+                        lambda: tmp_path / "data" / "music_usage.json")
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
