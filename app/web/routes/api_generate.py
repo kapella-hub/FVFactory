@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import uuid
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -30,6 +30,10 @@ class GenerateRequest(BaseModel):
     pacing: Optional[str] = None            # calm | standard | fast
     music_source: Optional[str] = None      # mine | generated | any | none
     strict: Optional[bool] = None
+    # Quality tiers (spec 2026-10-03 §9). Text is accepted so pipeline_kwargs gives one message for
+    # blank ("" = Settings default), negative and non-numeric caps.
+    quality_tier: Optional[str] = None      # standard | premium | custom
+    max_cost: Optional[Union[float, str]] = None   # USD, 0 = no cap
 
 
 class GenerateResponse(BaseModel):

@@ -33,15 +33,18 @@ class GeneratorWorker:
               subtitle_style: str = "bold_impact",
               enable_motion: bool = True, enable_sfx: bool = True, enable_music: bool = True,
               pacing: Optional[str] = None, music_source: Optional[str] = None,
-              strict: Optional[bool] = None) -> bool:
-        """Start generation. Returns False if already busy. pacing / music_source / strict = None
-        use the Settings defaults; an invalid value raises OptionError before the worker goes busy."""
+              strict: Optional[bool] = None, quality_tier: Optional[str] = None,
+              max_cost: Optional[float] = None) -> bool:
+        """Start generation. Returns False if already busy. pacing / music_source / strict /
+        quality_tier / max_cost = None use the Settings defaults; an invalid value raises OptionError
+        before the worker goes busy."""
         if self.status == "running":
             return False
         options = pipeline_kwargs({
             "niche": niche, "subtitle_style": subtitle_style, "enable_motion": enable_motion,
             "enable_sfx": enable_sfx, "enable_music": enable_music,
             "pacing": pacing, "music_source": music_source, "strict": strict,
+            "quality_tier": quality_tier, "max_cost": max_cost,
         })
 
         self.status = "running"

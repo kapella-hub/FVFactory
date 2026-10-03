@@ -583,6 +583,17 @@ def parse_moods(text: str) -> list:
     return moods
 
 
+def _max_cost_arg(text: str) -> float:
+    """--max-cost: USD >= 0 (0 = no cap). float() alone would accept "nan" and "inf"."""
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"--max-cost must be a number of USD, got {text!r}")
+    if not math.isfinite(value) or value < 0:
+        raise argparse.ArgumentTypeError("--max-cost must be >= 0 (0 = no cap)")
+    return value
+
+
 def _per_mood(text: str) -> int:
     n = int(text)
     if not 1 <= n <= 20:
@@ -634,6 +645,12 @@ def parse_args(argv=None):
                         help="Shot pacing: calm, standard or fast (default: settings.pacing)")
     parser.add_argument("--strict", action=argparse.BooleanOptionalAction, default=None,
                         help="Fail the run instead of shipping a still when a motion clip fails")
+    parser.add_argument("--tier", choices=list(QUALITY_TIERS), default=None,
+                        help="Motion quality: standard (Kling v3 Standard), premium (Kling v3 Pro) or "
+                             "custom (settings.fal_video_model) (default: settings.quality_tier)")
+    parser.add_argument("--max-cost", type=_max_cost_arg, default=None, metavar="USD",
+                        help="Stop the run before the next paid stage when its cost estimate exceeds "
+                             "this (0 = no cap; default: settings.max_cost_per_video)")
     parser.add_argument("--rerender", type=str, default=None, metavar="JOB_DIR",
                         help="Rebuild output/<job>/final.mp4 from its sources/ with zero API calls")
     parser.add_argument("--color-grade", type=str, default=None,
@@ -691,6 +708,8 @@ def run_auto_mode(args):
                 strict=args.strict,
                 classic=args.classic,
                 music_source=args.music_source,
+                quality_tier=args.tier,
+                max_cost=args.max_cost,
             )
         except Exception as e:
             logger.error(f"Failed: {e}")
@@ -788,6 +807,8 @@ def run_interactive_mode(args):
             strict=args.strict,
             classic=args.classic,
             music_source=args.music_source,
+            quality_tier=args.tier,
+            max_cost=args.max_cost,
         )
 
         print()

@@ -89,3 +89,33 @@ def test_worker_rejects_bad_option_before_going_busy():
         with pytest.raises(OptionError):
             w.start(topic="Test", pacing="warp")
     assert w.status == "idle" and not mock_pipe.called
+
+
+
+def test_worker_passes_quality_tier_and_cap():
+    w = GeneratorWorker()
+    with patch("app.generator_worker.run_pipeline", return_value="/output/j/final.mp4") as mock_pipe:
+        w.start(topic="Test", quality_tier="premium", max_cost="4.5")
+        w._thread.join()
+    kw = mock_pipe.call_args.kwargs
+    assert (kw["quality_tier"], kw["max_cost"]) == ("premium", 4.5)
+
+
+def test_worker_defaults_tier_and_cap_to_settings():
+    w = GeneratorWorker()
+    with patch("app.generator_worker.run_pipeline", return_value="/output/j/final.mp4") as mock_pipe:
+        w.start(topic="Test")
+        w._thread.join()
+    assert (mock_pipe.call_args.kwargs["quality_tier"], mock_pipe.call_args.kwargs["max_cost"]) == (None, None)
+
+
+def test_worker_rejects_bad_cap_before_going_busy():
+    import pytest
+    from app.run_options import OptionError
+    w = GeneratorWorker()
+    with patch("app.generator_worker.run_pipeline") as mock_pipe:
+        with pytest.raises(OptionError):
+            w.start(topic="Test", max_cost=-1)
+        with pytest.raises(OptionError):
+            w.start(topic="Test", quality_tier="gold")
+    assert w.status == "idle" and not mock_pipe.called

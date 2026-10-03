@@ -208,3 +208,31 @@ def test_superseded_cinematic_modules_are_gone():
     import importlib.util
     for name in ("audio_analysis", "depth", "parallax", "kinetic_text"):
         assert importlib.util.find_spec(f"app.cin.{name}") is None, name
+
+
+
+def test_tier_and_max_cost_flags():
+    args = parse_args(["--auto", "--tier", "premium", "--max-cost", "4.5"])
+    assert args.tier == "premium" and args.max_cost == 4.5
+    assert parse_args(["--max-cost", "0"]).max_cost == 0.0
+
+
+def test_tier_and_max_cost_default_to_settings():
+    args = parse_args([])
+    assert args.tier is None and args.max_cost is None
+
+
+def test_bad_tier_or_max_cost_rejected():
+    import pytest
+    for argv in (["--tier", "gold"], ["--max-cost", "-1"], ["--max-cost", "abc"], ["--max-cost", "nan"],
+                 ["--max-cost", "inf"]):
+        with pytest.raises(SystemExit):
+            parse_args(argv)
+
+
+def test_auto_mode_passes_tier_and_cap(monkeypatch):
+    import main
+    seen = {}
+    monkeypatch.setattr(main, "run_pipeline", lambda **kw: seen.update(kw))
+    main.run_auto_mode(parse_args(["--auto", "--topic", "Gold", "--tier", "custom", "--max-cost", "3"]))
+    assert (seen["quality_tier"], seen["max_cost"]) == ("custom", 3.0)

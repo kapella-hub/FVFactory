@@ -3,6 +3,7 @@ import json
 import logging
 from pathlib import Path
 from fastapi import APIRouter, HTTPException
+from app.cin.cost_estimate import clip_model_options, tier_estimates
 from app.config import settings
 from app.run_options import OptionError, apply_settings_updates, clean_settings_updates, load_config_file, validate_settings_updates
 
@@ -41,6 +42,8 @@ async def get_config():
         "pacing": settings.pacing,
         "music_source": settings.music_source,
         "strict": settings.strict,
+        "quality_tier": settings.quality_tier,
+        "max_cost_per_video": settings.max_cost_per_video,
         "enable_motion": settings.enable_motion,
         "enable_sfx": settings.enable_sfx,
         "music_enabled": settings.music_enabled,
@@ -54,6 +57,9 @@ async def get_config():
         "has_youtube_key": bool(settings.youtube_api_key),
     }
     current.update(saved)
+    # Derived lists (spec 2026-10-03 §9), never overridden by config.json
+    current["clip_models"] = clip_model_options()
+    current["tier_estimates"] = tier_estimates(custom_model=settings.fal_video_model)
     return current
 
 

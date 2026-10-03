@@ -5,9 +5,9 @@ import json
 import pytest
 
 from app.config import Settings, settings
-from app.run_options import (MUSIC_SOURCE_CHOICES, PACING_CHOICES, OptionError, apply_saved_settings,
+from app.run_options import (MUSIC_SOURCE_CHOICES, PACING_CHOICES, TIER_CHOICES, OptionError, apply_saved_settings,
                              apply_settings_updates, clean_settings_updates, load_config_file,
-                             pipeline_kwargs, to_bool, validate_settings_updates)
+                             pipeline_kwargs, to_bool, to_max_cost, validate_settings_updates)
 
 
 def test_choices_follow_spec_order():
@@ -21,7 +21,8 @@ def test_empty_config_means_settings_defaults(monkeypatch):
     assert kw == {"use_mock_images": False, "enable_subtitles": True, "enable_motion": True,
                   "enable_sfx": True, "enable_music": True, "subtitle_style": "neon_glow",
                   "niche": None, "video_style": "", "video_duration": "",
-                  "pacing": None, "music_source": None, "strict": None}
+                  "pacing": None, "music_source": None, "strict": None,
+                  "quality_tier": None, "max_cost": None}
 
 
 def test_old_scheduler_slot_without_new_keys_runs_with_defaults():
@@ -168,3 +169,57 @@ def test_run_failure_reads_the_failed_jobs_report(tmp_path):
     assert out["video_id"] == "jobf" and out["status"] == "failed"
     assert [w["code"] for w in out["warnings"]] == ["still_fallback"]
     assert run_failure(ValueError("no topics")) == {"video_id": None, "status": "failed", "warnings": []}
+
+
+
+# ---------------------------------------------------------------- quality tiers (spec 2026-10-03 §9)
+
+def test_tier_choices():
+    assert TIER_CHOICES == ("standard", "premium", "custom")
+
+
+@pytest.mark.parametrize("value, expected", [("", None), (None, None), ("  ", None), ("premium", "premium"),
+                                             (" Custom ", "custom"), ("STANDARD", "standard")])
+def test_quality_tier_option(value, expected):
+    assert pipeline_kwargs({"quality_tier": value})["quality_tier"] == expected
+
+
+@pytest.mark.parametrize("value", ["gold", 2, True])
+def test_unknown_quality_tier_rejected(value):
+    with pytest.raises(OptionError, match="choose one of standard, premium, custom"):
+        pipeline_kwargs({"quality_tier": value})
+
+
+@pytest.mark.parametrize("value, expected", [("", None), (None, None), (" ", None), ("0", 0.0), (0, 0.0),
+                                             ("4.5", 4.5), (" 4.5 ", 4.5), (3, 3.0), (2.25, 2.25)])
+def test_max_cost_option(value, expected):
+    assert pipeline_kwargs({"max_cost": value})["max_cost"] == expected
+
+
+@pytest.mark.parametrize("value", ["-1", -0.01, "abc", "nan", "inf", float("nan"), float("inf"), True, [], {}])
+def test_bad_max_cost_rejected(value):
+    with pytest.raises(OptionError, match=">= 0"):
+        pipeline_kwargs({"max_cost": value})
+
+
+def test_to_max_cost_default_for_blank():
+    assert to_max_cost("max_cost", "", 2.0) == 2.0
+
+
+def test_settings_update_cleaning_for_tier_and_cap():
+    out = clean_settings_updates({"quality_tier": "Premium", "max_cost_per_video": "4.5"})
+    assert out == {"quality_tier": "premium", "max_cost_per_video": 4.5}
+    assert clean_settings_updates({"max_cost_per_video": 0})["max_cost_per_video"] == 0.0
+    for bad in ({"quality_tier": "gold"}, {"quality_tier": ""}, {"max_cost_per_video": ""},
+                {"max_cost_per_video": "-1"}, {"max_cost_per_video": "abc"}, {"max_cost_per_video": "nan"}):
+        with pytest.raises(OptionError):
+            clean_settings_updates(bad)
+
+
+def test_saved_tier_and_cap_applied_and_bad_ones_skipped():
+    s = Settings(_env_file=None)
+    assert sorted(apply_saved_settings(s, {"quality_tier": "premium", "max_cost_per_video": "3"})) == [
+        "max_cost_per_video", "quality_tier"]
+    assert s.quality_tier == "premium" and s.max_cost_per_video == 3.0
+    assert apply_saved_settings(s, {"quality_tier": "gold", "max_cost_per_video": -2}) == []
+    assert s.quality_tier == "premium" and s.max_cost_per_video == 3.0

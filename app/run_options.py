@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -16,12 +17,14 @@ from pydantic import TypeAdapter, ValidationError
 from app.cin.music_library import MUSIC_SOURCES
 from app.cin.report import load_summary
 from app.cin.shot_plan import PACING
+from app.cin.tiers import QUALITY_TIERS
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 PACING_CHOICES = tuple(PACING)                 # ("calm", "standard", "fast"), spec §6.1 order
 MUSIC_SOURCE_CHOICES = tuple(MUSIC_SOURCES)    # ("mine", "generated", "any", "none"), spec §8.1
+TIER_CHOICES = QUALITY_TIERS                   # ("standard", "premium", "custom"), spec 2026-10-03 §4
 
 _TRUE = {"true", "1", "yes", "on"}
 _FALSE = {"false", "0", "no", "off"}
@@ -65,6 +68,24 @@ def to_bool(name: str, value: Any, default: Optional[bool]) -> Optional[bool]:
     raise OptionError(f"{name} must be true or false, got {value!r}")
 
 
+def to_max_cost(name: str, value: Any, default: Optional[float]) -> Optional[float]:
+    """A per-video cap in USD: a number or numeric string >= 0 (0 = no cap); blank -> default.
+    Booleans, NaN, infinity, negatives and non-numeric text are rejected."""
+    if _blank(value):
+        return default
+    number = None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        number = float(value)
+    elif isinstance(value, str):
+        try:
+            number = float(value.strip())
+        except ValueError:
+            number = None
+    if number is None or not math.isfinite(number) or number < 0:
+        raise OptionError(f"{name} must be a number of USD >= 0 (0 = no cap), got {value!r}")
+    return number
+
+
 def pipeline_kwargs(config: Mapping[str, Any]) -> dict:
     """Web request body / scheduler slot config / worker arguments -> run_pipeline keyword
     arguments (everything except topic and voice, which callers resolve). Raises OptionError."""
@@ -82,6 +103,8 @@ def pipeline_kwargs(config: Mapping[str, Any]) -> dict:
         "pacing": _choice("pacing", config.get("pacing"), PACING_CHOICES),
         "music_source": _choice("music_source", config.get("music_source"), MUSIC_SOURCE_CHOICES),
         "strict": to_bool("strict", config.get("strict"), None),
+        "quality_tier": _choice("quality_tier", config.get("quality_tier"), TIER_CHOICES),
+        "max_cost": to_max_cost("max_cost", config.get("max_cost"), None),
     }
 
 
@@ -99,6 +122,14 @@ def clean_settings_updates(updates: Mapping[str, Any]) -> dict:
         cleaned["music_source"] = _choice("music_source", cleaned["music_source"], MUSIC_SOURCE_CHOICES)
     if "strict" in cleaned:
         cleaned["strict"] = to_bool("strict", cleaned["strict"], False)
+    if "quality_tier" in cleaned:
+        if _blank(cleaned["quality_tier"]):
+            raise OptionError(f"quality_tier must be one of {', '.join(TIER_CHOICES)}")
+        cleaned["quality_tier"] = _choice("quality_tier", cleaned["quality_tier"], TIER_CHOICES)
+    if "max_cost_per_video" in cleaned:      # Field(ge=0) is not seen by validate_settings_updates
+        if _blank(cleaned["max_cost_per_video"]):
+            raise OptionError("max_cost_per_video must be a number of USD >= 0 (0 = no cap)")
+        cleaned["max_cost_per_video"] = to_max_cost("max_cost_per_video", cleaned["max_cost_per_video"], None)
     return cleaned
 
 
