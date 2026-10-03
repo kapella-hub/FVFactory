@@ -65,3 +65,39 @@ def test_classic_renderer_flags_missing_font(monkeypatch):
     r = SubtitleRenderer(style="bold_impact")
     assert r.font_fallback is True
     assert r.render_subtitle_frame(["still", "renders"], 1).shape[2] == 4
+
+
+def test_missing_font_warns_once_and_is_cached(caplog):
+    import logging
+    import app.fonts as fonts
+    fonts.clear_font_cache()
+    with caplog.at_level(logging.WARNING, logger="app.fonts"):
+        results = [load_font("Nope-Missing.ttf", 40, 700) for _ in range(50)]
+    assert all(fb is True for _, fb in results)
+    assert len([r for r in caplog.records if "Nope-Missing.ttf" in r.getMessage()]) == 1
+
+
+def test_repeated_load_returns_cached_object():
+    import app.fonts as fonts
+    fonts.clear_font_cache()
+    a, _ = load_font("Montserrat-Variable.ttf", 60, 700)
+    b, _ = load_font("Montserrat-Variable.ttf", 60, 700)
+    c, _ = load_font("Montserrat-Variable.ttf", 60, 400)
+    assert a is b and a is not c
+
+
+def test_not_implemented_variation_falls_back(monkeypatch):
+    import app.fonts as fonts
+    fonts.clear_font_cache()
+    real = fonts.ImageFont.truetype
+
+    class NoMM:
+        def set_variation_by_axes(self, axes):
+            raise NotImplementedError("no MM support")
+
+    def fake(name, size, *a, **k):
+        return NoMM() if str(name).endswith("Stub.ttf") else real(name, size, *a, **k)
+
+    monkeypatch.setattr(fonts.ImageFont, "truetype", fake)
+    font, fell_back = load_font("Stub.ttf", 40, 700)
+    assert fell_back is True and not isinstance(font, NoMM)

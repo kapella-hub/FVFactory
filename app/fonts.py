@@ -4,6 +4,7 @@ system font and reports fell_back=True (the shot editor records it as font_fallb
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -33,21 +34,41 @@ def system_fallback(size: int) -> ImageFont.ImageFont:
     return ImageFont.load_default(size)
 
 
-def load_font(file: str, size: int, weight: Optional[int] = None):
-    """(font, fell_back). weight sets the 'wght' axis of a variable font (Montserrat-Variable.ttf).
-    The axis is per FreeTypeFont instance, so it is applied on every load, at every size.
-    Note: getname() keeps reporting the default instance ("Thin") after the axis is set."""
-    size = max(1, int(size))
+_warned: set = set()
+
+
+def clear_font_cache() -> None:
+    """Drop cached fonts and the warn-once memory (tests)."""
+    _load_cached.cache_clear()
+    _warned.clear()
+
+
+def _warn_once(key, msg, *args) -> None:
+    if key not in _warned:
+        _warned.add(key)
+        logger.warning(msg, *args)
+
+
+@lru_cache(maxsize=256)
+def _load_cached(file: str, size: int, weight: Optional[int]):
     path = font_path(file)
     try:
         font = ImageFont.truetype(str(path), size)
     except OSError:
-        logger.warning("Caption font %s not found or unreadable; using a system font", path)
+        _warn_once(("missing", str(path)), "Caption font %s not found or unreadable; using a system font", path)
         return system_fallback(size), True
     if weight is not None:
         try:
             font.set_variation_by_axes([weight])
-        except (OSError, AttributeError) as e:   # not variable / FreeType built without MM support
-            logger.warning("Cannot set weight %s on %s (%s); using a system font", weight, path, e)
+        except (OSError, AttributeError, NotImplementedError) as e:  # not variable / no FreeType MM support
+            _warn_once(("axis", str(path)), "Cannot set weight %s on %s (%s); using a system font", weight, path, e)
             return system_fallback(size), True
     return font, False
+
+
+def load_font(file: str, size: int, weight: Optional[int] = None):
+    """(font, fell_back). weight sets the 'wght' axis of a variable font (Montserrat-Variable.ttf).
+    The axis is per FreeTypeFont instance, so it is applied per (file, size, weight). Results are
+    cached (fonts are read-only after the axis is set) and a missing file warns once.
+    Note: getname() keeps reporting the default instance ("Thin") after the axis is set."""
+    return _load_cached(file, max(1, int(size)), weight)

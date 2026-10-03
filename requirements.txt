@@ -4,7 +4,7 @@ requests
 python-dotenv
 pydantic
 pydantic-settings
-Pillow
+Pillow>=10.1
 openai-whisper
 setuptools-rust
 torch
