@@ -1,4 +1,5 @@
 """--rerender: rebuild final.mp4 from sources/ with zero API calls (spec §9.3)."""
+import json
 import shutil
 import sys
 
@@ -176,3 +177,28 @@ def test_rerender_report_write_failure_does_not_mask_render_error(tmp_path, monk
     monkeypatch.setattr(RunReport, "save", disk_full)
     with pytest.raises(RuntimeError, match="render died"):
         rerender_job(job.root, pacing="fast")
+
+
+def _set_fallback(job, fallback, reason=""):
+    data = json.loads(job.alignment.read_text(encoding="utf-8"))
+    data["fallback"], data["reason"] = fallback, reason
+    job.alignment.write_text(json.dumps(data), encoding="utf-8")
+
+
+def test_rerender_rederives_alignment_fallback_from_alignment_json(tmp_path, monkeypatch):
+    job, _ = saved_job(tmp_path)
+    _set_fallback(job, True, "match ratio 0.41")
+    monkeypatch.setattr("app.cin.editor.render_job", lambda *a, **k: job.final)
+    rerender_job(job.root)
+    found = [w for w in RunReport.load(job.report).warnings if w["code"] == "alignment_fallback"]
+    assert len(found) == 1 and found[0]["detail"]["reason"] == "match ratio 0.41"
+
+
+def test_rerender_drops_stale_alignment_fallback(tmp_path, monkeypatch):
+    job, _ = saved_job(tmp_path)
+    prev = RunReport.load(job.report)
+    prev.warn("alignment_fallback", "old", {"reason": "old"})
+    prev.save(job.report)
+    monkeypatch.setattr("app.cin.editor.render_job", lambda *a, **k: job.final)
+    rerender_job(job.root)
+    assert not [w for w in RunReport.load(job.report).warnings if w["code"] == "alignment_fallback"]

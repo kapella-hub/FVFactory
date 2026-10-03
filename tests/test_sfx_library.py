@@ -96,3 +96,14 @@ def test_gold_plan_whoosh_per_scene_boundary():
     ev = place_sfx(plan, POOL)
     assert sum(e["kind"] == "whoosh" for e in ev) == len(plan.scenes) - 1
     assert sum(e["kind"] == "riser" for e in ev) == sum(s.transition_in != "cut" for s in plan.shots)
+
+
+def test_seed_rotates_first_variant_across_jobs():
+    firsts = {next(e["file"] for e in place_sfx(plan3(), POOL, seed=f"20261003_{i:04d}_gold")
+                   if e["kind"] == "whoosh") for i in range(20)}
+    assert len(firsts) == 2          # both whoosh_1 and whoosh_2 start a job
+
+
+def test_seed_is_deterministic_and_empty_seed_keeps_order():
+    assert place_sfx(plan3(), POOL, seed="job_a") == place_sfx(plan3(), POOL, seed="job_a")
+    assert place_sfx(plan3(), POOL) == place_sfx(plan3(), POOL, seed="")

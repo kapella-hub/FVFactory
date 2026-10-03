@@ -248,3 +248,19 @@ def test_sfx_disabled_by_setting_or_option(tmp_path, monkeypatch):
     render_job(job, plan, RenderOptions(music_source="none", enable_subtitles=False), report)
     assert plan.sfx == [] and plan.music is None
     assert not [w for w in report.warnings if w["code"] in ("music_missing", "sfx_missing", "sfx_file_skipped")]
+
+
+def test_render_job_seeds_sfx_with_job_name(tmp_path, monkeypatch):
+    _audio_library(tmp_path, monkeypatch)
+    job, alignment, specs = build_gold_job(tmp_path)
+    monkeypatch.setattr("app.cin.editor.ShotRenderer", _TinyRenderer)
+    calls = []
+
+    def recorder(plan, pool, seed=""):
+        calls.append(seed)
+        return []
+
+    monkeypatch.setattr("app.cin.editor.place_sfx", recorder)
+    plan = build_shot_plan(alignment, "standard", specs)
+    render_job(job, plan, RenderOptions(music_mood="cinematic", enable_subtitles=False), RunReport(job=job.name))
+    assert calls == [job.name]

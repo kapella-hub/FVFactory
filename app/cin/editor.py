@@ -138,7 +138,7 @@ def render_job(job: JobPaths, plan: ShotPlan, options: RenderOptions, report: Ru
         windows = speech_windows(_speech_spans(job, plan), plan.duration)
         music_path = pick_music(options, report, keep=(plan.music or {}).get("file"))
         pool = sfx_pool(report) if sfx_on else {}
-        plan.sfx = place_sfx(plan, pool) if sfx_on else []
+        plan.sfx = place_sfx(plan, pool, seed=job.name) if sfx_on else []
         if sfx_on and not any(pool.values()):
             report.warn("sfx_missing", f"No usable SFX files under {settings.sfx_dir} "
                         "(add whoosh*/impact*/riser* files or run --build-sfx-library)", {})
@@ -195,7 +195,7 @@ def _swap_final(job: JobPaths, final_tmp: Path, report: RunReport, tries: int = 
 
 # ---------------------------------------------------------------- re-render (spec §9.3)
 
-_CARRIED_WARNINGS = ("alignment_fallback", "prompt_count_normalized", "clip_retry")
+_CARRIED_WARNINGS = ("prompt_count_normalized", "clip_retry")
 
 
 def clip_specs_from_plan(plan: ShotPlan, job: JobPaths, enable_motion: bool = True) -> list:
@@ -225,6 +225,11 @@ def rebuild_plan(job: JobPaths, pacing: str, enable_motion: bool = True) -> Shot
     plan = build_shot_plan(alignment, pacing, clip_specs_from_plan(old, job, enable_motion))
     plan.hook_headline = old.hook_headline        # set from script.hook at generation; not in alignment.json
     plan.music = old.music          # same track unless --music-source asks for a new one (spec §9.3)
+    if alignment.fallback:          # re-derived from alignment.json, never carried from the old report
+        plan.warnings.append({
+            "code": "alignment_fallback",
+            "message": f"Scene timing fell back to word counts ({alignment.reason})",
+            "detail": {"reason": alignment.reason, "match_ratio": round(alignment.match_ratio, 4)}})
     return plan
 
 

@@ -3,6 +3,7 @@ assets/sfx/generated/ are classified by filename prefix: whoosh*, impact*, riser
 place_sfx is pure: (ShotPlan, pool) -> shot_plan.json "sfx" entries (spec §6.6)."""
 from __future__ import annotations
 
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -42,11 +43,13 @@ def scan_sfx(sfx_dir) -> dict:
     return {k: sorted(v, key=asset_key) for k, v in pool.items()}
 
 
-def place_sfx(plan, pool: dict) -> list:
+def place_sfx(plan, pool: dict, seed: str = "") -> list:
     """Impact at 0.0; whoosh WHOOSH_LEAD s before every scene boundary (never intra-scene cuts);
     a riser ending at every styled transition (offset into the file when it would start before 0).
-    Variants of each kind rotate. pool: {kind: [SfxFile, ...]}."""
-    events, used = [], {k: 0 for k in SFX_KINDS}
+    Variants of each kind rotate; a non-empty seed (the job name) picks the starting variant per kind so
+    consecutive videos do not all open on the same whoosh. pool: {kind: [SfxFile, ...]}."""
+    events = []
+    used = {k: (zlib.crc32(f"{seed}:{k}".encode()) if seed else 0) for k in SFX_KINDS}
 
     def take(kind):
         files = pool.get(kind) or []
