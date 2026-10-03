@@ -71,7 +71,7 @@ Each was decided by the controller; rationale recorded here.
 3. **Word-budget gate before TTS.** short 30 s, medium 45 s (new default sweet spot), long 60 s at
    2.6 words/s; accept ±15 %; one revision call with explicit feedback; if still outside, proceed
    with a `script_length_off_target` warning. After TTS, report actual narration seconds vs target
-   (no gate). Scene counts: short 5–7, medium 7–9, long 9–12.
+   (no gate). Scene counts: short 6–8, medium 9–11, long 11–14 (keeps average scene ≤ 5.5 s so one fixed 6 s Hailuo clip covers it).
    *Why:* TTS, images and clips are all paid per second or per scene; checking a word count is free.
 4. **Beats used downstream.** (a) The script's `hook_headline` feeds `shot_plan.hook_headline`;
    `make_hook_headline`'s first-sentence heuristic is the fallback. (b) Up to 3 styled transitions go
@@ -193,9 +193,9 @@ settings.mascot_prompt and video_style != "photorealistic"`.
 
 | Preset | Target s | Target words (`round(s × 2.6)`) | Accepted (`ceil(0.85 t)`–`floor(1.15 t)`) | Scenes |
 |---|---|---|---|---|
-| short | 30 | 78 | 67–89 | 5–7 |
-| medium (default) | 45 | 117 | 100–134 | 7–9 |
-| long | 60 | 156 | 133–179 | 9–12 |
+| short | 30 | 78 | 67–89 | 6–8 |
+| medium (default) | 45 | 117 | 100–134 | 9–11 |
+| long | 60 | 156 | 133–179 | 11–14 |
 
 Unknown or empty presets use medium. `count_words(text)` counts whitespace tokens containing at
 least one letter or digit (a lone "—" is not a word; "$1,000,000" is one). The counted text is
@@ -261,7 +261,7 @@ revision and never a post-TTS gate.
 - `main.run_pipeline`: `AssetManager(video_style=options.video_style)`. The style is threaded
   through the constructor, not a `generate_images` keyword, because `tests/test_pipeline.py:123`
   patches `generate_images` with a fixed signature.
-- `app/web/static/js/generate.js`: Medium "~45s, 7-9 scenes", Long "~60s, 9-12 scenes".
+- `app/web/static/js/generate.js`: Medium "~45s, 9-11 scenes", Long "~60s, 11-14 scenes".
 - Effect for this install: `.env` sets `MASCOT_ENABLED`, so the style guard in
   `_build_system_prompt` and the mock-image check carry the fix, not the new default.
 
@@ -303,10 +303,10 @@ revision and never a post-TTS gate.
 
 ## 12. Risks
 
-- **Clip count with Hailuo.** Medium 45 s over 7–9 scenes averages 5.0–6.4 s per scene. Hailuo
+- **Clip count with Hailuo.** Medium 45 s over 9–11 scenes averages 5.0–6.4 s per scene. Hailuo
   clips are fixed at 6 s (`app/motion_gen.py:28`) and a segment needs scene + 0.5 s
   (`app/cin/shot_plan.py:27`), so scenes over 5.5 s become two chained clips (≈ $0.50 each). Long
-  (60 s / 9–12 scenes, 5.0–6.7 s) has the same issue. Kling (5/10 s) does not. The run report's clip
+  (60 s / 11–14 scenes, 5.0–6.7 s) has the same issue. Kling (5/10 s) does not. The run report's clip
   count shows the effect; sub-project 3's variable-length models remove it. Raising scene counts
   (e.g. medium 8–10) is the lever if the first runs show many chained clips.
 - **2.6 words/s is an estimate** for ElevenLabs Multilingual v2. `words_per_second` in the report is

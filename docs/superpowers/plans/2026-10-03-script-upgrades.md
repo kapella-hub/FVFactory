@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Word budget: `WORDS_PER_SECOND = 2.6`, tolerance ±15 %; short 30 s → 78 words (67–89), medium 45 s → 117 (100–134), long 60 s → 156 (133–179); scenes short 5–7, medium 7–9, long 9–12; unknown/empty preset → medium.
+- Word budget: `WORDS_PER_SECOND = 2.6`, tolerance ±15 %; short 30 s → 78 words (67–89), medium 45 s → 117 (100–134), long 60 s → 156 (133–179); scenes short 6–8, medium 9–11, long 11–14; unknown/empty preset → medium.
 - At most **one** revision call per run; the gate and the revision never fail a run; only a failed first draft does.
 - Scene roles: `hook | open_loop | body | rehook | payoff | loop`; first must be `hook`; invalid → derived (`hook`, `body`…, `loop`) with warning `scene_roles_derived`.
 - `hook_headline`: 1–6 words after trimming, else fallback to the hook's first sentence (≤ 8 words) with warning `hook_headline_fallback`.
@@ -82,9 +82,9 @@ from app.script_quality import (
 
 
 @pytest.mark.parametrize("preset, seconds, target, lo, hi, scenes", [
-    ("short", 30, 78, 67, 89, (5, 7)),
-    ("medium", 45, 117, 100, 134, (7, 9)),
-    ("long", 60, 156, 133, 179, (9, 12)),
+    ("short", 30, 78, 67, 89, (6, 8)),
+    ("medium", 45, 117, 100, 134, (9, 11)),
+    ("long", 60, 156, 133, 179, (11, 14)),
 ])
 def test_word_budget_table(preset, seconds, target, lo, hi, scenes):
     b = word_budget(preset)
@@ -162,7 +162,7 @@ WORDS_PER_SECOND = 2.6            # ~156 wpm, ElevenLabs Multilingual v2 at defa
 TOLERANCE = 0.15                  # accept +/- 15 % of the target word count
 DEFAULT_DURATION = "medium"
 DURATION_SECONDS = {"short": 30, "medium": 45, "long": 60}
-SCENE_RANGE = {"short": (5, 7), "medium": (7, 9), "long": (9, 12)}
+SCENE_RANGE = {"short": (6, 8), "medium": (9, 11), "long": (11, 14)}
 
 SCENE_ROLES = ("hook", "open_loop", "body", "rehook", "payoff", "loop")
 _ROLE_ALIASES = {"re_hook": "rehook", "openloop": "open_loop", "loop_ending": "loop", "loopback": "loop"}
@@ -598,7 +598,7 @@ def test_short_preset_uses_the_short_budget(llm):
     fake = llm(script_data(117, scenes=6, roles=["hook", "open_loop", "rehook", "body", "payoff", "loop"]),
                script_data(80, scenes=6, roles=["hook", "open_loop", "rehook", "body", "payoff", "loop"]))
     result = ScriptGenerator().write_script("watches", video_duration="short")
-    assert "78 words" in fake.prompts[0] and "5-7 scenes" in fake.prompts[0]
+    assert "78 words" in fake.prompts[0] and "6-8 scenes" in fake.prompts[0]
     assert "Rewrite it to 78 words" in fake.prompts[1]
     assert result.length["preset"] == "short" and result.length["words"] == 80
 
@@ -1435,7 +1435,7 @@ Expected: 8 failed — `assert True is False` (config), `TypeError: AssetManager
     image_style: str = ""
 ```
 
-and change the `video_duration` comment to `# "short" (~30s, 5-7 scenes) | "medium" (~45s, 7-9) | "long" (~60s, 9-12)`.
+and change the `video_duration` comment to `# "short" (~30s, 6-8 scenes) | "medium" (~45s, 9-11) | "long" (~60s, 11-14)`.
 
 `app/asset_manager.py` — before `class AssetManager` add:
 
@@ -1481,9 +1481,9 @@ and in `_generate_mock_image` change `if settings.mascot_enabled:` to
 `app/web/static/js/generate.js` — the `DURATIONS` entries become:
 
 ```javascript
-    { id: 'short',  label: 'Short',  desc: '~30s, 5-7 scenes' },
-    { id: 'medium', label: 'Medium', desc: '~45s, 7-9 scenes' },
-    { id: 'long',   label: 'Long',   desc: '~60s, 9-12 scenes' },
+    { id: 'short',  label: 'Short',  desc: '~30s, 6-8 scenes' },
+    { id: 'medium', label: 'Medium', desc: '~45s, 9-11 scenes' },
+    { id: 'long',   label: 'Long',   desc: '~60s, 11-14 scenes' },
 ```
 
 - [ ] **Step 4: Run the touched tests, then the full suite**
