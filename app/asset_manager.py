@@ -39,6 +39,12 @@ STYLE_SUFFIX = {
 }
 
 
+def _voice_unavailable(exc: Exception) -> bool:
+    """ElevenLabs answers 402 paid_plan_required (library voice on a free plan) or 404 voice_not_found."""
+    text = str(exc)
+    return "paid_plan_required" in text or "voice_not_found" in text or "API error: 402" in text
+
+
 class AssetManager:
     """Manages generation of audio and image assets"""
 
@@ -54,6 +60,7 @@ class AssetManager:
 
     def __init__(self, video_style: Optional[str] = None):
         self.video_style = video_style or settings.video_style   # the run's style, not just the global default
+        self.voice_fallback = None   # {requested, used} when ElevenLabs refused the requested voice
         self.openai_client = None
         if settings.openai_api_key:
             self.openai_client = OpenAI(api_key=settings.openai_api_key)
@@ -99,11 +106,21 @@ class AssetManager:
 
         # Try ElevenLabs first
         if settings.elevenlabs_api_key:
+            requested = voice_id or settings.elevenlabs_voice_id
             try:
-                return self._generate_audio_elevenlabs(
-                    text, voice_id or settings.elevenlabs_voice_id, output_path
-                )
+                return self._generate_audio_elevenlabs(text, requested, output_path)
             except Exception as e:
+                default = settings.elevenlabs_voice_id
+                if requested != default and _voice_unavailable(e):
+                    # A voice the plan cannot use (free plans: library voices) - keep ElevenLabs with the
+                    # default voice instead of dropping to another TTS provider.
+                    logger.warning("ElevenLabs refused voice %s (%s); retrying with the default voice", requested, e)
+                    try:
+                        result = self._generate_audio_elevenlabs(text, default, output_path)
+                        self.voice_fallback = {"requested": requested, "used": default}
+                        return result
+                    except Exception as e2:  # noqa: BLE001
+                        e = e2
                 logger.warning(f"ElevenLabs failed, falling back to OpenAI TTS: {e}")
 
         # Fallback to OpenAI TTS

@@ -571,6 +571,9 @@ def run_pipeline(
             audio_result = asset_manager.generate_audio(full_narration, voice_id=voice, output_path=job.narration)
         logger.info(f"Audio generated: {audio_result.duration:.1f} seconds")
         _record_narration(report, audio_result.duration)
+        if asset_manager.voice_fallback:
+            report.warn("voice_fallback", "ElevenLabs cannot use the chosen voice on this plan; used the default voice",
+                        dict(asset_manager.voice_fallback))
         paid["narration"] = full_narration
 
         specs, classic_clips = None, None

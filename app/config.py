@@ -85,8 +85,10 @@ class Settings(BaseSettings):
         "bill": "pqHfZKP75CvOlQylNhV4",       # Deep, confident elder - stoicism, philosophy
         "george": "JBFqnCBsd6RMkjVDRZzb",      # Warm British narrator - general, history
         "daniel": "onwK4e9ZLuTAKqWW03F9",      # Authoritative British - science, tech, finance
-        "josh": "TxGEqnHWrfWFTfGW9XjX",        # Energetic young - trending, pop culture, gaming
-        "rachel": "21m00Tcm4TlvDq8ikWAM",      # Clear female - health, lifestyle, education
+        # josh / rachel used to be library voices, which a free ElevenLabs plan cannot use via the API
+        # (402 paid_plan_required, checked 2026-10-03); premade voices work on every plan.
+        "josh": "TX3LPaxmHKxFdv7VOQHJ",        # Liam - energetic young male: trending, pop culture, gaming
+        "rachel": "EXAVITQu4vr4xnSDxMaL",      # Sarah - clear confident female: health, lifestyle, education
     }
 
     # Niche -> voice preset mapping for auto voice selection

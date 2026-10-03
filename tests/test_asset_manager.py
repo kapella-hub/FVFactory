@@ -200,3 +200,55 @@ def test_mock_image_never_mentions_the_mascot_for_photoreal(monkeypatch, tmp_pat
     drawn.clear()
     AssetManager(video_style="cartoon").generate_images(["p"], use_mock=True, output_dir=tmp_path / "b")
     assert any("MASCOT" in t for t in drawn)
+
+
+def _tts_response(status, body=b"fake_audio", text=""):
+    return MagicMock(status_code=status, content=body, text=text)
+
+
+def test_voice_the_plan_cannot_use_retries_with_the_default_voice(tmp_path, monkeypatch):
+    """Free ElevenLabs plans get 402 paid_plan_required for library voices; the default (premade) voice works."""
+    from app.config import settings
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "fake_key")
+    monkeypatch.setattr(settings, "elevenlabs_voice_id", "DEFAULTvoice")
+    manager = AssetManager()
+    calls = []
+
+    def post(url, json=None, headers=None, **kw):
+        calls.append(url.rsplit("/", 1)[-1])
+        if url.endswith("/LIBRARYvoice"):
+            return _tts_response(402, text='{"detail":{"code":"paid_plan_required"}}')
+        return _tts_response(200)
+
+    with patch("app.asset_manager.requests.post", side_effect=post),             patch.object(manager, "_get_audio_duration", return_value=3.0):
+        result = manager.generate_audio("Hello", voice_id="LIBRARYvoice", output_path=tmp_path / "n.mp3")
+    assert calls == ["LIBRARYvoice", "DEFAULTvoice"] and result.duration == 3.0
+    assert manager.voice_fallback == {"requested": "LIBRARYvoice", "used": "DEFAULTvoice"}
+
+
+def test_other_elevenlabs_errors_do_not_retry_the_default_voice(tmp_path, monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "fake_key")
+    monkeypatch.setattr(settings, "elevenlabs_voice_id", "DEFAULTvoice")
+    manager = AssetManager()
+    manager.openai_client = None
+    calls = []
+
+    def post(url, json=None, headers=None, **kw):
+        calls.append(url.rsplit("/", 1)[-1])
+        return _tts_response(401, text='{"detail":{"status":"invalid_api_key"}}')
+
+    with patch("app.asset_manager.requests.post", side_effect=post):
+        try:
+            manager.generate_audio("Hello", voice_id="LIBRARYvoice", output_path=tmp_path / "n.mp3")
+        except Exception:
+            pass
+    assert calls == ["LIBRARYvoice"] and manager.voice_fallback is None
+
+
+def test_voice_presets_only_use_premade_voices():
+    """josh / rachel pointed at library voices a free ElevenLabs plan cannot use via the API (checked
+    2026-10-03); they now map to premade Liam / Sarah, available on every plan."""
+    from app.config import Settings
+    presets = Settings(_env_file=None).voice_presets
+    assert presets["josh"] == "TX3LPaxmHKxFdv7VOQHJ" and presets["rachel"] == "EXAVITQu4vr4xnSDxMaL"
