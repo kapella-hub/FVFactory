@@ -6,6 +6,8 @@ from typing import List
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
+from app.fonts import load_font
+
 logger = logging.getLogger(__name__)
 
 
@@ -13,7 +15,8 @@ SUBTITLE_PRESETS = {
     "bold_impact": {
         "active_color": "#FFFF00",
         "inactive_color": "#FFFFFF80",
-        "font": "Arial-Bold",
+        "font_file": "Montserrat-Variable.ttf",
+        "font_weight": 800,
         "font_size": 75,
         "active_scale": 1.15,
         "stroke_color": "#000000",
@@ -24,7 +27,8 @@ SUBTITLE_PRESETS = {
     "clean_minimal": {
         "active_color": "#FFFFFF",
         "inactive_color": "#FFFFFF60",
-        "font": "Helvetica",
+        "font_file": "Montserrat-Variable.ttf",
+        "font_weight": 600,
         "font_size": 60,
         "active_scale": 1.0,
         "stroke_color": None,
@@ -36,7 +40,8 @@ SUBTITLE_PRESETS = {
     "neon_glow": {
         "active_color": "#00FF88",
         "inactive_color": "#FFFFFF40",
-        "font": "Arial-Bold",
+        "font_file": "BebasNeue-Regular.ttf",
+        "font_weight": None,
         "font_size": 70,
         "active_scale": 1.2,
         "stroke_color": "#00FF88",
@@ -47,7 +52,8 @@ SUBTITLE_PRESETS = {
     "fire": {
         "active_color": "#FF4500",
         "inactive_color": "#FFD70080",
-        "font": "Impact",
+        "font_file": "Anton-Regular.ttf",
+        "font_weight": None,
         "font_size": 80,
         "active_scale": 1.25,
         "stroke_color": "#000000",
@@ -85,23 +91,16 @@ class SubtitleRenderer:
             style = "bold_impact"
         self.preset = SUBTITLE_PRESETS[style]
 
-        self._font = self._load_font(self.preset["font"], self.preset["font_size"])
+        self.font_fallback = False
+        self._font = self._load_font(self.preset["font_size"])
         active_size = int(self.preset["font_size"] * self.preset.get("active_scale", 1.0))
-        self._active_font = self._load_font(self.preset["font"], active_size)
+        self._active_font = self._load_font(active_size)
 
-    def _load_font(self, font_name: str, size: int) -> ImageFont.FreeTypeFont:
-        """Load a font, falling back to default if not found."""
-        try:
-            return ImageFont.truetype(font_name, size)
-        except OSError:
-            for path in ["/System/Library/Fonts/Helvetica.ttc",
-                         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                         "arial.ttf"]:
-                try:
-                    return ImageFont.truetype(path, size)
-                except OSError:
-                    continue
-            return ImageFont.load_default()
+    def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
+        """The preset's bundled font file (app.fonts); a missing file falls back to a system font."""
+        font, fell_back = load_font(self.preset["font_file"], size, self.preset.get("font_weight"))
+        self.font_fallback = self.font_fallback or fell_back
+        return font
 
     def render_subtitle_frame(self, words: List[str], active_index: int) -> np.ndarray:
         """
@@ -142,8 +141,8 @@ class SubtitleRenderer:
             scale = max_text_width / total_width
             scaled_font_size = max(20, int(self.preset["font_size"] * scale))
             scaled_active_size = max(20, int(scaled_font_size * self.preset.get("active_scale", 1.0)))
-            scaled_font = self._load_font(self.preset["font"], scaled_font_size)
-            scaled_active_font = self._load_font(self.preset["font"], scaled_active_size)
+            scaled_font = self._load_font(scaled_font_size)
+            scaled_active_font = self._load_font(scaled_active_size)
 
             # Recalculate with scaled fonts
             text_parts = []
