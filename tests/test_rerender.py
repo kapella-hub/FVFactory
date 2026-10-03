@@ -77,3 +77,19 @@ def test_rerender_fast_pacing_zero_network(tmp_path, monkeypatch):
     assert report.status == "ok" and report.options["pacing"] == "fast" and report.options["rerender"] is True
     info = probe_video(job.final)
     assert (info["width"], info["height"], info["fps"]) == (1080, 1920, 30.0)
+
+
+def test_failed_rerender_keeps_old_plan_and_saves_prev_report(tmp_path, monkeypatch):
+    job, plan = saved_job(tmp_path)
+    old_plan = job.shot_plan.read_bytes()
+    old_report = job.report.read_bytes()
+
+    def boom(*a, **k):
+        raise RuntimeError("render died")
+
+    monkeypatch.setattr("app.cin.editor.render_job", boom)
+    with pytest.raises(RuntimeError):
+        rerender_job(job.root, pacing="fast")
+    assert job.shot_plan.read_bytes() == old_plan
+    prev = job.root / "run_report.prev.json"
+    assert prev.exists() and prev.read_bytes() == old_report
