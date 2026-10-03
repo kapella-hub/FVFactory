@@ -386,7 +386,7 @@ def _log_costs(video_id: str, report: RunReport, narration: str, use_mock_images
     for spec in specs or []:
         if spec.path:
             attempt(f"clip {spec.model}",
-                    lambda spec=spec: tracker.log_clip(video_id, spec.model, seconds=spec.requested_len))
+                    lambda spec=spec: tracker.log_clip(video_id, spec.model, seconds=spec.billed_len or spec.requested_len))
     if classic_clips:
         done = sum(1 for c in classic_clips if c is not None)
         if done:
@@ -495,6 +495,10 @@ def run_pipeline(
                     "tiers apply to fal motion clips in the shot editor only",
                     {"quality_tier": quality_tier, "clip_model": model.key, "classic": classic,
                      "motion": motion_on, "motion_provider": settings.motion_provider})
+    if classic and max_cost > 0:
+        report.warn("cap_ignored",
+                    f"max_cost ${max_cost:.2f} is not enforced on classic/persona runs (no cost checkpoints)",
+                    {"max_cost": max_cost, "classic": True})
     logger.info(f"Job folder: {job.root}")
 
     try:

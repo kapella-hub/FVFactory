@@ -138,3 +138,14 @@ def test_failed_spec_survives_missing_image_lookup(tmp_path):
     specs, _ = run(job, segs, images[:1], FakeGenerator())   # scene 1 has no image -> IndexError
     assert len(specs) == 3 and specs[0].path
     assert specs[1].failed and specs[1].start_image == ""
+
+
+def test_fallback_model_records_the_length_it_was_asked_for(tmp_path):
+    """Primary kling snaps 3 s -> 3, fallback h3 (min 5 s) is asked for 5; billed_len says so while
+    requested_len (planning) stays the primary's."""
+    from app.cin.shot_plan import SegmentRequest
+    job, _, _, images = gold_job(tmp_path)
+    reqs = [SegmentRequest(0, 0, 0.0, 3.0, 3.0, False)]
+    gen = FakeGenerator(fail=lambda start, out, model: model == "kling")
+    specs, _ = run(job, reqs, images, gen, model_key="kling", fallback_model="h3")
+    assert specs[0].model == "h3" and specs[0].requested_len == 3.0 and specs[0].billed_len == 5.0

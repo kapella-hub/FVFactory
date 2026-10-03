@@ -79,6 +79,7 @@ class ClipSpec:
     failed: bool = False              # generation was attempted and failed -> still_fallback
     model: str = ""                   # model that produced the clip (cost logging)
     attempts: int = 0
+    billed_len: Optional[float] = None  # length asked of the producing model when it differs (cost logging)
 
 
 @dataclass

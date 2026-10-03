@@ -10,9 +10,9 @@ import json
 import logging
 import math
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Union
 
-from pydantic import TypeAdapter, ValidationError
+from pydantic import StrictFloat, StrictInt, TypeAdapter, ValidationError
 
 from app.cin.music_library import MUSIC_SOURCES
 from app.cin.report import load_summary
@@ -21,6 +21,10 @@ from app.cin.tiers import QUALITY_TIERS
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Request-model type of max_cost. Strict numbers: a plain float/str union would coerce JSON `true`
+# to 1.0 (a silent $1 cap); with this, `true`/`false` is a 422. Text still reaches to_max_cost.
+MaxCostInput = Optional[Union[StrictFloat, StrictInt, str]]
 
 PACING_CHOICES = tuple(PACING)                 # ("calm", "standard", "fast"), spec §6.1 order
 MUSIC_SOURCE_CHOICES = tuple(MUSIC_SOURCES)    # ("mine", "generated", "any", "none"), spec §8.1

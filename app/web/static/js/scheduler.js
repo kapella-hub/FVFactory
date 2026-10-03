@@ -326,6 +326,9 @@ const SchedulerPage = (() => {
 
     const previous = (editId && jobs.find(j => j.id === editId)?.config) || {};
     const strict = document.getElementById('sched-strict').value;
+    if (document.getElementById('sched-max-cost').validity.badInput) {
+      return FVToast.show('Max cost must be a number (0 = no cap)', 'warning');
+    }
     const maxCost = document.getElementById('sched-max-cost').value.trim();
     const config = {
       ...previous,               // keep keys this form does not edit (e.g. subtitle_style set via the API)
@@ -405,7 +408,7 @@ const SchedulerPage = (() => {
     if (!str) return '';
     const div = document.createElement('div');
     div.textContent = str;
-    return div.innerHTML;
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');   // attribute-safe too
   }
 
   return { render, openCreateModal, openEditModal, applyPreset, saveJob, toggleJob, runNow, deleteJob, _toggleEl };

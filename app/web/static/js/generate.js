@@ -353,6 +353,11 @@ const GeneratePage = (() => {
       return;
     }
 
+    if (document.getElementById('gen-max-cost').validity.badInput) {
+      FVToast.show('Max cost must be a number (0 = no cap)', 'warning');
+      return;
+    }
+
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Starting...';
 

@@ -46,6 +46,16 @@ def extract_last_frame(clip_path, png_path) -> Optional[str]:
         return None
 
 
+def _requested_for(key: str, requested_len: float) -> float:
+    """The length model `key` is actually asked for: build_fal_arguments snaps the request up to the
+    model's supported lengths (a 3 s Kling request becomes 5 s on H3)."""
+    from app.motion_gen import CLIP_MODELS, snap_duration     # late: tests reload app.motion_gen
+    model = CLIP_MODELS.get(key)
+    if model is None or model.durations is None:
+        return requested_len
+    return snap_duration(requested_len, model.durations) or max(model.durations)
+
+
 def _attempt_models(model_key: str, fallback_model: Optional[str]) -> list:
     keys = [model_key, model_key]                       # first try + one retry
     if fallback_model and fallback_model != model_key:
@@ -85,6 +95,7 @@ def generate_segment_clips(requests: list, image_paths: list, motion_prompts: li
                         if generator.generate_clip(str(start), prompt, str(out),
                                                    duration=req.requested_len, model_key=key):
                             spec.path, spec.model = job.rel(out), key
+                            spec.billed_len = _requested_for(key, req.requested_len)
                             break
                     if spec.path:
                         try:

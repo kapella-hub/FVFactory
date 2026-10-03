@@ -223,3 +223,19 @@ def test_saved_tier_and_cap_applied_and_bad_ones_skipped():
     assert s.quality_tier == "premium" and s.max_cost_per_video == 3.0
     assert apply_saved_settings(s, {"quality_tier": "gold", "max_cost_per_video": -2}) == []
     assert s.quality_tier == "premium" and s.max_cost_per_video == 3.0
+
+
+def test_max_cost_request_type_rejects_json_booleans():
+    """GenerateRequest.max_cost uses MaxCostInput (the route module needs fastapi): `true` must be a
+    validation error, not a $1 cap; numbers and text still reach to_max_cost."""
+    from pydantic import BaseModel, ValidationError
+    from app.run_options import MaxCostInput
+
+    class Req(BaseModel):
+        max_cost: MaxCostInput = None
+
+    for bad in ('{"max_cost": true}', '{"max_cost": false}'):
+        with pytest.raises(ValidationError):
+            Req.model_validate_json(bad)
+    for raw, want in (('5', 5), ('5.5', 5.5), ('"5"', "5"), ('""', ""), ('null', None), ('"abc"', "abc")):
+        assert Req.model_validate_json('{"max_cost": %s}' % raw).max_cost == want

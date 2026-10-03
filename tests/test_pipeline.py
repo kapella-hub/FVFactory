@@ -569,3 +569,15 @@ def test_settings_cap_applies_when_no_cap_is_passed(offline, monkeypatch):
     assert report_of(only_job(offline.out))["cost"]["cap"] == 0.5
     with pytest.raises(main.CostCapError):
         main.run_pipeline("Gold facts", max_cost=None)
+
+
+def test_cap_on_a_classic_run_warns_cap_ignored(offline, monkeypatch):
+    def fake_assemble(self, **kwargs):
+        path = self.output_dir / kwargs["output_filename"]
+        path.write_bytes(b"classic")
+        return str(path)
+
+    monkeypatch.setattr(main.VideoEditor, "assemble_video", fake_assemble)
+    main.run_pipeline("Gold facts", use_mock_images=True, classic=True, max_cost=3.0)
+    warns = report_of(only_job(offline.out))["warnings"]
+    assert "cap_ignored" in [w["code"] for w in warns]

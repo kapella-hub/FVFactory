@@ -138,10 +138,13 @@ def tier_estimates(custom_model: Optional[str] = None, pricing: Optional[dict] =
             out[tier] = None
             continue
         row = {"model": model.key}
-        for preset in DURATION_SECONDS:
-            lo, hi = SCENE_RANGE[preset]
-            row[preset] = motion_estimate(words=word_budget(preset).target, scene_count=(lo + hi) // 2,
-                                          model=model, pricing=pricing)[0]
+        try:
+            for preset in DURATION_SECONDS:
+                lo, hi = SCENE_RANGE[preset]
+                row[preset] = motion_estimate(words=word_budget(preset).target, scene_count=(lo + hi) // 2,
+                                              model=model, pricing=pricing)[0]
+        except ValueError:                 # no pricing entry for this model (an overridden clip_pricing)
+            row = None
         out[tier] = row
     return out
 

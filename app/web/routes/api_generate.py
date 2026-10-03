@@ -2,12 +2,12 @@
 import asyncio
 import logging
 import uuid
-from typing import Optional, Union
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from app.run_options import OptionError, pipeline_kwargs, run_failure, run_result
+from app.run_options import MaxCostInput, OptionError, pipeline_kwargs, run_failure, run_result
 from app.web.ws import ws_manager
 
 router = APIRouter()
@@ -33,7 +33,7 @@ class GenerateRequest(BaseModel):
     # Quality tiers (spec 2026-10-03 §9). Text is accepted so pipeline_kwargs gives one message for
     # blank ("" = Settings default), negative and non-numeric caps.
     quality_tier: Optional[str] = None      # standard | premium | custom
-    max_cost: Optional[Union[float, str]] = None   # USD, 0 = no cap
+    max_cost: MaxCostInput = None   # USD, 0 = no cap
 
 
 class GenerateResponse(BaseModel):

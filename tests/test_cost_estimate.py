@@ -146,3 +146,10 @@ def test_clip_model_options_are_the_fal_models_with_prices():
     assert by_key["kling"] == {"key": "kling", "label": "Kling v3 Standard", "price_text": "$0.084/s"}
     assert by_key["hailuo"]["price_text"] == "$0.50/clip"
     assert by_key["h3-turbo"]["price_text"] == "$0.04/s"
+
+
+def test_tier_estimates_missing_price_is_none_not_an_error():
+    pricing = {k: v for k, v in settings.clip_pricing.items() if k != "kling"}
+    est = tier_estimates(custom_model="h3-turbo", pricing=pricing)
+    assert est["standard"] is None
+    assert est["premium"]["model"] == "kling-pro" and est["custom"]["model"] == "h3-turbo"
