@@ -267,13 +267,17 @@ def _load_whisper(name: str):
 
 
 def _audio_16k(audio_path) -> np.ndarray:
-    """Decode with MoviePy's bundled ffmpeg so Whisper does not need ffmpeg on PATH."""
-    from moviepy import AudioFileClip
-    with AudioFileClip(str(audio_path)) as clip:
-        arr = clip.to_soundarray(fps=16000)
-    if arr.ndim > 1:
-        arr = arr.mean(axis=1)
-    return np.ascontiguousarray(arr, dtype=np.float32)
+    """Decode to mono 16 kHz float32 with ffmpeg directly (find_ffmpeg falls back to imageio-ffmpeg,
+    so Whisper does not need ffmpeg on PATH). MoviePy 2.1.2's to_soundarray(fps=16000) returned a
+    constant array, which Whisper heard as silence."""
+    import subprocess
+    from app.encoding import find_ffmpeg
+    proc = subprocess.run([find_ffmpeg(), "-nostdin", "-i", str(audio_path), "-f", "f32le",
+                           "-ac", "1", "-ar", "16000", "-"], capture_output=True)
+    if proc.returncode != 0:
+        tail = proc.stderr.decode("utf-8", "replace")[-500:]
+        raise RuntimeError(f"ffmpeg audio decode failed (exit {proc.returncode}): {tail}")
+    return np.frombuffer(proc.stdout, dtype=np.float32).copy()
 
 
 def transcribe_words(audio_path, model_name: str) -> list:

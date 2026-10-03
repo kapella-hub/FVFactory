@@ -103,3 +103,14 @@ def test_align_survives_whisper_failure(rolex):
     assert a.fallback is True
     assert a.reason.startswith("transcription_failed")
     assert len(a.scenes) == 7
+
+
+def test_audio_16k_decodes_real_signal(tmp_path):
+    """Regression: MoviePy to_soundarray returned a constant array, so Whisper heard silence."""
+    import numpy as np
+    from app.cin.align import _audio_16k
+    from tests.conftest import make_tone
+    a = _audio_16k(make_tone(tmp_path / "t.mp3", 3.0, volume=0.5))
+    assert abs(len(a) - 3.0 * 16000) <= 0.01 * 3.0 * 16000
+    assert a.dtype == np.float32 and a.max() > 0.05
+    assert np.std(a) > 0.2 * np.abs(a).max()
