@@ -2,13 +2,14 @@
 
 import json
 import logging
-import os
 import shutil
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
 from app.config import settings
+from app.fsutil import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -43,26 +44,47 @@ class CostTracker:
     def _empty() -> dict:
         return {"schema_version": 1, "videos": {}}
 
-    def _read(self) -> dict:
-        """Read the log from disk (caller holds _LOCK). Never raises; a corrupt file is copied aside."""
-        try:
-            data = json.loads(self.log_path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return self._empty()
-        except (OSError, ValueError) as e:
-            logger.warning("Cost log %s unreadable (%s); starting empty", self.log_path, e)
+    def _read(self) -> Optional[dict]:
+        """Read the log from disk (caller holds _LOCK). Returns None when the file exists but cannot be
+        trusted or read (locked, or corrupt with no safe copy made) - callers must then not overwrite it."""
+        text = None
+        for attempt in range(5):
             try:
-                shutil.copy2(self.log_path, self.log_path.with_name("cost_log.corrupt.json"))
-            except OSError:
-                pass
-            return self._empty()
-        if not isinstance(data, dict) or not isinstance(data.get("videos"), dict):
-            return self._empty()
-        return data
+                text = self.log_path.read_text(encoding="utf-8")
+                break
+            except FileNotFoundError:
+                return self._empty()
+            except PermissionError as e:
+                if attempt == 4:
+                    logger.warning("Cost log %s is locked (%s); leaving it untouched", self.log_path, e)
+                    return None
+                time.sleep(0.1)
+            except OSError as e:
+                logger.warning("Cost log %s unreadable (%s); leaving it untouched", self.log_path, e)
+                return None
+            except ValueError:          # UnicodeDecodeError: bad bytes are corruption
+                text = ""
+                break
+        try:
+            data = json.loads(text)
+            if isinstance(data, dict) and isinstance(data.get("videos"), dict):
+                return data
+            reason = "unexpected structure"
+        except ValueError as e:
+            reason = str(e)
+        try:
+            shutil.copy2(self.log_path, self.log_path.with_name("cost_log.corrupt.json"))
+        except OSError as e:
+            logger.warning("Cost log %s is corrupt (%s) and could not be copied aside (%s); leaving it untouched",
+                           self.log_path, reason, e)
+            return None
+        logger.warning("Cost log %s is corrupt (%s); copied to cost_log.corrupt.json, starting empty",
+                       self.log_path, reason)
+        return self._empty()
 
     def _load(self) -> dict:
         with _LOCK:
-            return self._read()
+            return self._read() or self._empty()
 
     def log_cost(self, video_id: str, item: str, quantity: int = 1) -> None:
         if item not in self.unit_costs:
@@ -112,10 +134,11 @@ class CostTracker:
     def save(self) -> None:
         with _LOCK:
             disk = self._read()
+            if disk is None:
+                logger.warning("Cost log not saved (unreadable); %d video(s) kept in memory only", len(self._dirty))
+                return
             for vid in self._dirty:
                 disk["videos"][vid] = self._costs["videos"][vid]
-            tmp = self.log_path.with_name(self.log_path.name + ".tmp")
-            tmp.write_text(json.dumps(disk, indent=2), encoding="utf-8")
-            os.replace(tmp, self.log_path)
+            atomic_write_text(self.log_path, json.dumps(disk, indent=2))
             self._costs = disk
         logger.info(f"Cost log saved to {self.log_path}")

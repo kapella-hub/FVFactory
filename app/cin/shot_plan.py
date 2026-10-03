@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import json
 import math
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
 from app.cin.align import Alignment
+from app.fsutil import atomic_write_text
 from app.cin.caption_groups import CaptionGroup, CaptionWord, group_captions  # noqa: F401 (re-exported)
 from app.motion_gen import max_duration, snap_duration
 
@@ -188,10 +188,7 @@ class ShotPlan:
                    music=d.get("music"), hook_headline=d.get("hook_headline"), version=d.get("version", 1))
 
     def save(self, path) -> None:
-        path = Path(path)
-        tmp = path.with_name(path.name + ".tmp")
-        tmp.write_text(json.dumps(self.to_json(), indent=1), encoding="utf-8")
-        os.replace(tmp, path)
+        atomic_write_text(path, json.dumps(self.to_json(), indent=1))
 
     @classmethod
     def load(cls, path) -> "ShotPlan":

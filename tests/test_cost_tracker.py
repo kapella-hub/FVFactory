@@ -145,7 +145,48 @@ def test_failed_replace_leaves_original_untouched(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise OSError("replace failed")
 
-    monkeypatch.setattr("app.cost_tracker.os.replace", boom)
+    monkeypatch.setattr("app.fsutil.os.replace", boom)
     with pytest.raises(OSError):
         t.save()
     assert (tmp_path / "cost_log.json").read_bytes() == before
+
+
+def test_unreadable_log_is_not_overwritten(tmp_path, monkeypatch):
+    t = CostTracker(output_dir=str(tmp_path))
+    t.log_cost("v1", "flux_image")
+    t.save()
+    log = tmp_path / "cost_log.json"
+    before = log.read_bytes()
+    monkeypatch.setattr("app.cost_tracker.time.sleep", lambda s: None)
+    real = Path.read_text
+
+    def locked(self, *a, **k):
+        if self.name == "cost_log.json":
+            raise PermissionError("locked")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", locked)
+    t.log_cost("v2", "flux_image")
+    t.save()                                  # must not raise, must not touch the file
+    assert log.read_bytes() == before
+    assert not (tmp_path / "cost_log.corrupt.json").exists()
+
+
+def test_bad_shape_log_is_copied_aside(tmp_path):
+    log = tmp_path / "cost_log.json"
+    log.write_text('{"videos": []}', encoding="utf-8")
+    t = CostTracker(output_dir=str(tmp_path))
+    t.log_cost("v1", "flux_image")
+    t.save()
+    assert (tmp_path / "cost_log.corrupt.json").read_text(encoding="utf-8") == '{"videos": []}'
+    assert "v1" in json.loads(log.read_text(encoding="utf-8"))["videos"]
+
+
+def test_corrupt_copy_failure_skips_write(tmp_path, monkeypatch):
+    log = tmp_path / "cost_log.json"
+    log.write_text("{trunc", encoding="utf-8")
+    monkeypatch.setattr("app.cost_tracker.shutil.copy2", lambda *a, **k: (_ for _ in ()).throw(OSError("ro")))
+    t = CostTracker(output_dir=str(tmp_path))
+    t.log_cost("v1", "flux_image")
+    t.save()
+    assert log.read_text(encoding="utf-8") == "{trunc"

@@ -185,7 +185,40 @@ def test_save_is_atomic(tmp_path, monkeypatch):
     def boom(*args, **kwargs):
         raise OSError("replace failed")
 
-    monkeypatch.setattr("app.cin.shot_plan.os.replace", boom)
+    monkeypatch.setattr("app.fsutil.os.replace", boom)
     with pytest.raises(OSError):
         plan.save(path)
     assert ShotPlan.load(path).to_json() == first.to_json()
+
+
+def test_save_retries_permission_error(tmp_path, monkeypatch):
+    import os
+    a = fixture_alignment("words_gold_8s.json")
+    plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, HAILUO)))
+    monkeypatch.setattr("app.fsutil.time.sleep", lambda s: None)
+    real, n = os.replace, []
+
+    def flaky(x, y):
+        n.append(1)
+        if len(n) <= 2:
+            raise PermissionError("locked")
+        return real(x, y)
+
+    monkeypatch.setattr("app.fsutil.os.replace", flaky)
+    plan.save(tmp_path / "shot_plan.json")
+    assert ShotPlan.load(tmp_path / "shot_plan.json").to_json() == plan.to_json()
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_save_permission_error_propagates_without_tmp(tmp_path, monkeypatch):
+    a = fixture_alignment("words_gold_8s.json")
+    plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, HAILUO)))
+    monkeypatch.setattr("app.fsutil.time.sleep", lambda s: None)
+
+    def locked(x, y):
+        raise PermissionError("locked")
+
+    monkeypatch.setattr("app.fsutil.os.replace", locked)
+    with pytest.raises(PermissionError):
+        plan.save(tmp_path / "shot_plan.json")
+    assert list(tmp_path.glob("*.tmp")) == []
