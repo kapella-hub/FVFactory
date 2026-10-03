@@ -122,3 +122,52 @@ def test_render_options_music_source_roundtrip():
 def test_phase_c_warning_codes_registered():
     from app.cin.report import WARNING_CODES
     assert {"music_missing", "sfx_missing", "music_track_skipped", "sfx_file_skipped"} <= set(WARNING_CODES)
+
+
+def test_unreadable_usage_file_is_not_overwritten(tmp_path, monkeypatch):
+    path = tmp_path / "u.json"
+    original = json.dumps({"version": 1, "tracks": {"m/z.mp3": {"last_used": 5.0, "count": 9}}})
+    path.write_text(original, encoding="utf-8")
+    monkeypatch.setattr("app.cin.music_library.time.sleep", lambda s: None)
+    real = Path.read_text
+
+    def locked(self, *a, **k):
+        if self.name == "u.json":
+            raise PermissionError("locked")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "read_text", locked)
+    assert select_track([Path("m/a.mp3")], UsageStore(path), now=1.0) == Path("m/a.mp3")
+    monkeypatch.undo()
+    assert path.read_text(encoding="utf-8") == original
+
+
+def test_save_failure_never_raises_and_leaves_no_tmp(tmp_path, monkeypatch):
+    real = Path.write_text
+
+    def boom(self, *a, **k):
+        if self.name.endswith(".tmp"):
+            real(self, "partial", encoding="utf-8")
+            raise OSError("disk full")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Path, "write_text", boom)
+    assert select_track([Path("m/a.mp3")], UsageStore(tmp_path / "u.json"), now=1.0) == Path("m/a.mp3")
+    assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_save_retries_replace_on_permission_error(tmp_path, monkeypatch):
+    import os
+    monkeypatch.setattr("app.cin.music_library.time.sleep", lambda s: None)
+    real, calls = os.replace, []
+
+    def flaky(src, dst):
+        calls.append(1)
+        if len(calls) <= 2:
+            raise PermissionError("busy")
+        return real(src, dst)
+
+    monkeypatch.setattr("app.cin.music_library.os.replace", flaky)
+    path = tmp_path / "u.json"
+    assert UsageStore(path).save({"m/a.mp3": {"last_used": 1.0, "count": 1}}) is True
+    assert len(calls) == 3 and json.loads(path.read_text(encoding="utf-8"))["tracks"]["m/a.mp3"]["count"] == 1

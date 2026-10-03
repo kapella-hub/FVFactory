@@ -75,39 +75,64 @@ def lru_order(candidates: Iterable, usage: dict) -> list:
 class UsageStore:
     """data/music_usage.json: {"version": 1, "tracks": {key: {"last_used": epoch_s, "count": n}}}.
     A missing or corrupt file reads as empty (logged, never raised). Writes are atomic; one lock per
-    file serialises select-and-record inside this process."""
+    file serialises select-and-record inside this process only (no cross-process lock: known gap)."""
 
     def __init__(self, path=None):
         self.path = Path(path) if path else default_usage_path()
         with _LOCKS_GUARD:
             self.lock = _LOCKS.setdefault(str(self.path.resolve()), threading.Lock())
 
-    def load(self) -> dict:
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except FileNotFoundError:
-            return {}
-        except (OSError, ValueError) as e:
-            logger.warning("Ignoring unreadable %s (%s); LRU history restarts", self.path, e)
-            return {}
+    def read(self):
+        """(tracks, readable). readable=False means a transient I/O failure: the history is unknown,
+        so callers must not overwrite the file. Corrupt content reads as ({}, True) (history restarts)."""
+        data = None
+        for attempt in range(3):
+            try:
+                data = json.loads(self.path.read_text(encoding="utf-8"))
+                break
+            except FileNotFoundError:
+                return {}, True
+            except PermissionError as e:            # Windows: a writer is mid-os.replace
+                if attempt == 2:
+                    logger.warning("Cannot read %s (%s); LRU history left untouched", self.path, e)
+                    return {}, False
+                time.sleep(0.1)
+            except OSError as e:
+                logger.warning("Cannot read %s (%s); LRU history left untouched", self.path, e)
+                return {}, False
+            except ValueError as e:
+                logger.warning("Ignoring corrupt %s (%s); LRU history restarts", self.path, e)
+                return {}, True
         tracks = data.get("tracks") if isinstance(data, dict) else None
         if not isinstance(tracks, dict):
             logger.warning("Ignoring malformed %s; LRU history restarts", self.path)
-            return {}
-        return {k: v for k, v in tracks.items() if isinstance(v, dict)}
+            return {}, True
+        return {k: v for k, v in tracks.items() if isinstance(v, dict)}, True
 
-    def save(self, tracks: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+    def load(self) -> dict:
+        return self.read()[0]
+
+    def save(self, tracks: dict) -> bool:
+        """Atomic write; bookkeeping must never fail a render, so OSError is logged, not raised."""
         tmp = self.path.with_name(f"{self.path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
-        tmp.write_text(json.dumps({"version": 1, "tracks": tracks}, indent=1), encoding="utf-8")
-        for attempt in range(5):
-            try:
-                os.replace(tmp, self.path)
-                return
-            except PermissionError:                 # Windows: another process has it open
-                time.sleep(0.05 * (attempt + 1))
-        tmp.unlink(missing_ok=True)
-        logger.warning("Could not update %s (file locked); selection not recorded", self.path)
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            tmp.write_text(json.dumps({"version": 1, "tracks": tracks}, indent=1), encoding="utf-8")
+            for attempt in range(5):
+                try:
+                    os.replace(tmp, self.path)
+                    return True
+                except PermissionError:             # Windows: another process has it open
+                    if attempt == 4:
+                        raise
+                    time.sleep(0.05 * (attempt + 1))
+        except OSError as e:
+            logger.warning("Could not update %s (%s); selection not recorded", self.path, e)
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return False
 
 
 def select_track(candidates: Iterable, store: UsageStore, *, accept: Optional[Callable] = None,
@@ -118,7 +143,7 @@ def select_track(candidates: Iterable, store: UsageStore, *, accept: Optional[Ca
     if not candidates:
         return None
     with store.lock:
-        usage = store.load()
+        usage, readable = store.read()
         for path in lru_order(candidates, usage):
             if accept is not None and not accept(path):
                 continue
@@ -126,6 +151,7 @@ def select_track(candidates: Iterable, store: UsageStore, *, accept: Optional[Ca
             count = rec.get("count", 0)
             usage[asset_key(path)] = {"last_used": time.time() if now is None else now,
                                       "count": (count if isinstance(count, int) else 0) + 1}
-            store.save(usage)
+            if readable:                    # never overwrite history we could not read
+                store.save(usage)
             return Path(path)
     return None
