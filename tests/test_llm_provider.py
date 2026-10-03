@@ -51,3 +51,14 @@ def test_claude_cli_strips_markdown_fences(mock_run):
     provider = ClaudeCLIProvider(timeout=30)
     result = provider.generate_json("Give me JSON")
     assert result == {"answer": 42}
+
+
+@patch("app.llm.subprocess.run")
+def test_claude_cli_decodes_utf8_explicitly(mock_run):
+    """Windows default (cp1252) cannot decode the CLI's UTF-8 output."""
+    from app.llm import ClaudeCLIProvider
+    envelope = json.dumps({"result": "café — ok", "is_error": False}, ensure_ascii=False)
+    mock_run.return_value = MagicMock(returncode=0, stdout=envelope, stderr="")
+    assert ClaudeCLIProvider(timeout=30).generate("x") == "café — ok"
+    kwargs = mock_run.call_args.kwargs
+    assert kwargs["encoding"] == "utf-8" and kwargs["errors"] == "replace"
