@@ -17,6 +17,31 @@ logger = logging.getLogger(__name__)
 _LOCK = threading.Lock()
 
 
+def unit_costs() -> dict:
+    """USD per unit of every non-clip cost item, read from settings at call time."""
+    return {
+        "flux_image": settings.cost_flux_image,
+        "elevenlabs_tts": settings.cost_elevenlabs_per_1k_chars,
+        "openai_gpt4o": settings.cost_openai_gpt4o,
+        "openai_tts": settings.cost_openai_tts_per_1k_chars,
+        "whisper": 0.00,
+        "local_image": settings.cost_local_image,       # $0.00
+        "local_video": settings.cost_local_video,       # $0.00
+        "claude_cli": settings.cost_claude_cli,         # $0.00
+    }
+
+
+def unit_clip_cost(model: str, seconds: float, pricing: Optional[dict] = None) -> float:
+    """USD for one clip of `seconds` from settings.clip_pricing (or `pricing`). Unknown model -> ValueError."""
+    pricing = settings.clip_pricing if pricing is None else pricing
+    price = pricing.get(model)
+    if price is None:
+        raise ValueError(f"No clip pricing for model {model!r}. Known: {sorted(pricing)}")
+    if "per_second" in price:
+        return round(float(price["per_second"]) * float(seconds), 4)
+    return float(price.get("per_clip", 0.0))
+
+
 class CostTracker:
     """Tracks API costs per video and persists to JSON."""
 
@@ -29,16 +54,7 @@ class CostTracker:
 
     @property
     def unit_costs(self) -> dict:
-        return {
-            "flux_image": settings.cost_flux_image,
-            "elevenlabs_tts": settings.cost_elevenlabs_per_1k_chars,
-            "openai_gpt4o": settings.cost_openai_gpt4o,
-            "openai_tts": settings.cost_openai_tts_per_1k_chars,
-            "whisper": 0.00,
-            "local_image": settings.cost_local_image,       # $0.00
-            "local_video": settings.cost_local_video,       # $0.00
-            "claude_cli": settings.cost_claude_cli,         # $0.00
-        }
+        return unit_costs()
 
     @staticmethod
     def _empty() -> dict:
@@ -95,12 +111,7 @@ class CostTracker:
         logger.debug(f"Cost: {item} x{quantity} = ${unit * quantity:.4f} (video: {video_id})")
 
     def clip_unit_cost(self, model: str, seconds: float) -> float:
-        price = settings.clip_pricing.get(model)
-        if price is None:
-            raise ValueError(f"No clip pricing for model {model!r}. Known: {sorted(settings.clip_pricing)}")
-        if "per_second" in price:
-            return round(float(price["per_second"]) * float(seconds), 4)
-        return float(price.get("per_clip", 0.0))
+        return unit_clip_cost(model, seconds)
 
     def log_clip(self, video_id: str, model: str, seconds: float, count: int = 1) -> float:
         unit = self.clip_unit_cost(model, seconds)
