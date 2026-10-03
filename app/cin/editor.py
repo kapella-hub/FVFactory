@@ -197,7 +197,8 @@ def _swap_final(job: JobPaths, final_tmp: Path, report: RunReport, tries: int = 
 
 _CARRIED_WARNINGS = ("prompt_count_normalized", "clip_retry",
                      # script-level facts: a rerender reuses the same script (spec 2026-10-03 §8)
-                     "script_length_off_target", "scene_roles_derived", "hook_headline_fallback")
+                     "script_length_off_target", "scene_roles_derived", "hook_headline_fallback",
+                     "low_motion")             # a rerender reuses the same clips
 
 
 def clip_specs_from_plan(plan: ShotPlan, job: JobPaths, enable_motion: bool = True) -> list:

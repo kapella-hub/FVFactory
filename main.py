@@ -29,6 +29,7 @@ from app.cin.align import align
 from app.cin.clip_sourcing import StrictModeError, generate_segment_clips
 from app.cin.editor import RenderOptions, render_job
 from app.cin.job import create_job, prune_sources
+from app.cin.motion_check import check_clip_motion
 from app.cin.report import RunReport
 from app.cin.caption_groups import make_hook_headline, script_headline_text
 from app.cin.shot_plan import PACING, build_shot_plan, plan_segments
@@ -308,6 +309,12 @@ def _run_shot_editor(job, script, narration: str, duration: float, options: Rend
         )
     if paid is not None:
         paid["specs"] = specs            # paid for now, even if the render below fails
+    if motion_on and settings.low_motion_threshold > 0:
+        with report.stage("motion_check"):
+            try:
+                check_clip_motion(specs, job, report, settings.low_motion_threshold)
+            except Exception as e:  # noqa: BLE001 - an advisory check must never fail a paid run
+                logger.warning("Low-motion check failed: %s", e)
     plan = build_shot_plan(alignment, options.pacing, specs, roles=script.scene_roles or None)
     plan.hook_headline = make_hook_headline(script.hook, plan.duration, headline=script.hook_headline)
     if options.enable_subtitles and script_headline_text(script.hook_headline) is None:   # headline is drawn only with captions

@@ -204,6 +204,9 @@ class Settings(BaseSettings):
     # USD per video. A run whose estimate exceeds it stops before the next paid stage (never degrades
     # to stills or a cheaper model). 0 = no cap.
     max_cost_per_video: float = Field(0.0, ge=0, allow_inf_nan=False)
+    # Warn (low_motion) about generated clips whose mean luma frame difference (ffmpeg signalstats YDIF at
+    # 270 px wide) is below this; 0 = off. Kling v3 "rusty chains" clip: 0.95; clearly moving clips: 2.5+.
+    low_motion_threshold: float = Field(1.2, ge=0, allow_inf_nan=False)
 
     # ElevenLabs music / SFX library builders (spec §8.1-8.2). Prices: https://elevenlabs.io/pricing/api
     elevenlabs_music_model: str = "music_v1"        # API default; "music_v2" / "music_v2_5" also accepted

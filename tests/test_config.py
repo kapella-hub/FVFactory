@@ -140,3 +140,18 @@ def test_env_example_documents_quality_tier_settings():
     text = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
     keys = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text, flags=re.M))
     assert {"QUALITY_TIER", "MAX_COST_PER_VIDEO"} <= keys
+
+
+def test_low_motion_threshold_default_and_validation():
+    assert make().low_motion_threshold == 1.2
+    assert make(low_motion_threshold=0).low_motion_threshold == 0.0           # 0 disables the check
+    for bad in (-0.5, float("nan"), float("inf")):
+        with pytest.raises(ValidationError):
+            make(low_motion_threshold=bad)
+
+
+def test_env_example_documents_low_motion_threshold():
+    import re
+    from pathlib import Path
+    text = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
+    assert "LOW_MOTION_THRESHOLD" in set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text, flags=re.M))

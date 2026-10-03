@@ -97,3 +97,10 @@ def test_quality_tier_warning_codes_registered_and_never_carried():
     from app.cin.report import WARNING_CODES
     assert {"cost_cap_exceeded", "tier_ignored"} <= set(WARNING_CODES)
     assert not {"cost_cap_exceeded", "tier_ignored"} & set(_CARRIED_WARNINGS)
+
+
+def test_low_motion_warning_registered_and_carried_by_rerender():
+    """A rerender reuses the same clips, so their low-motion verdict still applies."""
+    from app.cin.editor import _CARRIED_WARNINGS
+    from app.cin.report import WARNING_CODES
+    assert "low_motion" in WARNING_CODES and "low_motion" in _CARRIED_WARNINGS

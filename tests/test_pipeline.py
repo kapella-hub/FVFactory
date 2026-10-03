@@ -34,6 +34,7 @@ def offline(monkeypatch, tmp_path, gold):
     monkeypatch.setattr(settings, "fal_video_model", "hailuo")
     monkeypatch.setattr(settings, "quality_tier", "custom")        # = fal_video_model (hailuo)
     monkeypatch.setattr(settings, "max_cost_per_video", 0.0)
+    monkeypatch.setattr(settings, "low_motion_threshold", 0.0)    # synthetic clips are no motion signal
     monkeypatch.setattr(settings, "llm_provider", "claude_cli")
     monkeypatch.setattr(settings, "clip_pricing", Settings(_env_file=None).clip_pricing)
     monkeypatch.setattr(settings, "cost_flux_image", 0.03)
@@ -496,6 +497,35 @@ def test_no_cap_run_logs_exactly_the_pre_clips_estimate(offline, monkeypatch):
     assert [i["item"] for i in rep["cost"]["actual"]].count("openai_gpt4o") == 2
     assert rep["options"]["quality_tier"] == "standard" and rep["options"]["clip_model"] == "h3-turbo"
     assert rep["options"]["max_cost"] == 0.0
+
+
+def test_low_motion_clips_get_one_warning(offline, monkeypatch):
+    """make_test_clip (testsrc blended with a colour, 108x192) scores ~0.16 < 1.2. hailuo (6 s fixed): scene 1
+    needs 6.18 s, so it is two chained segments -> 3 clips, all listed."""
+    monkeypatch.setattr(settings, "low_motion_threshold", 1.2)
+    _real_images(monkeypatch)
+    _clip_calls(monkeypatch, make=True)
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts")
+    rep = report_of(only_job(offline.out))
+    low = [w for w in rep["warnings"] if w["code"] == "low_motion"]
+    assert rep["status"] == "ok" and len(low) == 1
+    assert [c["clip"] for c in low[0]["detail"]["clips"]] == ["scene00_a", "scene01_a", "scene01_b"]
+    assert all(c["score"] < 1.2 for c in low[0]["detail"]["clips"])
+    assert low[0]["message"].startswith("3 of 3 clips barely move (scene00_a ")
+    assert set(rep["clips"]["motion_scores"]) == {"scene00_a", "scene01_a", "scene01_b"}
+    assert "motion_check" in rep["durations"]
+
+
+def test_low_motion_check_failure_never_fails_the_run(offline, monkeypatch):
+    monkeypatch.setattr(settings, "low_motion_threshold", 1.2)
+    _real_images(monkeypatch)
+    _clip_calls(monkeypatch, make=True)
+    monkeypatch.setattr(main, "check_clip_motion", _raise(RuntimeError("scorer exploded")))
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts")
+    rep = report_of(only_job(offline.out))
+    assert rep["status"] == "ok" and "low_motion" not in [w["code"] for w in rep["warnings"]]
 
 
 def test_claude_cli_script_is_logged_at_zero(offline, monkeypatch):
