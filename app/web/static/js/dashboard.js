@@ -115,7 +115,8 @@ const DashboardPage = (() => {
     }
 
     el.innerHTML = videos.map(v => {
-      const title = v.metadata?.title || v.filename.replace('.mp4', '').replace(/_/g, ' ');
+      // Every job's file is final.mp4: the library API's title first, as the Library page does.
+      const title = v.title || v.metadata?.title || v.filename.replace('.mp4', '').replace(/_/g, ' ');
       const niche = v.metadata?.niche || '';
       const thumbUrl = v.has_thumbnail ? `/api/library/${v.id}/thumbnail` : '';
 

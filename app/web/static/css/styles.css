@@ -80,9 +80,15 @@ input, select, textarea {
   font-size: var(--text-lg);
   font-weight: var(--weight-bold);
   color: var(--text-primary);
-  width: var(--sidebar-collapsed);
+  /* As wide as the sidebar (minus the topbar's left padding), so the page title starts where the page
+     content starts and can never be drawn over the brand text. */
+  width: calc(var(--sidebar-width) - var(--space-5));
   flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
 }
+
+.topbar__brand-icon { flex-shrink: 0; }
 
 .topbar__brand-icon {
   width: 28px;
@@ -100,6 +106,10 @@ input, select, textarea {
   font-weight: var(--weight-semibold);
   color: var(--text-secondary);
   margin-left: var(--space-4);
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar__spacer { flex: 1; }
@@ -110,6 +120,9 @@ input, select, textarea {
   gap: var(--space-2);
   font-size: var(--text-sm);
   color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+  margin-left: var(--space-4);
 }
 
 .topbar__dot {
@@ -125,24 +138,23 @@ input, select, textarea {
   box-shadow: 0 0 6px var(--accent-red);
 }
 
-/* ---- Sidebar ---- */
+/* ---- Sidebar ----
+   Labelled (--sidebar-expanded) on normal widths; icon-only (--sidebar-collapsed, with title tooltips set
+   by app.js) below 900px. --sidebar-width is the one value the sidebar, the topbar brand and .main share. */
+:root { --sidebar-width: var(--sidebar-expanded); }
+
 .sidebar {
   position: fixed;
   top: var(--topbar-height);
   left: 0;
   bottom: 0;
-  width: var(--sidebar-collapsed);
+  width: var(--sidebar-width);
   background: var(--bg-card);
   border-right: 1px solid var(--border-subtle);
   z-index: var(--z-sidebar);
-  transition: width var(--transition-normal);
   overflow: hidden;
   display: flex;
   flex-direction: column;
-}
-
-.sidebar:hover {
-  width: var(--sidebar-expanded);
 }
 
 .sidebar__nav {
@@ -196,12 +208,18 @@ input, select, textarea {
 .sidebar__label {
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
-  opacity: 0;
-  transition: opacity var(--transition-normal);
 }
 
-.sidebar:hover .sidebar__label {
-  opacity: 1;
+@media (max-width: 900px) {
+  :root { --sidebar-width: var(--sidebar-collapsed); }
+  .sidebar__label,
+  .topbar__brand-text { display: none; }
+  .sidebar__link { justify-content: center; padding-left: 0; padding-right: 0; }
+  .sidebar__footer { text-align: center; padding-left: 0; padding-right: 0; }
+}
+
+@media (max-width: 480px) {
+  #ws-status { display: none; }          /* keep the connection dot, drop its text */
 }
 
 .sidebar__footer {
@@ -217,7 +235,7 @@ input, select, textarea {
 .main {
   flex: 1;
   margin-top: var(--topbar-height);
-  margin-left: var(--sidebar-collapsed);
+  margin-left: var(--sidebar-width);
   overflow-y: auto;
   overflow-x: hidden;
   height: calc(100vh - var(--topbar-height));
@@ -463,6 +481,52 @@ input, select, textarea {
   color: var(--text-primary);
 }
 
+.form-textarea {
+  min-height: 200px;
+  resize: vertical;
+  line-height: var(--leading-normal);
+  font-family: var(--font-sans);
+}
+
+.form-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-top: var(--space-1);
+}
+
+.form-hint--error { color: var(--accent-red); }
+
+.form-label__optional {
+  font-weight: var(--weight-normal);
+  color: var(--text-muted);
+}
+
+/* Generate page: Advanced disclosure */
+.advanced {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.advanced > summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+}
+
+.advanced[open] > summary { margin-bottom: var(--space-4); }
+
+.checkbox--disabled { pointer-events: none; opacity: .5; }
+
+.option-row {
+  display: flex;
+  gap: var(--space-8);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+
 /* ---- Toggle Switch ---- */
 .toggle {
   display: flex;
@@ -552,6 +616,8 @@ input, select, textarea {
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  hyphens: auto;                 /* "PHOTOREALISTIC" overflowed its card */
+  overflow-wrap: break-word;
 }
 
 .style-card__desc {

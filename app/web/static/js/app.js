@@ -51,7 +51,19 @@ const FVRouter = (() => {
     '/settings':  { page: 'settings',  title: 'Settings',   module: () => SettingsPage },
   };
 
+  // Icon-only sidebar (below 900px, see styles.css): the link names become hover tooltips.
+  function syncSidebarTooltips(narrow) {
+    document.querySelectorAll('.sidebar__link').forEach(link => {
+      if (narrow) link.title = link.getAttribute('aria-label') || link.textContent.trim();
+      else link.removeAttribute('title');
+    });
+  }
+
   function init() {
+    const narrowQuery = window.matchMedia('(max-width: 900px)');
+    syncSidebarTooltips(narrowQuery.matches);
+    narrowQuery.addEventListener('change', e => syncSidebarTooltips(e.matches));
+
     // Intercept clicks on sidebar links
     document.addEventListener('click', (e) => {
       const link = e.target.closest('a[data-page]');

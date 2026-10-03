@@ -53,7 +53,20 @@ const GeneratePage = (() => {
     { id: 'premium',  label: 'Premium (Kling v3 Pro)' },
     { id: 'custom',   label: 'Custom (Settings model)' },
   ];
+  // Source of the narration. "story" = the user's own story (app/story.py).
+  const SOURCES = [
+    { id: 'auto',  label: 'Auto-discover', desc: 'A trending topic for the niche' },
+    { id: 'topic', label: 'Topic',         desc: 'You name it, the AI writes it' },
+    { id: 'story', label: 'Your story',    desc: 'Paste the narration yourself' },
+  ];
+  const STORY_MODES = [
+    { id: 'verbatim', label: 'Verbatim', desc: 'Your exact words; the length follows your story' },
+    { id: 'adapt',    label: 'Adapt',    desc: 'Reworked into a short-form script for the duration, same facts and order' },
+  ];
   let defaults = {};
+  // /api/generate/options; these fallbacks match app/story.py and app/script_quality.py.
+  let genOptions = { story_max_chars: 4000, words_per_second: 2.2, scene_seconds: 5,
+                     personas: [], persona_ready: false, upload_ready: false };
 
   let currentJobId = null;
   let wsCleanup = [];
@@ -67,22 +80,61 @@ const GeneratePage = (() => {
     container.innerHTML = `
       <div class="page-header">
         <h1 class="page-header__title">Generate Video</h1>
-        <p class="page-header__subtitle">Create a new short-form video from a topic or auto-discover trending content</p>
+        <p class="page-header__subtitle">Create a short-form video from a trending topic, your own topic, or your own story</p>
       </div>
 
       <div class="card" style="max-width:720px">
-        <!-- Auto Toggle -->
+        <!-- Source: Auto-discover | Topic | Your story -->
         <div class="form-group">
-          <div class="toggle" id="auto-toggle" onclick="GeneratePage.toggleAuto()">
-            <div class="toggle__track"><div class="toggle__thumb"></div></div>
-            <span class="toggle__label">Auto-discover topic</span>
+          <label class="form-label">Source</label>
+          <div class="style-grid" id="source-grid" role="radiogroup" aria-label="Source">
+            ${SOURCES.map(src => `
+              <div class="style-card ${src.id === 'topic' ? 'style-card--selected' : ''}" role="radio" tabindex="0"
+                   aria-checked="${src.id === 'topic'}" data-source="${src.id}"
+                   onclick="GeneratePage.selectSource('${src.id}')"
+                   onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();GeneratePage.selectSource('${src.id}')}">
+                <div class="style-card__name">${src.label}</div>
+                <div class="style-card__desc">${src.desc}</div>
+              </div>
+            `).join('')}
           </div>
+          <div class="form-hint hidden" id="auto-hint">A trending topic is picked for the niche below when the run starts.</div>
         </div>
 
         <!-- Topic -->
         <div class="form-group" id="topic-group">
-          <label class="form-label">Topic</label>
+          <label class="form-label" for="gen-topic">Topic</label>
           <input class="form-input" id="gen-topic" type="text" placeholder="e.g. Why Ancient Rome fell..." autocomplete="off">
+        </div>
+
+        <!-- Your story -->
+        <div class="hidden" id="story-group">
+          <div class="form-group">
+            <label class="form-label" for="gen-title">Title <span class="form-label__optional">(optional)</span></label>
+            <input class="form-input" id="gen-title" type="text" maxlength="120" autocomplete="off"
+                   placeholder="Default: the first words of your story">
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="gen-story">Your story</label>
+            <textarea class="form-input form-textarea" id="gen-story" rows="10"
+                      placeholder="Paste or write the narration. In verbatim mode every word is spoken exactly as written."
+                      oninput="GeneratePage.updateStoryStats()"></textarea>
+            <div class="form-hint" id="story-stats" aria-live="polite"></div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Story mode</label>
+            <div class="style-grid" id="story-mode-grid" role="radiogroup" aria-label="Story mode">
+              ${STORY_MODES.map(m => `
+                <div class="style-card ${m.id === 'verbatim' ? 'style-card--selected' : ''}" role="radio" tabindex="0"
+                     aria-checked="${m.id === 'verbatim'}" data-story-mode="${m.id}"
+                     onclick="GeneratePage.selectStoryMode('${m.id}')"
+                     onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();GeneratePage.selectStoryMode('${m.id}')}">
+                  <div class="style-card__name">${m.label}</div>
+                  <div class="style-card__desc">${m.desc}</div>
+                </div>
+              `).join('')}
+            </div>
+          </div>
         </div>
 
         <!-- Niche + Voice -->
@@ -128,6 +180,8 @@ const GeneratePage = (() => {
               </div>
             `).join('')}
           </div>
+          <div class="form-hint hidden" id="duration-story-hint">Verbatim stories set their own length: the duration only
+            sets the scene count when the story fits it, and a story outside it gets a run-report warning.</div>
         </div>
 
         <!-- Subtitle Style -->
@@ -180,7 +234,11 @@ const GeneratePage = (() => {
         </div>
 
         <!-- Toggles -->
-        <div style="display:flex;gap:var(--space-8);flex-wrap:wrap;margin-bottom:var(--space-5)">
+        <div class="option-row">
+          <div class="toggle toggle--active" id="toggle-subtitles" onclick="GeneratePage.toggleSwitch('toggle-subtitles')">
+            <div class="toggle__track"><div class="toggle__thumb"></div></div>
+            <span class="toggle__label">Subtitles</span>
+          </div>
           <div class="toggle toggle--active" id="toggle-motion" onclick="GeneratePage.toggleSwitch('toggle-motion')">
             <div class="toggle__track"><div class="toggle__thumb"></div></div>
             <span class="toggle__label">Motion</span>
@@ -210,6 +268,39 @@ const GeneratePage = (() => {
             <span class="checkbox__label">Strict: fail the run instead of shipping a still when a motion clip fails</span>
           </div>
         </div>
+
+        <!-- Classic editor -->
+        <div class="form-group">
+          <div class="checkbox" id="cb-classic" onclick="GeneratePage.toggleCheckbox('cb-classic')">
+            <div class="checkbox__box">&#10003;</div>
+            <span class="checkbox__label">Classic editor (Ken Burns slideshow instead of the shot editor; quality tier and cost cap do not apply)</span>
+          </div>
+        </div>
+
+        <!-- Advanced: persona, chroma key, YouTube upload -->
+        <details class="advanced" id="gen-advanced">
+          <summary>Advanced</summary>
+          <div class="form-group">
+            <label class="form-label" for="gen-persona">Persona (talking head over the scenes; uses the classic editor)</label>
+            <select class="form-select" id="gen-persona" onchange="GeneratePage.updateAdvanced()" disabled>
+              <option value="">None</option>
+            </select>
+            <div class="form-hint" id="gen-persona-hint">Loading...</div>
+          </div>
+          <div class="form-group">
+            <div class="checkbox checkbox--disabled" id="cb-chroma" onclick="GeneratePage.toggleCheckbox('cb-chroma')">
+              <div class="checkbox__box">&#10003;</div>
+              <span class="checkbox__label">Chroma key the persona (green-screen portrait)</span>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <div class="checkbox checkbox--disabled" id="cb-upload" onclick="GeneratePage.toggleCheckbox('cb-upload')">
+              <div class="checkbox__box">&#10003;</div>
+              <span class="checkbox__label">Upload to YouTube when the video is done</span>
+            </div>
+            <div class="form-hint" id="gen-upload-hint"></div>
+          </div>
+        </details>
 
         <!-- Generate Button -->
         <button class="btn btn--primary btn--lg btn--full" id="gen-submit" onclick="GeneratePage.submit()">
@@ -241,6 +332,111 @@ const GeneratePage = (() => {
       </div>
     `;
     loadDefaults();
+    loadOptions();
+    selectSource('topic');
+  }
+
+  async function loadOptions() {
+    try {
+      const res = await fetch('/api/generate/options');
+      if (res.ok) genOptions = { ...genOptions, ...(await res.json()) };
+    } catch (e) {
+      // Fallback values stay; the server validates every option anyway.
+    }
+    const select = document.getElementById('gen-persona');
+    const hint = document.getElementById('gen-persona-hint');
+    if (select && hint) {
+      const personas = genOptions.personas || [];
+      select.innerHTML = '<option value="">None</option>' +
+        personas.map(p => `<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('');
+      select.disabled = !personas.length || !genOptions.persona_ready;
+      hint.textContent = !personas.length
+        ? 'No personas: add a portrait image (.png/.jpg/.webp) to assets/personas to use one.'
+        : !genOptions.persona_ready
+          ? 'Persona animation needs a Hedra or Replicate API key in .env.'
+          : 'The narration is lip-synced onto this portrait.';
+    }
+    const upload = document.getElementById('cb-upload');
+    const uploadHint = document.getElementById('gen-upload-hint');
+    if (upload && uploadHint) {
+      upload.classList.toggle('checkbox--disabled', !genOptions.upload_ready);
+      if (!genOptions.upload_ready) upload.classList.remove('checkbox--checked');
+      uploadHint.textContent = genOptions.upload_ready
+        ? 'Uses client_secrets.json; the first upload opens a Google sign-in in a browser on the server machine.'
+        : 'Needs YouTube OAuth credentials (client_secrets.json) on the server machine.';
+    }
+    updateAdvanced();
+    updateStoryStats();
+  }
+
+  function updateAdvanced() {
+    const persona = document.getElementById('gen-persona')?.value || '';
+    const chroma = document.getElementById('cb-chroma');
+    if (!chroma) return;
+    chroma.classList.toggle('checkbox--disabled', !persona);
+    if (!persona) chroma.classList.remove('checkbox--checked');
+  }
+
+  function getSource() {
+    return document.querySelector('#source-grid .style-card--selected')?.dataset.source || 'topic';
+  }
+
+  function getStoryMode() {
+    return document.querySelector('#story-mode-grid .style-card--selected')?.dataset.storyMode || 'verbatim';
+  }
+
+  function selectCard(gridId, attr, value) {
+    document.querySelectorAll(`#${gridId} .style-card`).forEach(c => {
+      const on = c.getAttribute(attr) === value;
+      c.classList.toggle('style-card--selected', on);
+      c.setAttribute('aria-checked', String(on));
+    });
+  }
+
+  function selectSource(source) {
+    selectCard('source-grid', 'data-source', source);
+    document.getElementById('topic-group')?.classList.toggle('hidden', source !== 'topic');
+    document.getElementById('story-group')?.classList.toggle('hidden', source !== 'story');
+    document.getElementById('auto-hint')?.classList.toggle('hidden', source !== 'auto');
+    updateStoryStats();
+  }
+
+  function selectStoryMode(mode) {
+    selectCard('story-mode-grid', 'data-story-mode', mode);
+    updateStoryStats();
+  }
+
+  // Same rules as app/story.py: whitespace is normalised before counting; a word has a letter or digit.
+  function normalizedStory() {
+    return (document.getElementById('gen-story')?.value || '').split(/\s+/).filter(Boolean).join(' ');
+  }
+
+  function countWords(text) {
+    return text ? text.split(' ').filter(t => /[\p{L}\p{N}_]/u.test(t)).length : 0;
+  }
+
+  function updateStoryStats() {
+    const stats = document.getElementById('story-stats');
+    const durHint = document.getElementById('duration-story-hint');
+    const isStory = getSource() === 'story';
+    if (durHint) durHint.classList.toggle('hidden', !(isStory && getStoryMode() === 'verbatim'));
+    if (!stats) return;
+    const text = normalizedStory();
+    const max = genOptions.story_max_chars;
+    const words = countWords(text);
+    const seconds = Math.round(words / genOptions.words_per_second);
+    const over = text.length > max;
+    let line = `${text.length} / ${max} characters`;
+    if (words) {
+      line += ` \u00b7 ${words} words \u00b7 about ${seconds} s spoken`;
+      if (getStoryMode() === 'verbatim') {
+        const scenes = Math.min(20, Math.max(1, Math.round(seconds / genOptions.scene_seconds)));
+        line += ` \u00b7 about ${scenes} scene${scenes === 1 ? '' : 's'}`;
+      }
+    }
+    if (over) line += ` \u2014 ${text.length - max} over the limit`;
+    stats.textContent = line;
+    stats.classList.toggle('form-hint--error', over);
   }
 
   async function loadDefaults() {
@@ -288,13 +484,6 @@ const GeneratePage = (() => {
     el.dataset.defaultsLoaded = 'true';
     el.style.pointerEvents = '';
     el.style.opacity = '';
-  }
-
-  function toggleAuto() {
-    const el = document.getElementById('auto-toggle');
-    const topicGroup = document.getElementById('topic-group');
-    el.classList.toggle('toggle--active');
-    topicGroup.classList.toggle('hidden', el.classList.contains('toggle--active'));
   }
 
   function selectStyle(styleId) {
@@ -345,11 +534,20 @@ const GeneratePage = (() => {
     const btn = document.getElementById('gen-submit');
     if (btn.disabled) return;
 
-    const autoDiscover = isToggleActive('auto-toggle');
+    const source = getSource();
     const topic = document.getElementById('gen-topic')?.value.trim() || '';
+    const story = normalizedStory();
 
-    if (!autoDiscover && !topic) {
-      FVToast.show('Please enter a topic or enable auto-discover', 'warning');
+    if (source === 'topic' && !topic) {
+      FVToast.show('Enter a topic, or choose Auto-discover or Your story', 'warning');
+      return;
+    }
+    if (source === 'story' && !story) {
+      FVToast.show('Paste your story first', 'warning');
+      return;
+    }
+    if (source === 'story' && story.length > genOptions.story_max_chars) {
+      FVToast.show(`Your story is ${story.length} characters; the limit is ${genOptions.story_max_chars}`, 'warning');
       return;
     }
 
@@ -362,11 +560,15 @@ const GeneratePage = (() => {
     btn.innerHTML = '<span class="spinner"></span> Starting...';
 
     const body = {
-      topic: autoDiscover ? '' : topic,
-      auto_topic: autoDiscover,
+      topic: source === 'topic' ? topic : '',
+      auto_topic: source === 'auto',
+      story: source === 'story' ? document.getElementById('gen-story').value : '',
+      story_mode: source === 'story' ? getStoryMode() : null,
+      title: source === 'story' ? document.getElementById('gen-title').value.trim() : '',
       niche: document.getElementById('gen-niche').value,
       voice: document.getElementById('gen-voice').value,
       subtitle_style: getSelectedStyle(),
+      enable_subtitles: isToggleActive('toggle-subtitles'),
       enable_motion: isToggleActive('toggle-motion'),
       enable_sfx: isToggleActive('toggle-sfx'),
       enable_music: isToggleActive('toggle-music'),
@@ -379,6 +581,10 @@ const GeneratePage = (() => {
       max_cost: document.getElementById('gen-max-cost').value.trim() || null,         // text: the server validates
       // null = server uses Settings, until the defaults have loaded
       strict: document.getElementById('cb-strict')?.dataset.defaultsLoaded === 'true' ? isChecked('cb-strict') : null,
+      classic: isChecked('cb-classic'),
+      persona: document.getElementById('gen-persona')?.value || '',
+      use_chroma_key: isChecked('cb-chroma'),
+      upload: isChecked('cb-upload'),
     };
 
     try {
@@ -529,6 +735,10 @@ const GeneratePage = (() => {
     return div.innerHTML;
   }
 
-  return { render, toggleAuto, selectStyle, selectVideoStyle, selectDuration, toggleSwitch, toggleCheckbox, submit,
-           updateTierHint };
+  function escapeAttr(str) {
+    return escapeHtml(str).replace(/"/g, '&quot;');
+  }
+
+  return { render, selectSource, selectStoryMode, updateStoryStats, updateAdvanced, selectStyle, selectVideoStyle,
+           selectDuration, toggleSwitch, toggleCheckbox, submit, updateTierHint };
 })();
