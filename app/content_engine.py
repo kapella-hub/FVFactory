@@ -4,12 +4,15 @@ Uses Claude CLI (via app.llm) with OpenAI API fallback.
 """
 
 import json
-from typing import List
+import logging
+from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
 from app.llm import generate_json
+
+logger = logging.getLogger(__name__)
 
 
 class ScriptOutput(BaseModel):
@@ -49,6 +52,45 @@ class ScriptOutput(BaseModel):
         if len(v) < 5 or len(v) > 20:
             raise ValueError("Between 5 and 20 image prompts are required")
         return v
+
+
+GENERIC_MOTION_PROMPT = "slow cinematic push-in with subtle camera drift"
+
+
+def _prompt_counts(script: "ScriptOutput") -> dict:
+    return {"image_prompts": len(script.image_prompts), "motion_prompts": len(script.motion_prompts),
+            "scene_texts": len(script.scene_texts), "pacing_hints": len(script.pacing_hints)}
+
+
+def normalize_prompt_counts(script: "ScriptOutput") -> Tuple["ScriptOutput", Optional[dict]]:
+    """Make image_prompts / motion_prompts / scene_texts / pacing_hints the same length (spec §10).
+
+    Runs right after the LLM call, before any paid generation. The scene count is the number of
+    image prompts, or fewer scene_texts if the LLM returned fewer. Extra scene_texts are merged into
+    the last scene (not dropped) so the scenes still join back to the narration for alignment.
+    Missing motion prompts get GENERIC_MOTION_PROMPT. model_copy(update=...) skips validation on
+    purpose: truncating to fewer than five scenes is allowed here.
+    Returns (script, None) when nothing changed, else (new_script, {"before", "after"}).
+    """
+    n = len(script.image_prompts)
+    if script.scene_texts:
+        n = min(n, len(script.scene_texts))
+    scenes = list(script.scene_texts)
+    if len(scenes) > n:
+        scenes = scenes[:n - 1] + [" ".join(scenes[n - 1:])]
+    motion = list(script.motion_prompts[:n])
+    motion += [GENERIC_MOTION_PROMPT] * (n - len(motion))
+    hints = list(script.pacing_hints)
+    if hints:
+        hints = hints[:n] + ["normal"] * max(0, n - len(hints))
+    new = script.model_copy(update={"image_prompts": list(script.image_prompts[:n]),
+                                    "motion_prompts": motion, "scene_texts": scenes,
+                                    "pacing_hints": hints})
+    before, after = _prompt_counts(script), _prompt_counts(new)
+    if before == after:
+        return script, None
+    logger.warning("Normalized prompt counts %s -> %s", before, after)
+    return new, {"before": before, "after": after}
 
 
 class ScriptGeneratorError(Exception):
