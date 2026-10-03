@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import shutil
 import subprocess
@@ -28,6 +29,7 @@ TRUE_PEAK_CEILING = -1.0
 LOUDNORM = "I=-14:TP=-1.5:LRA=11"
 # MoviePy's x264 output only carries colorspace; tag primaries/transfer on the copy-mux.
 COLOR_BSF = "h264_metadata=colour_primaries=1:transfer_characteristics=1:matrix_coefficients=1"
+FASTSTART_SCAN_BYTES = 4 * 1024 * 1024   # moov must appear in the first 4 MiB
 _LOUDNORM_JSON = re.compile(r"\{[^{}]*\"input_i\"[^{}]*\}", re.S)
 
 
@@ -109,7 +111,8 @@ def get_audio_loudness(video_path) -> Optional[dict]:
 
 def faststart_ok(video_path) -> bool:
     """True when the moov atom precedes mdat (spec §12: faststart atom first)."""
-    head = Path(video_path).read_bytes()[:4 * 1024 * 1024]
+    with open(video_path, "rb") as f:
+        head = f.read(FASTSTART_SCAN_BYTES)
     moov, mdat = head.find(b"moov"), head.find(b"mdat")
     return moov != -1 and (mdat == -1 or moov < mdat)
 
@@ -148,12 +151,14 @@ def measure_loudness(media_path) -> Optional[dict]:
     if not m:
         logger.warning("loudnorm measurement failed: %s", result.stderr[-500:])
         return None
-    raw = json.loads(m.group(0))
     try:
+        raw = json.loads(m.group(0))
         out = {k: float(raw[k]) for k in ("input_i", "input_tp", "input_lra", "input_thresh", "target_offset")}
-    except (KeyError, ValueError):
+    except (KeyError, TypeError, ValueError) as e:     # JSONDecodeError is a ValueError
+        logger.warning("loudnorm output unparseable (%s): %s", e, m.group(0)[:300])
         return None
-    if out["input_i"] == float("-inf") or out["input_i"] < -70:
+    # -inf (silence) and nan (degenerate input) must never reach the second loudnorm pass
+    if not all(math.isfinite(v) for v in out.values()) or out["input_i"] < -70:
         return None
     return out
 

@@ -90,3 +90,56 @@ def test_platform_check_flags_true_peak_over_ceiling(tmp_path, monkeypatch):
     assert not ok and any("true peak" in i.lower() for i in issues)
     monkeypatch.setattr(enc, "measure_loudness", lambda p: {"input_tp": -1.2})
     assert enc.is_platform_safe(video)[0]
+
+
+def test_faststart_ok_reads_only_the_head(tmp_path, monkeypatch):
+    import app.encoding as enc
+    front = tmp_path / "front.mp4"
+    front.write_bytes(b"\x00\x00\x00\x18ftyp" + b"moov" + b"\x00" * 64 + b"mdat" + b"\x00" * 64)
+    back = tmp_path / "back.mp4"
+    back.write_bytes(b"\x00\x00\x00\x18ftyp" + b"mdat" + b"\x00" * 64 + b"moov")
+    late = tmp_path / "late.mp4"
+    late.write_bytes(b"ftyp" + b"\x00" * (enc.FASTSTART_SCAN_BYTES + 16) + b"moov")
+
+    def whole_file(self):
+        raise AssertionError("faststart_ok must not read the whole file")
+
+    monkeypatch.setattr(Path, "read_bytes", whole_file)
+    assert faststart_ok(front) is True
+    assert faststart_ok(back) is False
+    assert faststart_ok(late) is False                          # moov beyond the scanned head
+
+
+_GOOD_LOUDNORM = ('{\n "input_i" : "-20.10", "input_tp" : "-3.00", "input_lra" : "4.00",\n'
+                  ' "input_thresh" : "-30.50", "output_i" : "-14.0", "target_offset" : "0.20"\n}')
+
+
+def _stderr_run(stderr):
+    import subprocess
+
+    def run(cmd, timeout=600):
+        return subprocess.CompletedProcess(cmd, 0, "", stderr)
+    return run
+
+
+def test_measure_loudness_parses_ffmpeg_json(monkeypatch):
+    import app.encoding as enc
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(enc, "_run", _stderr_run("[Parsed_loudnorm_0 @ 0x1]\n" + _GOOD_LOUDNORM))
+    out = enc.measure_loudness("x.wav")
+    assert out == {"input_i": -20.1, "input_tp": -3.0, "input_lra": 4.0, "input_thresh": -30.5,
+                   "target_offset": 0.2}
+
+
+@pytest.mark.parametrize("stderr", [
+    '{ "input_i" : "-20.1", "input_tp" : -3.0 oops }',            # malformed JSON: used to raise
+    _GOOD_LOUDNORM.replace('"-20.10"', '"nan"'),                    # NaN used to pass the < -70 check
+    _GOOD_LOUDNORM.replace('"0.20"', '"inf"'),
+    _GOOD_LOUDNORM.replace('"-20.10"', '"-inf"'),                  # silence
+    _GOOD_LOUDNORM.replace('"-3.00"', 'null'),
+])
+def test_measure_loudness_rejects_unusable_output(monkeypatch, stderr):
+    import app.encoding as enc
+    monkeypatch.setattr(enc, "find_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(enc, "_run", _stderr_run(stderr))
+    assert enc.measure_loudness("x.wav") is None

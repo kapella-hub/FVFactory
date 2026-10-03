@@ -4,6 +4,7 @@ Asset Manager - Audio and image generation for video creation
 
 import logging
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
@@ -319,13 +320,17 @@ class AssetManager:
         gen = LocalImageGenerator(model_id=settings.flux_local_model)
         try:
             enhanced = [self._enhance_prompt_with_style(p) for p in prompts]
-            paths = gen.generate_batch(enhanced, self.IMAGE_WIDTH, self.IMAGE_HEIGHT, str(self.TEMP_DIR))
+            # Write straight into the job folder (spec §4: never a shared temp path), then rename
+            # scene_000.png -> scene00.png in place. shutil.move also works across drives.
+            target = Path(output_dir) if output_dir is not None else self.TEMP_DIR
+            paths = gen.generate_batch(enhanced, self.IMAGE_WIDTH, self.IMAGE_HEIGHT, str(target))
             if output_dir is None:
                 return paths
             moved = []
             for i, path in enumerate(paths):
                 dest = self._image_path(i, output_dir)
-                os.replace(path, dest)
+                if Path(path).resolve() != dest.resolve():
+                    shutil.move(str(path), str(dest))
                 moved.append(str(dest))
             return moved
         finally:

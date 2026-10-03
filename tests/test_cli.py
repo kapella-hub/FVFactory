@@ -179,3 +179,26 @@ def test_main_builders_skip_config_validation(monkeypatch):
         main.main()
     assert exit_info.value.code == 1                       # worst of the two exit codes
     assert calls == [("sfx", {"yes": True}), ("music", {"per_mood": 2, "moods": ["epic"], "yes": True})]
+
+
+def test_main_module_has_no_unused_imports_or_dead_helpers():
+    """Housekeeping guard (Phase D): every top-level import in main.py is referenced."""
+    import ast
+    from pathlib import Path
+    import main
+    tree = ast.parse(Path(main.__file__).read_text(encoding="utf-8"))
+    imported = set()
+    for node in tree.body:
+        if isinstance(node, ast.ImportFrom):
+            imported |= {a.asname or a.name for a in node.names}
+        elif isinstance(node, ast.Import):
+            imported |= {(a.asname or a.name).split(".")[0] for a in node.names}
+    used = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    assert imported - used == set()
+    assert not hasattr(main, "generate_output_filename")
+
+
+def test_superseded_cinematic_modules_are_gone():
+    import importlib.util
+    for name in ("audio_analysis", "depth", "parallax", "kinetic_text"):
+        assert importlib.util.find_spec(f"app.cin.{name}") is None, name

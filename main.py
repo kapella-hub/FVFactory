@@ -10,13 +10,12 @@ import logging
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
 from typing import Optional
 
 from app.config import settings
-from app.content_engine import ScriptGenerator, ScriptGeneratorError, normalize_prompt_counts
-from app.asset_manager import AssetManager, AssetManagerError
-from app.video_editor import VideoEditor, VideoEditorError
+from app.content_engine import ScriptGenerator, normalize_prompt_counts
+from app.asset_manager import AssetManager
+from app.video_editor import VideoEditor
 from app.animator import PortraitAnimator, AnimatorError
 from app.trend_scout import TrendScout
 from app.motion_gen import MotionGenerator, clip_model_for, snap_duration
@@ -82,17 +81,6 @@ def validate_config(use_mock: bool = False, enable_motion: bool = True) -> bool:
         return False
 
     return True
-
-
-def generate_output_filename(topic: str) -> str:
-    """Generate a unique output filename based on topic and timestamp."""
-    # Sanitize topic for filename
-    safe_topic = "".join(c if c.isalnum() or c in " -_" else "" for c in topic)
-    safe_topic = safe_topic.strip().replace(" ", "_")[:30]
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    return f"{safe_topic}_{timestamp}.mp4"
 
 
 def resolve_voice(voice: Optional[str] = None, niche: Optional[str] = None,

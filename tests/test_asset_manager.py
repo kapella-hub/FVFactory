@@ -113,3 +113,41 @@ def test_fal_images_written_into_output_dir(tmp_path, monkeypatch):
         paths = AssetManager().generate_images(["a", "b"], use_mock=False, output_dir=tmp_path)
     assert paths == [str(tmp_path / "scene00.png"), str(tmp_path / "scene01.png")]
     assert (tmp_path / "scene01.png").read_bytes() == b"png"
+
+
+def test_local_images_are_written_into_the_job_folder_not_shared_temp(tmp_path, monkeypatch):
+    """spec §4: intermediates live in the job folder. The real LocalImageGenerator needs torch,
+    so a stand-in module replaces app.local_image_gen."""
+    import sys
+    import types
+    from app.config import settings
+    seen = {}
+
+    class FakeLocalGen:
+        def __init__(self, model_id=None):
+            pass
+
+        def generate_batch(self, prompts, width, height, output_dir):
+            seen["dir"] = Path(output_dir)
+            out = []
+            for i, _ in enumerate(prompts):
+                p = Path(output_dir) / f"scene_{i:03d}.png"
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_bytes(b"png%d" % i)
+                out.append(str(p))
+            return out
+
+        def unload(self):
+            seen["unloaded"] = True
+
+    shared = tmp_path / "shared_temp"
+    monkeypatch.setitem(sys.modules, "app.local_image_gen", types.SimpleNamespace(LocalImageGenerator=FakeLocalGen))
+    monkeypatch.setattr(settings, "image_provider", "local")
+    monkeypatch.setattr(AssetManager, "TEMP_DIR", shared)
+    images = tmp_path / "job" / "sources" / "images"
+    paths = AssetManager().generate_images(["a", "b"], use_mock=False, output_dir=images)
+    assert paths == [str(images / "scene00.png"), str(images / "scene01.png")]
+    assert (images / "scene01.png").read_bytes() == b"png1"
+    assert seen["dir"] == images and seen["unloaded"] is True
+    assert not list(images.glob("scene_*.png"))                 # renamed in place, no leftovers
+    assert not list(shared.glob("*.png"))                       # shared temp untouched
