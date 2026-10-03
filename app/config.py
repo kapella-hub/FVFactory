@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -6,6 +8,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",  # legacy .env keys (e.g. AYRSHARE_API_KEY) must not break startup
     )
 
     # OpenAI - Script generation
@@ -151,6 +154,14 @@ class Settings(BaseSettings):
     video_style: str = "photorealistic"     # "photorealistic" | "cartoon" | "illustration"
     video_duration: str = "medium"          # "short" (~30s, 5-7 scenes) | "medium" (~60s, 8-10) | "long" (~90s, 11-14)
     cinematic_enabled: bool = True          # Use cinematic engine (depth parallax, multi-shot, etc.)
+
+    # === Shot-based editor (spec 2026-10-02) ===
+    whisper_model: str = "small"            # "base" is a valid, lighter choice for small VPSes
+    motion_concurrency: int = 4             # parallel motion-clip generations
+    keep_sources_days: int = 14             # prune output/<job>/sources/ older than this; <= 0 disables
+    fal_video_fallback_model: str = ""      # e.g. "kling"; "" = no fallback model
+    pacing: Literal["calm", "standard", "fast"] = "standard"
+    strict: bool = False                    # True: fail the run instead of shipping a still shot
 
     # Data directory (scheduler DB, config.json)
     data_dir: str = "data"

@@ -1,8 +1,25 @@
+import pytest
+from pydantic import ValidationError
+
 from app.config import Settings
 
+
+@pytest.fixture(autouse=True)
+def _clean_env(monkeypatch):
+    """MoviePy's load_dotenv() copies .env into os.environ on import, so
+    _env_file=None alone is not hermetic; scrub every Settings field too."""
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv(name.upper(), raising=False)
+
+
+def make(**kw):
+    """_env_file=None keeps these tests independent of the developer's .env."""
+    return Settings(_env_file=None, **kw)
+
+
 def test_v2_settings_have_defaults():
-    """All v2 settings should have sensible defaults so v1 behavior is unchanged."""
-    s = Settings(openai_api_key="test")
+    s = make(openai_api_key="test")
     assert s.replicate_api_token == ""
     assert s.flux_model == "black-forest-labs/flux-1.1-pro"
     assert s.minimax_model == "minimax/image-to-video"
@@ -29,12 +46,14 @@ def test_v2_settings_have_defaults():
     assert s.cost_elevenlabs_per_1k_chars == 0.01
     assert s.cost_openai_gpt4o == 0.005
     assert s.cost_openai_tts_per_1k_chars == 0.015
-    assert s.reddit_subreddits == "todayilearned,technology,science,explainlikeimfive"
+    assert s.reddit_subreddits == (
+        "todayilearned,Damnthatsinteresting,interestingasfuck,space,technology,science,Futurology"
+    )
     assert s.trend_count == 5
 
+
 def test_v1_settings_unchanged():
-    """Existing v1 settings must still work."""
-    s = Settings(openai_api_key="test", elevenlabs_api_key="test2")
+    s = make(openai_api_key="test", elevenlabs_api_key="test2")
     assert s.openai_api_key == "test"
     assert s.elevenlabs_api_key == "test2"
     assert s.output_dir == "output"
@@ -42,20 +61,40 @@ def test_v1_settings_unchanged():
 
 
 def test_provider_settings_defaults():
-    """New provider settings have correct defaults."""
-    from app.config import Settings
-    s = Settings(openai_api_key="test", elevenlabs_api_key="test")
-    assert s.provider_mode == "local"
+    s = make(openai_api_key="test", elevenlabs_api_key="test")
+    assert s.provider_mode == "api"
     assert s.llm_provider == "claude_cli"
-    assert s.image_provider == "local"
-    assert s.motion_provider == "local"
-    assert s.wan_model_size == "1.3b"
+    assert s.image_provider == "fal"
+    assert s.motion_provider == "fal"
+    assert s.wan_model_size == "enhanced"
     assert s.data_dir == "data"
     assert s.claude_cli_timeout == 120
 
 
 def test_provider_mode_api():
-    """provider_mode 'api' should be readable."""
-    from app.config import Settings
-    s = Settings(openai_api_key="test", provider_mode="api")
+    s = make(openai_api_key="test", provider_mode="api")
     assert s.provider_mode == "api"
+
+
+def test_legacy_env_keys_are_ignored(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text("AYRSHARE_API_KEY=dummy\nPEXELS_API_KEY=dummy\nCHANNEL_NAME=fromfile\n", encoding="utf-8")
+    s = Settings(_env_file=str(env))
+    assert s.channel_name == "fromfile"
+    assert not hasattr(s, "ayrshare_api_key")
+    assert not hasattr(s, "pexels_api_key")
+
+
+def test_shot_editor_settings_defaults():
+    s = make()
+    assert s.whisper_model == "small"
+    assert s.motion_concurrency == 4
+    assert s.keep_sources_days == 14
+    assert s.fal_video_fallback_model == ""
+    assert s.pacing == "standard"
+    assert s.strict is False
+
+
+def test_pacing_rejects_unknown_value():
+    with pytest.raises(ValidationError):
+        make(pacing="hyper")
