@@ -196,6 +196,11 @@ def test_empty_caption_list_still_draws_headline():
     assert layer is not None and ink(layer.composite(black(), 1.0)) is not None
 
 
+def test_subtitles_off_drops_headline_too():
+    plan = plan_with([group("a")], hook_headline={"text": "Gold is heavy", "t0": 0.0, "t1": 2.5})
+    assert build_caption_layer(plan, "bold_impact", enable_subtitles=False) is None
+
+
 def test_missing_font_records_font_fallback(monkeypatch):
     monkeypatch.setitem(SUBTITLE_PRESETS["bold_impact"], "font_file", "Gone.ttf")
     report = RunReport(job="j")

@@ -105,6 +105,8 @@ class ShotRenderer:
                  color_grade: Optional[str] = None, width: int = WIDTH, height: int = HEIGHT,
                  captions=None):
         self.plan, self.job, self.w, self.h = plan, job, width, height
+        if captions is not None and (captions.w, captions.h) != (width, height):
+            raise ValueError(f"caption layer is {captions.w}x{captions.h} but renderer is {width}x{height}")
         self.captions = captions          # app.cin.captions.CaptionLayer or None
         self.sources = _Sources(job, width, height)
         self.particles = ParticleSystem(preset=STYLE_PARTICLES.get(video_style, "dust"),

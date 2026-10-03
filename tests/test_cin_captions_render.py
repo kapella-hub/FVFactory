@@ -66,16 +66,24 @@ def test_captions_do_not_burn_into_cached_source_frames(tmp_path):
         r.sources.close()
 
 
-def test_subtitles_off_keeps_headline_only(tmp_path):
+def test_subtitles_off_burns_no_text_at_all(tmp_path):
     job = create_job("cap", tmp_path)
     plan = black_still_plan(job)
     r = ShotRenderer(plan, job, video_style="comic_book",
                      captions=build_caption_layer(plan, "fire", enable_subtitles=False))
     try:
         assert ink(r.frame_at(1.0)[1000:]) is None
-        assert ink(r.frame_at(1.0)[:1000]) is not None
+        assert ink(r.frame_at(1.0)[:1000]) is None
     finally:
         r.sources.close()
+
+
+def test_renderer_rejects_mismatched_caption_layer_size(tmp_path):
+    job = create_job("cap", tmp_path)
+    plan = black_still_plan(job)
+    layer = build_caption_layer(plan, "fire", width=540, height=960)
+    with pytest.raises(ValueError):
+        ShotRenderer(plan, job, video_style="comic_book", captions=layer)
 
 
 def test_rebuild_plan_keeps_hook_headline(tmp_path):

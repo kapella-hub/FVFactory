@@ -340,7 +340,9 @@ def build_caption_layer(plan, subtitle_style: str, *, report=None, enable_subtit
                         width: int = REF_W, height: int = REF_H) -> Optional[CaptionLayer]:
     """CaptionLayer for a ShotPlan, or None when there is nothing to draw. A missing bundled font
     is recorded once as font_fallback in the run report."""
-    groups = plan.captions if enable_subtitles else []
+    if not enable_subtitles:                      # subtitles off means no burned-in text at all
+        return None
+    groups = plan.captions
     if not groups and not plan.hook_headline:
         return None
     style = CaptionStyle.from_preset(subtitle_style)
