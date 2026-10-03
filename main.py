@@ -419,12 +419,12 @@ def _log_partial_costs(job, report: RunReport, paid: dict, use_mock_images: bool
     already ran (a failure after cost logging) or nothing was paid yet."""
     if paid["logged"] or not paid["llm_n"]:
         return
-    try:
+    try:                         # best-effort: never replace the exception that failed the run
         image_count = sum(1 for p in job.images.iterdir() if p.is_file()) if job.images.is_dir() else 0
-    except OSError:
-        image_count = 0
-    _log_costs(job.name, report, paid["narration"], use_mock_images, image_count, paid["specs"],
-               paid["classic_clips"], llm_n=paid["llm_n"])
+        _log_costs(job.name, report, paid["narration"], use_mock_images, image_count, paid["specs"],
+                   paid["classic_clips"], llm_n=paid["llm_n"])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Cost logging for the failed run skipped: %s", e)
 
 
 def _tag_job_dir(exc: BaseException, job_root) -> None:

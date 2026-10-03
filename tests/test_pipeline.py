@@ -621,3 +621,50 @@ def test_failure_after_cost_logging_does_not_log_twice(offline, monkeypatch):
     job = only_job(offline.out)
     log = json.loads((offline.out / "cost_log.json").read_text(encoding="utf-8"))
     assert [i["item"] for i in log["videos"][job.name]["items"]] == ["claude_cli", "claude_cli"]
+
+
+def test_pre_tts_stop_logs_no_narration_even_with_a_tts_key(offline, monkeypatch):
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "x")
+    _real_images(monkeypatch)
+    with pytest.raises(main.CostCapError):
+        main.run_pipeline("Gold facts", max_cost=1.0)
+    assert [i["item"] for i in report_of(only_job(offline.out))["cost"]["actual"]] == ["claude_cli", "claude_cli"]
+
+
+def test_pre_clips_stop_logs_the_narration_it_paid_for(offline, monkeypatch):
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "x")
+    _real_images(monkeypatch)
+    _clip_calls(monkeypatch)
+    with pytest.raises(main.CostCapError):
+        main.run_pipeline("Gold facts", max_cost=1.3)
+    items = [i["item"] for i in report_of(only_job(offline.out))["cost"]["actual"]]
+    assert items == ["claude_cli", "claude_cli", "elevenlabs_tts", "flux_image"]
+
+
+def test_render_failure_still_logs_the_generated_clips(offline, monkeypatch):
+    monkeypatch.setattr(settings, "quality_tier", "standard")
+    _real_images(monkeypatch)
+    _clip_calls(monkeypatch, make=True)
+    monkeypatch.setattr(main, "render_job", _raise(RuntimeError("encoder crashed")))
+    with pytest.raises(RuntimeError, match="encoder crashed"):
+        main.run_pipeline("Gold facts")
+    rep = report_of(only_job(offline.out))
+    clips = sorted((i["item"], i["seconds"]) for i in rep["cost"]["actual"] if i["item"].startswith("clip:"))
+    assert clips == [("clip:kling", 3.0), ("clip:kling", 7.0)] and rep["cost"]["total"] == 0.9
+
+
+def test_classic_assemble_failure_still_logs_the_generated_clips(offline, monkeypatch):
+    _real_images(monkeypatch)
+    monkeypatch.setattr(main.MotionGenerator, "generate_all_clips", lambda self, imgs, prompts: ["a.mp4", "b.mp4"])
+    monkeypatch.setattr(main.VideoEditor, "assemble_video", _raise(RuntimeError("assemble failed")))
+    with pytest.raises(RuntimeError, match="assemble failed"):
+        main.run_pipeline("Gold facts", classic=True)
+    items = report_of(only_job(offline.out))["cost"]["actual"]
+    assert [(i["item"], i["quantity"]) for i in items if i["item"].startswith("clip:")] == [("clip:hailuo", 2)]
+
+
+def test_partial_cost_logging_never_masks_the_original_error(offline, monkeypatch):
+    _real_images(monkeypatch)
+    monkeypatch.setattr(main, "_log_costs", _raise(KeyError("broken helper")))
+    with pytest.raises(main.CostCapError):
+        main.run_pipeline("Gold facts", max_cost=1.0)
