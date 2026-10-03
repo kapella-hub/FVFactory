@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -187,7 +188,10 @@ class ShotPlan:
                    music=d.get("music"), hook_headline=d.get("hook_headline"), version=d.get("version", 1))
 
     def save(self, path) -> None:
-        Path(path).write_text(json.dumps(self.to_json(), indent=1), encoding="utf-8")
+        path = Path(path)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(self.to_json(), indent=1), encoding="utf-8")
+        os.replace(tmp, path)
 
     @classmethod
     def load(cls, path) -> "ShotPlan":

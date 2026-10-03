@@ -3,7 +3,7 @@ import pytest
 
 from app.cin.align import align_words
 from app.cin.shot_plan import (
-    FRAMINGS, PACING, ClipSpec, build_shot_plan, plan_segments, word_gaps,
+    FRAMINGS, PACING, ClipSpec, ShotPlan, build_shot_plan, plan_segments, word_gaps,
 )
 from tests.conftest import fixture_alignment
 
@@ -172,3 +172,20 @@ def test_unknown_pacing_rejected():
     a = fixture_alignment("words_gold_8s.json")
     with pytest.raises(ValueError):
         build_shot_plan(a, "hyper", specs_for(plan_segments(a, None)))
+
+
+def test_save_is_atomic(tmp_path, monkeypatch):
+    a = fixture_alignment("words_gold_8s.json")
+    plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, HAILUO)))
+    path = tmp_path / "shot_plan.json"
+    plan.save(path)
+    assert not (tmp_path / "shot_plan.json.tmp").exists()
+    first = ShotPlan.load(path)
+
+    def boom(*args, **kwargs):
+        raise OSError("replace failed")
+
+    monkeypatch.setattr("app.cin.shot_plan.os.replace", boom)
+    with pytest.raises(OSError):
+        plan.save(path)
+    assert ShotPlan.load(path).to_json() == first.to_json()
