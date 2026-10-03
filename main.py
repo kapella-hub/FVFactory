@@ -501,8 +501,8 @@ def parse_args(argv=None):
                         help="Provide topic directly")
     parser.add_argument("--no-motion", action="store_true",
                         help="Skip Minimax, use Ken Burns")
-    parser.add_argument("--subtitle-style", type=str, default="bold_impact",
-                        help="Subtitle preset (default bold_impact)")
+    parser.add_argument("--subtitle-style", type=str, default=None,
+                        help="Subtitle preset (default bold_impact; with --rerender: keep the job's)")
     parser.add_argument("--no-sfx", action="store_true",
                         help="Disable SFX")
     parser.add_argument("--no-music", action="store_true",
@@ -525,6 +525,10 @@ def parse_args(argv=None):
                         help="Shot pacing: calm, standard or fast (default: settings.pacing)")
     parser.add_argument("--strict", action="store_true",
                         help="Fail the run instead of shipping a still when a motion clip fails")
+    parser.add_argument("--rerender", type=str, default=None, metavar="JOB_DIR",
+                        help="Rebuild output/<job>/final.mp4 from its sources/ with zero API calls")
+    parser.add_argument("--color-grade", type=str, default=None,
+                        help="Colour grade preset for --rerender (tech, finance, history, science, default; '' = none)")
 
     return parser.parse_args(argv)
 
@@ -555,7 +559,7 @@ def run_auto_mode(args):
                 use_mock_images=args.mock,
                 enable_music=not args.no_music,
                 enable_motion=not args.no_motion,
-                subtitle_style=args.subtitle_style,
+                subtitle_style=args.subtitle_style or settings.subtitle_style,
                 enable_sfx=not args.no_sfx,
                 voice=voice_id,
                 upload=args.upload,
@@ -654,7 +658,7 @@ def run_interactive_mode(args):
             persona=selected_persona,
             use_chroma_key=use_chroma_key,
             enable_motion=not args.no_motion,
-            subtitle_style=args.subtitle_style,
+            subtitle_style=args.subtitle_style or settings.subtitle_style,
             enable_sfx=not args.no_sfx,
             pacing=args.pacing,
             strict=args.strict or None,
@@ -677,6 +681,18 @@ def run_interactive_mode(args):
 def main():
     """Main entry point for FVFactory."""
     args = parse_args()
+
+    # Re-render needs no API keys and makes no API calls: handle it before validate_config().
+    if args.rerender:
+        from app.cin.editor import rerender_job
+        try:
+            out = rerender_job(args.rerender, pacing=args.pacing, subtitle_style=args.subtitle_style,
+                               no_sfx=args.no_sfx, no_music=args.no_music, color_grade=args.color_grade)
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"Re-render failed: {e}")
+            sys.exit(1)
+        print(f"Re-rendered: {out}")
+        sys.exit(0)
 
     # Provider mode override from CLI flags
     if args.local:

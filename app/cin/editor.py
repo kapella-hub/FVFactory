@@ -2,6 +2,7 @@
 Shared by run_pipeline (main.py) and --rerender."""
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -9,11 +10,13 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Optional
 
-from app.cin.job import JobPaths
+from app.cin.align import Alignment
+from app.cin.clip_sourcing import probe_clip_duration
+from app.cin.job import JobPaths, open_job
 from app.cin.mix import mix_audio
 from app.cin.renderer import ShotRenderer, caption_overlays
 from app.cin.report import RunReport
-from app.cin.shot_plan import ShotPlan
+from app.cin.shot_plan import ClipSpec, SegmentRequest, ShotPlan, build_shot_plan
 from app.config import settings
 from app.encoding import is_platform_safe, measure_loudness, mux_final
 
@@ -89,3 +92,73 @@ def render_job(job: JobPaths, plan: ShotPlan, options: RenderOptions, report: Ru
     shutil.rmtree(job.render_tmp, ignore_errors=True)
     logger.info("Rendered %s", job.final)
     return job.final
+
+
+# ---------------------------------------------------------------- re-render (spec §9.3)
+
+_CARRIED_WARNINGS = ("alignment_fallback", "prompt_count_normalized", "clip_retry")
+
+
+def clip_specs_from_plan(plan: ShotPlan, job: JobPaths, enable_motion: bool = True) -> list:
+    """Rebuild ClipSpecs from a saved plan. Clip lengths are re-probed; missing clip files
+    become failed segments (stills) when motion was enabled for the job."""
+    specs = []
+    for sc in plan.scenes:
+        for i, seg in enumerate(sc.segments):
+            # Naming lives in SegmentRequest.name (Task 5); do not re-implement it here.
+            name = SegmentRequest(sc.index, i, seg.t0, seg.t1, seg.requested_len, chained=i > 0).name
+            path = seg.clip if seg.clip and job.resolve(seg.clip).exists() else None
+            last = job.last_frame(name)
+            specs.append(ClipSpec(
+                sc.index, i, seg.t0, seg.t1, seg.requested_len, seg.start_image,
+                path=path,
+                duration=probe_clip_duration(job.resolve(path)) if path else 0.0,
+                last_frame=job.rel(last) if path and last.exists() else None,
+                failed=enable_motion and path is None,
+            ))
+    return specs
+
+
+def rebuild_plan(job: JobPaths, pacing: str, enable_motion: bool = True) -> ShotPlan:
+    """Same scenes and clips, new cuts: --pacing only changes cuts within scenes (spec §9.3)."""
+    alignment = Alignment.from_json(json.loads(job.alignment.read_text(encoding="utf-8")))
+    old = ShotPlan.load(job.shot_plan)
+    return build_shot_plan(alignment, pacing, clip_specs_from_plan(old, job, enable_motion))
+
+
+def rerender_job(job_dir, *, pacing: Optional[str] = None, subtitle_style: Optional[str] = None,
+                 no_sfx: bool = False, no_music: bool = False, color_grade: Optional[str] = None) -> str:
+    """Rebuild final.mp4 from sources/ with zero API calls (spec §9.3)."""
+    job = open_job(job_dir)
+    prev = RunReport.load(job.report) if job.report.exists() else RunReport(job=job.name)
+    opts = RenderOptions.from_json(prev.options)
+    if pacing:
+        opts.pacing = pacing
+    if subtitle_style:
+        opts.subtitle_style = subtitle_style
+    if no_sfx:
+        opts.enable_sfx = False
+    if no_music:
+        opts.enable_music = False
+    if color_grade is not None:
+        opts.color_grade = color_grade
+
+    report = RunReport(job=job.name, options={**prev.options, **opts.to_json(), "rerender": True})
+    report.cost = prev.cost                      # no new spend
+    report.clips = prev.clips
+    report.warnings = [w for w in prev.warnings if w.get("code") in _CARRIED_WARNINGS]
+    try:
+        with report.stage("plan"):
+            plan = rebuild_plan(job, opts.pacing, enable_motion=bool(prev.options.get("enable_motion", True)))
+        for w in plan.warnings:
+            report.warn(w["code"], w["message"], w["detail"])
+        plan.save(job.shot_plan)
+        final = render_job(job, plan, opts, report)
+        report.status = "ok"
+        return str(final)
+    except Exception as e:
+        report.status = "failed"
+        report.error = f"{type(e).__name__}: {e}"
+        raise
+    finally:
+        report.save(job.report)

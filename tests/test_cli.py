@@ -9,7 +9,7 @@ def test_default_args():
     assert args.parts == 3
     assert args.niche is None
     assert args.no_motion is False
-    assert args.subtitle_style == "bold_impact"
+    assert args.subtitle_style is None          # resolved to settings.subtitle_style when generating
     assert args.no_sfx is False
     assert args.no_music is False
     assert args.voice is None
@@ -99,3 +99,39 @@ def test_unknown_pacing_rejected():
     import pytest
     with pytest.raises(SystemExit):
         parse_args(["--pacing", "hyper"])
+
+
+def test_rerender_flags():
+    args = parse_args(["--rerender", "output/20261002_143005_rolex", "--pacing", "fast",
+                       "--color-grade", "tech", "--subtitle-style", "neon_glow", "--no-music"])
+    assert args.rerender == "output/20261002_143005_rolex"
+    assert args.pacing == "fast" and args.color_grade == "tech"
+    assert args.subtitle_style == "neon_glow" and args.no_music is True
+
+
+def test_rerender_defaults_keep_job_options():
+    args = parse_args([])
+    assert args.rerender is None and args.color_grade is None and args.subtitle_style is None
+
+
+def test_main_rerender_skips_config_validation(monkeypatch):
+    import sys
+    import pytest
+    import main
+    calls = {}
+
+    def fake_rerender(job_dir, **kwargs):
+        calls.update(kwargs, job_dir=job_dir)
+        return f"{job_dir}/final.mp4"
+
+    def must_not_validate(*args, **kwargs):
+        raise AssertionError("validate_config must not run for --rerender")
+
+    monkeypatch.setattr("app.cin.editor.rerender_job", fake_rerender)
+    monkeypatch.setattr(main, "validate_config", must_not_validate)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--rerender", "output/job", "--pacing", "fast", "--no-sfx"])
+    with pytest.raises(SystemExit) as exit_info:
+        main.main()
+    assert exit_info.value.code == 0
+    assert calls == {"job_dir": "output/job", "pacing": "fast", "subtitle_style": None,
+                     "no_sfx": True, "no_music": False, "color_grade": None}
