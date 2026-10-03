@@ -267,8 +267,10 @@ style, music, SFX and colour grade change fully. The previous output is kept as 
 
 ## 10. Reliability and reporting
 
-- Renderer exceptions fail the run with the error (sources kept; fix and `--rerender`).
-  The classic editor is reachable only with `--classic`.
+- Renderer exceptions fail the run with the error (sources kept; fix and `--rerender`); they never
+  fall back to the classic editor. The classic editor is used only with `--classic`, for persona runs
+  (talking-head hybrid), or when the `cinematic_enabled` setting is off (Settings page "Shot editor"
+  toggle). *(Amended 2026-10-03, Phase D, controller ruling.)*
 - Clip failure: retry once → fallback model (`settings.fal_video_fallback_model`) → still with a
   slow push-in. `strict=True` fails the run instead of shipping a still.
 - `--no-motion` and `--mock` remain as explicit opt-outs; they produce still-sourced shots. `--mock`
@@ -341,3 +343,13 @@ Each phase ends with a playable video:
   longer than ≈ 5.5 s need two clips. With today's average scene of ≈ 4.4 s this adds an
   estimated 1–3 clips per video (≈ $0.50–1.50). The run report shows actual clip count;
   sub-project 3's variable-length models (Kling 3–15 s) remove most of this overhead.
+
+## 15. Implementation notes (deviations made during implementation)
+
+- Loudnorm target true peak is -1.5 dBTP so the measured post-AAC peak stays <= -1.0 dBTP.
+- Whisper audio is decoded via ffmpeg; MoviePy's 16 kHz `to_soundarray` is broken.
+- The `center` caption preset is centred on the frame.
+- Montserrat is a variable font; weight is applied through Pillow.
+- The hook headline follows `enable_subtitles`.
+- A corrupt cost log is copied to `cost_log.corrupt.json` and never overwritten.
+- `--rerender` re-derives `alignment_fallback` from `alignment.json`.

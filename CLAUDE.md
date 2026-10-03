@@ -71,21 +71,21 @@ python main.py --auto --niche tech
 # Batch mode (5 videos)
 python main.py --batch 5 --niche finance
 
-# Series mode
-python main.py --series "History of Money" --parts 3
-
 # Options
 python main.py --auto --no-motion --subtitle-style neon_glow
 python main.py --auto --mock  # Use mock images (free)
 python main.py --auto --no-sfx --no-music
 
-# Web UI
+# Web UI. Generate form, Scheduler slots and Settings page carry pacing, music source and strict
+# ("Default" = the Settings value; Settings persist in data/config.json and are re-applied at start).
+# After a run the Generate page shows output/<job>/run_report.json warnings; the Library flags them.
 python main.py --serve
 
 # Shot editor options (default pacing: standard)
 python main.py --auto --pacing fast          # calm | standard | fast
 python main.py --auto --strict               # fail instead of shipping a still when a clip fails
-python main.py --auto --classic              # old Ken Burns editor
+python main.py --auto --classic              # old Ken Burns editor (also used for persona runs
+                                             # and when the cinematic_enabled setting is off)
 
 # Rebuild a finished job from output/<job>/sources with zero API calls
 python main.py --rerender output/<job> --pacing fast --subtitle-style neon_glow --color-grade tech

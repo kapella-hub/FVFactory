@@ -220,3 +220,17 @@ streamlit run app/dashboard.py
   Libraries are empty until the user adds tracks or runs the builders (ElevenLabs Music needs a paid plan).
 - New CLI: --music-source, --build-music-library, --build-sfx-library, --per-mood, --moods, --yes (builders run before validate_config; always confirm cost first).
 - Next: Phase D (web/scheduler plumbing for music_source).
+
+## Shot editor Phase D - done (2026-10-03)
+- Options plumbing: app/run_options.py (pipeline_kwargs: missing/None/"" = Settings default; bool strings parsed;
+  OptionError -> HTTP 422). Web /api/generate, scheduler slots, GeneratorWorker (SFX no longer forced off) all use it.
+- Run report surfaced: app/cin/report.load_summary (never raises); WS complete/error carry {video_id, status, warnings};
+  failed run_pipeline exceptions carry job_dir; report writes use save_quietly. Library shows warning badges.
+- data/config.json is now applied at server start (apply_saved_settings skips bad values).
+- Housekeeping: local images into job folder, faststart bounded read, loudnorm NaN/JSON guard, dead cin modules
+  (audio_analysis, depth, parallax, kinetic_text) and main.generate_output_filename removed.
+- Spec section 10 amended (classic editor also for persona runs and cinematic_enabled off); section 15 records implementation deviations.
+- Open items: Linux/Docker font-weight check before first VPS deploy (see Phase B command);
+  first live ElevenLabs music/SFX library build unverified (request shape);
+  fastapi/apscheduler routes and scheduler untested locally (only py_compiled; verify in Docker/VPS, incl. live browser pass);
+  a real paid end-to-end run with motion clips has not been done.
