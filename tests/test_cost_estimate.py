@@ -75,32 +75,32 @@ def test_claude_cli_costs_nothing():
 @pytest.mark.parametrize("key, usd, seconds", [("kling", 4.2, 50.0), ("kling-pro", 5.6, 50.0),
                                                ("hailuo", 5.0, 60.0), ("h3-turbo", 2.0, 50.0)])
 def test_medium_script_motion_estimate(key, usd, seconds):
-    """117 words / 2.6 = 45 s over 10 scenes: 4.5 + 0.5 handle = 5 s per clip (hailuo: 6 s)."""
-    assert motion_estimate(words=117, scene_count=10, model=CLIP_MODELS[key]) == (usd, seconds)
+    """99 words / 2.2 = 45 s over 10 scenes: 4.5 + 0.5 handle = 5 s per clip (hailuo: 6 s)."""
+    assert motion_estimate(words=99, scene_count=10, model=CLIP_MODELS[key]) == (usd, seconds)
 
 
 def test_over_long_scene_counts_chained_clips_of_the_longest_length():
-    """hailuo (6 s max): 52 words = 20 s in 2 scenes -> 10.5 s each -> 2 clips of 6 s per scene."""
-    assert motion_estimate(words=52, scene_count=2, model=CLIP_MODELS["hailuo"]) == (2.0, 24.0)
+    """hailuo (6 s max): 44 words / 2.2 = 20 s in 2 scenes -> 10.5 s each -> 2 clips of 6 s per scene."""
+    assert motion_estimate(words=44, scene_count=2, model=CLIP_MODELS["hailuo"]) == (2.0, 24.0)
 
 
 def test_pre_tts_medium_standard_total(monkeypatch):
     monkeypatch.setattr(settings, "llm_provider", "openai")
     monkeypatch.setattr(settings, "elevenlabs_api_key", "x")
     costs = stage_costs(narration_chars=650, image_count=10, mock_images=False, llm_calls=1)
-    est = estimate_pre_tts(words=117, scene_count=10, model=CLIP_MODELS["kling"], motion_on=True, costs=costs)
+    est = estimate_pre_tts(words=99, scene_count=10, model=CLIP_MODELS["kling"], motion_on=True, costs=costs)
     assert est.to_json() == {"stage": "pre_tts", "clips": 4.2, "images": 0.3, "tts": 0.01, "llm": 0.005,
                              "spent": 0.0, "total": 4.515, "model": "kling", "clip_seconds": 50.0}
 
 
 def test_pre_tts_premium_total():
-    est = estimate_pre_tts(words=117, scene_count=10, model=CLIP_MODELS["kling-pro"], motion_on=True,
+    est = estimate_pre_tts(words=99, scene_count=10, model=CLIP_MODELS["kling-pro"], motion_on=True,
                            costs={"tts": 0.01, "images": 0.3, "llm": 0.0})
     assert (est.clips, est.total) == (5.6, 5.91)
 
 
 def test_motion_off_estimates_no_clips():
-    est = estimate_pre_tts(words=117, scene_count=10, model=CLIP_MODELS["kling"], motion_on=False,
+    est = estimate_pre_tts(words=99, scene_count=10, model=CLIP_MODELS["kling"], motion_on=False,
                            costs=NO_COSTS)
     assert (est.clips, est.clip_seconds, est.total) == (0.0, 0.0, 0.0)
 
@@ -118,7 +118,7 @@ def test_pre_clips_is_exact_and_spent_is_the_paid_stages():
 def test_missing_pricing_entry_raises(monkeypatch):
     monkeypatch.setattr(settings, "clip_pricing", {k: v for k, v in PRICES.items() if k != "kling"})
     with pytest.raises(ValueError, match="No clip pricing for model 'kling'"):
-        estimate_pre_tts(words=117, scene_count=10, model=CLIP_MODELS["kling"], motion_on=True, costs=NO_COSTS)
+        estimate_pre_tts(words=99, scene_count=10, model=CLIP_MODELS["kling"], motion_on=True, costs=NO_COSTS)
 
 
 @pytest.mark.parametrize("total, cap, over", [(4.5, 0.0, False), (4.5, 4.5, False), (4.5000004, 4.5, False),

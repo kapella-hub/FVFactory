@@ -7,9 +7,9 @@ from app.script_quality import (
 
 
 @pytest.mark.parametrize("preset, seconds, target, lo, hi, scenes", [
-    ("short", 30, 78, 67, 89, (6, 8)),
-    ("medium", 45, 117, 100, 134, (9, 11)),
-    ("long", 60, 156, 133, 179, (11, 14)),
+    ("short", 30, 66, 57, 75, (6, 8)),
+    ("medium", 45, 99, 85, 113, (9, 11)),
+    ("long", 60, 132, 113, 151, (11, 14)),
 ])
 def test_word_budget_table(preset, seconds, target, lo, hi, scenes):
     b = word_budget(preset)

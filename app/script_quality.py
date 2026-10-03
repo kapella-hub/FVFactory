@@ -8,7 +8,9 @@ import re
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-WORDS_PER_SECOND = 2.6            # ~156 wpm, ElevenLabs Multilingual v2 at default speed
+WORDS_PER_SECOND = 2.2            # ~132 wpm. Measured 2026-10-03, ElevenLabs Multilingual v2 at default speed:
+                                  # 2.15 and 2.28 words/s (119 words -> 55.4 s, 128 words -> 56.1 s); at the old
+                                  # 2.6 a "medium" (45 s) video ran ~56 s
 TOLERANCE = 0.15                  # accept +/- 15 % of the target word count
 DEFAULT_DURATION = "medium"
 DURATION_SECONDS = {"short": 30, "medium": 45, "long": 60}

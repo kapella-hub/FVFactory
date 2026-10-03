@@ -349,7 +349,7 @@ def test_report_records_word_budget_and_narration_timing(offline, monkeypatch):
     monkeypatch.setattr(main, "render_job", fake_render)
     main.run_pipeline("Gold facts", use_mock_images=True, video_duration="short")
     script = report_of(only_job(offline.out))["script"]
-    assert script == {"preset": "short", "target_seconds": 30, "target_words": 78, "word_range": [67, 89],
+    assert script == {"preset": "short", "target_seconds": 30, "target_words": 66, "word_range": [57, 75],
                       "draft_words": 24, "words": 24, "revision": "failed",
                       "narration_seconds": 8.0, "seconds_vs_target": -22.0, "words_per_second": 3.0}
 
@@ -424,7 +424,7 @@ def _clip_calls(monkeypatch, make=False):
 
 
 def test_cap_below_pre_tts_estimate_stops_before_tts(offline, monkeypatch):
-    """hailuo pre_tts: 24 words / 2.6 = 9.23 s -> 2 scenes of 5.1 s -> 2 clips $1.00 + 2 images $0.06."""
+    """hailuo pre_tts: 24 words / 2.2 = 10.91 s -> 2 scenes of 5.95 s -> 2 clips $1.00 + 2 images $0.06."""
     _real_images(monkeypatch)
     tts_calls = []
     monkeypatch.setattr(AssetManager, "generate_audio", lambda *a, **k: tts_calls.append(1))
