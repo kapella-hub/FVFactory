@@ -153,3 +153,13 @@ def test_tier_estimates_missing_price_is_none_not_an_error():
     est = tier_estimates(custom_model="h3-turbo", pricing=pricing)
     assert est["standard"] is None
     assert est["premium"]["model"] == "kling-pro" and est["custom"]["model"] == "h3-turbo"
+
+
+def test_classic_estimate_is_one_clip_per_image_at_five_seconds():
+    from app.cin.cost_estimate import estimate_classic
+    costs = {"images": 0.09, "tts": 0.01, "llm": 0.0}
+    est = estimate_classic(clip_count=3, model=CLIP_MODELS["kling"], motion_on=True, costs=costs,
+                           pricing={"kling": {"per_second": 0.084}})
+    assert (est.stage, est.clips, est.clip_seconds, est.total) == ("pre_tts", 1.26, 15.0, 1.36)
+    off = estimate_classic(clip_count=3, model=CLIP_MODELS["kling"], motion_on=False, costs=costs)
+    assert (off.clips, off.clip_seconds, off.total) == (0.0, 0.0, 0.1)

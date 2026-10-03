@@ -31,7 +31,7 @@ from app.cin.report import RunReport
 from app.cin.caption_groups import make_hook_headline, script_headline_text
 from app.cin.shot_plan import PACING, build_shot_plan, plan_segments
 from app.cin.music_library import MOODS, MUSIC_SOURCES
-from app.cin.cost_estimate import (CostCapError, estimate_pre_clips, estimate_pre_tts, exceeds_cap, llm_calls,
+from app.cin.cost_estimate import (CostCapError, estimate_classic, estimate_pre_clips, estimate_pre_tts, exceeds_cap, llm_calls,
                                    llm_cost_item, stage_costs, tts_cost_item, tts_units)
 from app.cin.tiers import QUALITY_TIERS, resolve_clip_model
 
@@ -262,7 +262,8 @@ def _cost_checkpoint(report: RunReport, estimate, max_cost: float, job) -> None:
 
 def _run_shot_editor(job, script, narration: str, duration: float, options: RenderOptions,
                      report: RunReport, asset_manager: AssetManager, use_mock_images: bool,
-                     motion_on: bool, model, max_cost: float = 0.0, llm_n: int = 1):
+                     motion_on: bool, model, max_cost: float = 0.0, llm_n: int = 1,
+                     paid: Optional[dict] = None):
     """Spec §4 order: (align || images) -> segments -> cost checkpoint 2 -> clips -> shot plan ->
     render + encode. model is the run's resolved ClipModel (app.cin.tiers.resolve_clip_model)."""
 
@@ -297,6 +298,8 @@ def _run_shot_editor(job, script, narration: str, duration: float, options: Rend
             enable_motion=motion_on, model_key=model.key,
             fallback_model=settings.fal_video_fallback_model if settings.motion_provider == "fal" else None,
         )
+    if paid is not None:
+        paid["specs"] = specs            # paid for now, even if the render below fails
     plan = build_shot_plan(alignment, options.pacing, specs, roles=script.scene_roles or None)
     plan.hook_headline = make_hook_headline(script.hook, plan.duration, headline=script.hook_headline)
     if options.enable_subtitles and script_headline_text(script.hook_headline) is None:   # headline is drawn only with captions
@@ -320,7 +323,8 @@ def _run_shot_editor(job, script, narration: str, duration: float, options: Rend
 
 
 def _run_classic(job, script, audio_result, options: RenderOptions, asset_manager: AssetManager,
-                 use_mock_images: bool, enable_motion: bool, persona: Optional[str], use_chroma_key: bool):
+                 use_mock_images: bool, enable_motion: bool, persona: Optional[str], use_chroma_key: bool,
+                 paid: Optional[dict] = None):
     """The pre-shot-editor path (--classic, or persona hybrid mode), writing into the job folder."""
     classic_music = options.enable_music and options.music_source != "none"
     image_paths = asset_manager.generate_images(script.image_prompts, use_mock=use_mock_images,
@@ -329,6 +333,8 @@ def _run_classic(job, script, audio_result, options: RenderOptions, asset_manage
     if enable_motion and script.motion_prompts and not use_mock_images:
         motion_clip_paths = MotionGenerator(temp_dir=str(job.clips)).generate_all_clips(
             image_paths, script.motion_prompts)
+        if paid is not None:
+            paid["classic_clips"] = motion_clip_paths
 
     video_editor = VideoEditor(music_mood=options.music_mood)
     video_editor.output_dir = job.root
@@ -361,7 +367,8 @@ def _run_classic(job, script, audio_result, options: RenderOptions, asset_manage
 
 def _log_costs(video_id: str, report: RunReport, narration: str, use_mock_images: bool,
                image_count: int, specs=None, classic_clips=None, llm_n: int = 1) -> float:
-    """Cost bookkeeping after a successful render. It must never fail the run (an unknown clip
+    """Cost bookkeeping: after a successful render, or for what a failed run already paid
+    (narration "" = no TTS yet). It must never fail the run (an unknown clip
     model or a cost-file error is logged as a warning and skipped). Units follow
     app.cin.cost_estimate.stage_costs, so the pre_clips estimate and the log agree."""
     def attempt(label: str, fn):
@@ -379,9 +386,9 @@ def _log_costs(video_id: str, report: RunReport, narration: str, use_mock_images
     for _ in range(llm_n):                       # the draft, plus the length revision when one was attempted
         attempt("llm", lambda: tracker.log_cost(video_id, llm_item))
     tts_item = tts_cost_item()
-    if tts_item:
+    if tts_item and narration:                   # "" = the run stopped before text-to-speech
         attempt("tts", lambda: tracker.log_cost(video_id, tts_item, quantity=tts_units(len(narration))))
-    if not use_mock_images:
+    if not use_mock_images and image_count:
         attempt("images", lambda: tracker.log_cost(video_id, "flux_image", quantity=image_count))
     for spec in specs or []:
         if spec.path:
@@ -404,6 +411,20 @@ def _log_costs(video_id: str, report: RunReport, narration: str, use_mock_images
         logger.warning("Cost summary skipped: %s", e)
     logger.info(f"Total cost for this video: ${total:.2f}")
     return total
+
+
+def _log_partial_costs(job, report: RunReport, paid: dict, use_mock_images: bool) -> None:
+    """A failed or capped run still logs what it already paid for: the script calls, the narration
+    when TTS ran, the images on disk, and any clips that were generated. Skipped when _log_costs
+    already ran (a failure after cost logging) or nothing was paid yet."""
+    if paid["logged"] or not paid["llm_n"]:
+        return
+    try:
+        image_count = sum(1 for p in job.images.iterdir() if p.is_file()) if job.images.is_dir() else 0
+    except OSError:
+        image_count = 0
+    _log_costs(job.name, report, paid["narration"], use_mock_images, image_count, paid["specs"],
+               paid["classic_clips"], llm_n=paid["llm_n"])
 
 
 def _tag_job_dir(exc: BaseException, job_root) -> None:
@@ -488,17 +509,14 @@ def run_pipeline(
         "use_mock_images": use_mock_images, "classic": classic,
         "quality_tier": quality_tier, "clip_model": model.key, "max_cost": max_cost,
     })
-    report.cost = {"estimated": None if classic else {}, "cap": max_cost, "actual": [], "total": 0.0}
+    report.cost = {"estimated": {}, "cap": max_cost, "actual": [], "total": 0.0}
+    paid = {"llm_n": 0, "narration": "", "specs": None, "classic_clips": None, "logged": False}
     if tier_explicit and (classic or not motion_on or settings.motion_provider in ("local", "replicate")):
         report.warn("tier_ignored",
                     f"Quality tier {quality_tier!r} has no effect on this run (motion {model.key}); "
                     "tiers apply to fal motion clips in the shot editor only",
                     {"quality_tier": quality_tier, "clip_model": model.key, "classic": classic,
                      "motion": motion_on, "motion_provider": settings.motion_provider})
-    if classic and max_cost > 0:
-        report.warn("cap_ignored",
-                    f"max_cost ${max_cost:.2f} is not enforced on classic/persona runs (no cost checkpoints)",
-                    {"max_cost": max_cost, "classic": True})
     logger.info(f"Job folder: {job.root}")
 
     try:
@@ -515,12 +533,19 @@ def run_pipeline(
         _print_script(script)
         full_narration = f"{script.hook} {script.body}"
         llm_n = llm_calls(report.script.get("revision"))
-        if not classic:          # checkpoint 1: nothing but the script is paid yet (spec 2026-10-03 §8.2)
-            costs = stage_costs(narration_chars=len(full_narration), image_count=len(script.image_prompts),
-                                mock_images=use_mock_images, llm_calls=llm_n)
-            _cost_checkpoint(report, estimate_pre_tts(
-                words=report.script.get("words") or 0, scene_count=len(script.image_prompts), model=model,
-                motion_on=motion_on, costs=costs), max_cost, job)
+        paid["llm_n"] = llm_n
+        # checkpoint 1: nothing but the script is paid yet (spec 2026-10-03 §8.2)
+        costs = stage_costs(narration_chars=len(full_narration), image_count=len(script.image_prompts),
+                            mock_images=use_mock_images, llm_calls=llm_n)
+        if classic:              # one clip per image; the classic editor has no second checkpoint
+            classic_motion = motion_on and bool(script.motion_prompts)
+            estimate = estimate_classic(clip_count=len(script.image_prompts) if classic_motion else 0,
+                                        model=model, motion_on=classic_motion, costs=costs)
+        else:
+            estimate = estimate_pre_tts(words=report.script.get("words") or 0,
+                                        scene_count=len(script.image_prompts), model=model,
+                                        motion_on=motion_on, costs=costs)
+        _cost_checkpoint(report, estimate, max_cost, job)
 
         logger.info("Generating audio narration...")
         asset_manager = AssetManager(video_style=options.video_style)
@@ -528,19 +553,21 @@ def run_pipeline(
             audio_result = asset_manager.generate_audio(full_narration, voice_id=voice, output_path=job.narration)
         logger.info(f"Audio generated: {audio_result.duration:.1f} seconds")
         _record_narration(report, audio_result.duration)
+        paid["narration"] = full_narration
 
         specs, classic_clips = None, None
         if classic:
             output_path, image_paths, classic_clips = _run_classic(
                 job, script, audio_result, options, asset_manager, use_mock_images, enable_motion,
-                persona, use_chroma_key)
+                persona, use_chroma_key, paid=paid)
         else:
             output_path, image_paths, specs = _run_shot_editor(
                 job, script, full_narration, audio_result.duration, options, report, asset_manager,
-                use_mock_images, motion_on, model, max_cost=max_cost, llm_n=llm_n)
+                use_mock_images, motion_on, model, max_cost=max_cost, llm_n=llm_n, paid=paid)
         logger.info(f"Video rendered successfully: {output_path}")
 
         video_id = job.name
+        paid["logged"] = True
         _log_costs(video_id, report, full_narration, use_mock_images, len(image_paths), specs, classic_clips,
                    llm_n=llm_n)
 
@@ -568,6 +595,7 @@ def run_pipeline(
         report.error = f"{type(e).__name__}: {e}"
         logger.error(f"Pipeline failed: {e} (sources kept in {job.root}; fix and --rerender)")
         _tag_job_dir(e, job.root)
+        _log_partial_costs(job, report, paid, use_mock_images)
         raise
     finally:
         report.save_quietly(job.report)

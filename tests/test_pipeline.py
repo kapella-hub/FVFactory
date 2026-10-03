@@ -541,7 +541,10 @@ def test_classic_run_records_its_model_without_estimates(offline, monkeypatch):
     main.run_pipeline("Gold facts", use_mock_images=True, classic=True, quality_tier="standard", max_cost=0.01)
     rep = report_of(only_job(offline.out))
     assert rep["status"] == "ok" and rep["options"]["clip_model"] == "hailuo"
-    assert rep["cost"]["estimated"] is None and rep["cost"]["cap"] == 0.01
+    assert rep["cost"]["estimated"] == {"pre_tts": {               # mock images: motion off, nothing priced
+        "stage": "pre_tts", "clips": 0.0, "images": 0.0, "tts": 0.0, "llm": 0.0, "spent": 0.0,
+        "total": 0.0, "model": "hailuo", "clip_seconds": 0.0}}
+    assert rep["cost"]["cap"] == 0.01
     assert "tier_ignored" in [w["code"] for w in rep["warnings"]]
 
 
@@ -571,13 +574,50 @@ def test_settings_cap_applies_when_no_cap_is_passed(offline, monkeypatch):
         main.run_pipeline("Gold facts", max_cost=None)
 
 
-def test_cap_on_a_classic_run_warns_cap_ignored(offline, monkeypatch):
-    def fake_assemble(self, **kwargs):
-        path = self.output_dir / kwargs["output_filename"]
-        path.write_bytes(b"classic")
-        return str(path)
+def test_classic_run_enforces_the_cap_before_tts(offline, monkeypatch):
+    """Classic: the script normalizes to 2 scenes -> one hailuo clip per image ($0.50 x 2) + 2 images ($0.06)
+    = $1.06 > $1.00 -> stop before TTS (previously classic runs ignored the cap)."""
+    _real_images(monkeypatch)
+    tts_calls = []
+    monkeypatch.setattr(AssetManager, "generate_audio", lambda *a, **k: tts_calls.append(1))
+    with pytest.raises(main.CostCapError, match="before text-to-speech"):
+        main.run_pipeline("Gold facts", classic=True, max_cost=1.0)
+    rep = report_of(only_job(offline.out))
+    assert tts_calls == [] and rep["status"] == "failed"
+    assert rep["cost"]["estimated"]["pre_tts"] == {
+        "stage": "pre_tts", "clips": 1.0, "images": 0.06, "tts": 0.0, "llm": 0.0, "spent": 0.0,
+        "total": 1.06, "model": "hailuo", "clip_seconds": 12.0}
+    codes = [w["code"] for w in rep["warnings"]]
+    assert "cost_cap_exceeded" in codes and "cap_ignored" not in codes
 
-    monkeypatch.setattr(main.VideoEditor, "assemble_video", fake_assemble)
-    main.run_pipeline("Gold facts", use_mock_images=True, classic=True, max_cost=3.0)
-    warns = report_of(only_job(offline.out))["warnings"]
-    assert "cap_ignored" in [w["code"] for w in warns]
+
+def test_cap_stop_at_pre_clips_logs_what_was_already_paid(offline, monkeypatch):
+    """The images (2 x $0.03) were paid before the pre_clips stop; they reach cost_log.json and the report."""
+    _real_images(monkeypatch)
+    _clip_calls(monkeypatch)
+    with pytest.raises(main.CostCapError):
+        main.run_pipeline("Gold facts", max_cost=1.3)
+    job = only_job(offline.out)
+    rep = report_of(job)
+    assert rep["cost"]["total"] == 0.06
+    assert [i["item"] for i in rep["cost"]["actual"]] == ["claude_cli", "claude_cli", "flux_image"]
+    log = json.loads((offline.out / "cost_log.json").read_text(encoding="utf-8"))
+    assert round(sum(i["cost"] for i in log["videos"][job.name]["items"]), 4) == 0.06
+
+
+def test_cap_stop_at_pre_tts_logs_only_the_script(offline, monkeypatch):
+    _real_images(monkeypatch)
+    with pytest.raises(main.CostCapError):
+        main.run_pipeline("Gold facts", max_cost=1.0)
+    rep = report_of(only_job(offline.out))
+    assert [i["item"] for i in rep["cost"]["actual"]] == ["claude_cli", "claude_cli"] and rep["cost"]["total"] == 0.0
+
+
+def test_failure_after_cost_logging_does_not_log_twice(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", fake_render)
+    monkeypatch.setattr(main.MetadataGenerator, "generate_metadata", _raise(RuntimeError("metadata down")))
+    with pytest.raises(RuntimeError, match="metadata down"):
+        main.run_pipeline("Gold facts", use_mock_images=True)
+    job = only_job(offline.out)
+    log = json.loads((offline.out / "cost_log.json").read_text(encoding="utf-8"))
+    assert [i["item"] for i in log["videos"][job.name]["items"]] == ["claude_cli", "claude_cli"]

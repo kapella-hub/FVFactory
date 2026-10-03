@@ -15,7 +15,7 @@ from app.cin.shot_plan import HANDLE
 from app.cin.tiers import QUALITY_TIERS, TIER_MODELS
 from app.config import settings
 from app.cost_tracker import unit_clip_cost, unit_costs
-from app.motion_gen import CLIP_MODELS, ClipModel, snap_duration
+from app.motion_gen import CLASSIC_CLIP_SECONDS, CLIP_MODELS, ClipModel, snap_duration
 from app.script_quality import DURATION_SECONDS, SCENE_RANGE, WORDS_PER_SECOND, word_budget
 
 __all__ = ["CostCapError", "CostEstimate", "unit_clip_cost", "llm_cost_item", "tts_cost_item", "tts_units",
@@ -103,6 +103,21 @@ def estimate_pre_tts(*, words: int, scene_count: int, model: ClipModel, motion_o
     """Checkpoint 1: after the script stage, before TTS (the first paid call)."""
     clips, seconds = motion_estimate(words=words, scene_count=scene_count, model=model,
                                      pricing=pricing) if motion_on else (0.0, 0.0)
+    total = round(clips + costs["images"] + costs["tts"] + costs["llm"], 4)
+    return CostEstimate("pre_tts", clips, costs["images"], costs["tts"], costs["llm"], 0.0, total,
+                        model.key, seconds)
+
+
+def estimate_classic(*, clip_count: int, model: ClipModel, motion_on: bool, costs: dict,
+                     pricing: Optional[dict] = None) -> CostEstimate:
+    """Checkpoint 1 for classic / persona runs: one clip per image at CLASSIC_CLIP_SECONDS (the length
+    _log_costs logs them at). The classic editor has no second checkpoint."""
+    if motion_on and clip_count:
+        length = snap_duration(CLASSIC_CLIP_SECONDS, model.durations) or CLASSIC_CLIP_SECONDS
+        clips = round(clip_count * unit_clip_cost(model.key, length, pricing), 4)
+        seconds = round(clip_count * length, 2)
+    else:
+        clips, seconds = 0.0, 0.0
     total = round(clips + costs["images"] + costs["tts"] + costs["llm"], 4)
     return CostEstimate("pre_tts", clips, costs["images"], costs["tts"], costs["llm"], 0.0, total,
                         model.key, seconds)

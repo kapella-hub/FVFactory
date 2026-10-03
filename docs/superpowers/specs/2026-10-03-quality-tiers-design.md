@@ -286,3 +286,10 @@ behaviour a user sees:
   open item for the user.
 - A run stopped by the cap at `pre_clips` writes no `cost_log.json` entry (true of every failed run
   today); `run_report.json` keeps the `pre_clips` estimate with `spent` — open item.
+
+## 15. Follow-up (2026-10-03, user: "do whatever you recommend")
+
+- Classic / persona runs now get checkpoint 1 (`estimate_classic`: one clip per image at 5 s, the length
+  `_log_costs` uses); `cap_ignored` is gone. The classic editor still has no second checkpoint.
+- A failed or capped run logs what it already paid (`main._log_partial_costs`): script calls, the narration
+  when TTS ran, the images on disk, and generated clips; never twice when the failure comes after cost logging.

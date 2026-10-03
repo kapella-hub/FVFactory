@@ -258,8 +258,9 @@ streamlit run app/dashboard.py
   and before clip generation; over cap the run fails with cost_cap_exceeded - never degrades to stills/cheaper model.
   Medium video estimate ~ $4.5 standard / $5.9 premium total (list price).
 - run_report.json: cost.estimated {pre_tts, pre_clips}, cost.cap; options quality_tier / clip_model / max_cost.
-  Warnings tier_ignored, cap_ignored (classic/persona runs record but do not enforce the cap).
+  Warning tier_ignored. Classic/persona runs get checkpoint 1 too (one clip per image at 5 s; estimate_classic).
+  Failed or capped runs log what they already paid (_log_partial_costs: script, narration, images on disk, clips).
 - Open items (paid, need user approval): first Standard/Premium paid runs (check 9:16 + cost.actual vs estimate);
-  one H3 Turbo 480P test clip (~$0.13) before H3 could become the Standard default; decide whether classic runs
-  should enforce the cap; a run stopped at pre_clips writes no cost_log.json entry (true of all failed runs);
+  one H3 Turbo test clip (~$0.20 at 768P) before H3 could become the Standard default (paid checks need
+  FAL_API_KEY, which is not in the local .env);
   calibrate WORDS_PER_SECOND / SCENE_RANGE from run reports (Kling allows 3-15 s clips now).
