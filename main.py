@@ -16,7 +16,7 @@ from app.asset_manager import AssetManager, AssetManagerError
 from app.video_editor import VideoEditor, VideoEditorError
 from app.animator import PortraitAnimator, AnimatorError
 from app.trend_scout import TrendScout
-from app.motion_gen import MotionGenerator
+from app.motion_gen import MotionGenerator, clip_model_for, snap_duration
 from app.cost_tracker import CostTracker
 from app.metadata_gen import MetadataGenerator
 from app.uploader import YouTubeUploader, UploaderError
@@ -399,7 +399,9 @@ def run_pipeline(
         if motion_clip_paths:
             success_count = sum(1 for c in motion_clip_paths if c is not None)
             if success_count > 0:
-                tracker.log_cost(video_id, "minimax_video", quantity=success_count)
+                model = clip_model_for(settings.motion_provider, settings.fal_video_model)
+                tracker.log_clip(video_id, model.key, seconds=snap_duration(5.0, model.durations) or 5.0,
+                                 count=success_count)
 
         tracker.save()
         total_cost = tracker.get_video_cost(video_id)

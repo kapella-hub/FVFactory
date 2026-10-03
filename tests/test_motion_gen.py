@@ -108,3 +108,30 @@ def test_generate_all_clips_partial_failure():
         assert results[1] is None
         assert results[0] is not None
         assert results[2] is not None
+
+
+import math
+
+from app.motion_gen import CLIP_MODELS, clip_model_for, max_duration, snap_duration
+
+
+def test_snap_duration_rounds_up_to_supported_lengths():
+    assert snap_duration(2.8, (6.0,)) == 6.0
+    assert snap_duration(6.2, (6.0,)) is None          # too long: caller must split the scene
+    assert snap_duration(5.0, (5.0, 10.0)) == 5.0
+    assert snap_duration(5.01, (5.0, 10.0)) == 10.0
+    assert snap_duration(7.333, None) == 7.33           # any-length model: exact request
+
+
+def test_max_duration():
+    assert max_duration((5.0, 10.0)) == 10.0
+    assert max_duration(None) == math.inf
+
+
+def test_clip_model_for_providers():
+    assert clip_model_for("fal", "kling").key == "kling"
+    assert clip_model_for("fal", "unknown-model").key == "hailuo"
+    assert clip_model_for("replicate", "kling").key == "replicate-minimax"
+    assert clip_model_for("local", "hailuo").durations is None
+    assert CLIP_MODELS["hailuo"].durations == (6.0,)
+    assert CLIP_MODELS["kling"].sends_duration is True

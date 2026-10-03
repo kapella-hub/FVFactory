@@ -115,7 +115,15 @@ class Settings(BaseSettings):
 
     # Cost tracking (overridable via .env)
     cost_flux_image: float = 0.03
-    cost_minimax_video: float = 0.10
+    # Motion clip pricing per model: {"per_clip": usd} or {"per_second": usd}.
+    # fal list prices checked 2026-10-02 — verify against billing.
+    clip_pricing: dict = {
+        "hailuo": {"per_clip": 0.50},
+        "kling": {"per_second": 0.045},
+        "kling-pro": {"per_second": 0.10},
+        "replicate-minimax": {"per_clip": 0.50},
+        "local": {"per_clip": 0.0},
+    }
     cost_elevenlabs_per_1k_chars: float = 0.01
     cost_openai_gpt4o: float = 0.005
     cost_openai_tts_per_1k_chars: float = 0.015

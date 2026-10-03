@@ -1,9 +1,11 @@
 """Motion Generator — fal.ai Minimax Hailuo (default), Replicate, or local fallback."""
 
 import logging
+import math
 import os
+from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import requests
 
@@ -11,12 +13,50 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-# fal.ai model endpoints
-FAL_MODELS = {
-    "hailuo": "fal-ai/minimax-video/image-to-video",
-    "kling": "fal-ai/kling-video/v1/standard/image-to-video",
-    "kling-pro": "fal-ai/kling-video/v1.5/pro/image-to-video",
+
+@dataclass(frozen=True)
+class ClipModel:
+    """A motion model and the clip lengths it can return (spec §6.4)."""
+    key: str
+    endpoint: Optional[str]                    # fal endpoint; None for non-fal providers
+    durations: Optional[Tuple[float, ...]]     # supported lengths in seconds; None = any length
+    sends_duration: bool = False               # pass a "duration" argument to the endpoint
+
+
+# Kling v1 / v1.5 fal endpoints are marked deprecated on fal.ai (checked 2026-10-02); they stay
+# for existing configs. Sub-project 3 replaces this table with current models.
+CLIP_MODELS = {
+    "hailuo": ClipModel("hailuo", "fal-ai/minimax-video/image-to-video", (6.0,)),
+    "kling": ClipModel("kling", "fal-ai/kling-video/v1/standard/image-to-video", (5.0, 10.0), True),
+    "kling-pro": ClipModel("kling-pro", "fal-ai/kling-video/v1.5/pro/image-to-video", (5.0, 10.0), True),
+    "replicate-minimax": ClipModel("replicate-minimax", None, (6.0,)),
+    "local": ClipModel("local", None, None),
 }
+
+# fal.ai model endpoints (kept for older call sites)
+FAL_MODELS = {key: m.endpoint for key, m in CLIP_MODELS.items() if m.endpoint}
+
+
+def clip_model_for(provider: str, fal_model: str) -> ClipModel:
+    if provider == "local":
+        return CLIP_MODELS["local"]
+    if provider == "replicate":
+        return CLIP_MODELS["replicate-minimax"]
+    return CLIP_MODELS.get(fal_model, CLIP_MODELS["hailuo"])
+
+
+def max_duration(durations: Optional[Tuple[float, ...]]) -> float:
+    return math.inf if durations is None else max(durations)
+
+
+def snap_duration(needed: float, durations: Optional[Tuple[float, ...]]) -> Optional[float]:
+    """Smallest supported length >= needed; None when even the longest is too short."""
+    if durations is None:
+        return round(needed, 2)
+    for d in sorted(durations):
+        if d + 1e-6 >= needed:
+            return d
+    return None
 
 
 class MotionGenerator:

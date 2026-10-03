@@ -62,3 +62,30 @@ def test_local_provider_costs_are_zero():
     assert tracker.unit_costs["local_image"] == 0.0
     assert tracker.unit_costs["local_video"] == 0.0
     assert tracker.unit_costs["claude_cli"] == 0.0
+
+
+import pytest
+
+
+def test_hailuo_clip_priced_per_clip(tmp_path):
+    tracker = CostTracker(output_dir=str(tmp_path))
+    assert tracker.log_clip("v1", "hailuo", seconds=6.0, count=3) == 1.5
+    assert tracker.get_video_cost("v1") == 1.5
+    item = tracker.get_video_items("v1")[0]
+    assert item["item"] == "clip:hailuo"
+    assert item["quantity"] == 3
+    assert item["unit_cost"] == 0.5
+
+
+def test_kling_clip_priced_per_second(tmp_path):
+    tracker = CostTracker(output_dir=str(tmp_path))
+    assert tracker.log_clip("v1", "kling", seconds=10.0) == 0.45
+
+
+def test_unknown_clip_model_raises(tmp_path):
+    with pytest.raises(ValueError):
+        CostTracker(output_dir=str(tmp_path)).log_clip("v1", "sora", 5.0)
+
+
+def test_flat_minimax_item_removed(tmp_path):
+    assert "minimax_video" not in CostTracker(output_dir=str(tmp_path)).unit_costs

@@ -23,7 +23,6 @@ class CostTracker:
     def unit_costs(self) -> dict:
         return {
             "flux_image": settings.cost_flux_image,
-            "minimax_video": settings.cost_minimax_video,
             "elevenlabs_tts": settings.cost_elevenlabs_per_1k_chars,
             "openai_gpt4o": settings.cost_openai_gpt4o,
             "openai_tts": settings.cost_openai_tts_per_1k_chars,
@@ -42,23 +41,33 @@ class CostTracker:
     def log_cost(self, video_id: str, item: str, quantity: int = 1) -> None:
         if item not in self.unit_costs:
             raise ValueError(f"Unknown cost item: {item}. Valid: {list(self.unit_costs.keys())}")
+        unit = self.unit_costs[item]
+        self._append(video_id, {"item": item, "quantity": quantity, "unit_cost": unit,
+                                "cost": round(unit * quantity, 4)})
+        logger.debug(f"Cost: {item} x{quantity} = ${unit * quantity:.4f} (video: {video_id})")
 
-        cost = self.unit_costs[item] * quantity
+    def clip_unit_cost(self, model: str, seconds: float) -> float:
+        price = settings.clip_pricing.get(model)
+        if price is None:
+            raise ValueError(f"No clip pricing for model {model!r}. Known: {sorted(settings.clip_pricing)}")
+        if "per_second" in price:
+            return round(float(price["per_second"]) * float(seconds), 4)
+        return float(price.get("per_clip", 0.0))
 
-        if video_id not in self._costs["videos"]:
-            self._costs["videos"][video_id] = {"items": [], "total": 0.0}
+    def log_clip(self, video_id: str, model: str, seconds: float, count: int = 1) -> float:
+        unit = self.clip_unit_cost(model, seconds)
+        cost = round(unit * count, 4)
+        self._append(video_id, {"item": f"clip:{model}", "quantity": count, "seconds": seconds,
+                                "unit_cost": unit, "cost": cost})
+        return cost
 
-        self._costs["videos"][video_id]["items"].append({
-            "item": item,
-            "quantity": quantity,
-            "unit_cost": self.unit_costs[item],
-            "cost": round(cost, 4),
-        })
-        self._costs["videos"][video_id]["total"] = round(
-            self._costs["videos"][video_id]["total"] + cost, 4
-        )
+    def get_video_items(self, video_id: str) -> list:
+        return list(self._costs["videos"].get(video_id, {}).get("items", []))
 
-        logger.debug(f"Cost: {item} x{quantity} = ${cost:.4f} (video: {video_id})")
+    def _append(self, video_id: str, entry: dict) -> None:
+        video = self._costs["videos"].setdefault(video_id, {"items": [], "total": 0.0})
+        video["items"].append(entry)
+        video["total"] = round(video["total"] + entry["cost"], 4)
 
     def get_video_cost(self, video_id: str) -> float:
         if video_id not in self._costs["videos"]:

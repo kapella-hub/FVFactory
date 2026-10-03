@@ -42,7 +42,9 @@ def test_v2_settings_have_defaults():
     assert s.sfx_dir == "assets/sfx"
     assert s.max_parallel_workers == 3
     assert s.cost_flux_image == 0.03
-    assert s.cost_minimax_video == 0.10
+    assert s.clip_pricing["hailuo"] == {"per_clip": 0.50}
+    assert s.clip_pricing["kling"] == {"per_second": 0.045}
+    assert not hasattr(s, "cost_minimax_video")
     assert s.cost_elevenlabs_per_1k_chars == 0.01
     assert s.cost_openai_gpt4o == 0.005
     assert s.cost_openai_tts_per_1k_chars == 0.015
