@@ -116,3 +116,9 @@ pip install -r requirements.txt
 ## Configuration
 
 Copy `.env.example` to `.env` and add your API keys.
+
+**Script LLM** (`app/llm.py`): `LLM_PROVIDER` = `claude_cli` (Claude Code headless, default) | `codex` (Codex CLI
+headless) | `openai` (paid API). `LLM_FALLBACK` (default `codex,openai`; `none` = off) is tried in order when it
+fails. Models: `CLAUDE_CLI_MODEL`, `CODEX_MODEL`, `OPENAI_MODEL`. The provider that answered is recorded at
+`run_report.json` `script.llm_provider` and picks the LLM cost-log item. The Docker image installs both CLIs; auth
+via `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) and `codex login` (mounted `~/.codex`) or `CODEX_API_KEY`.

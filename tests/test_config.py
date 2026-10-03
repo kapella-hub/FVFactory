@@ -109,10 +109,14 @@ def test_env_example_documents_shot_editor_settings():
     text = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
     keys = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text, flags=re.M))
     for name in ("PACING", "STRICT", "MUSIC_SOURCE", "ELEVENLABS_MUSIC_MODEL",
-                 "COST_ELEVENLABS_MUSIC_PER_MINUTE", "COST_ELEVENLABS_SFX_PER_MINUTE"):
+                 "COST_ELEVENLABS_MUSIC_PER_MINUTE", "COST_ELEVENLABS_SFX_PER_MINUTE",
+                 "LLM_PROVIDER", "LLM_FALLBACK", "CLAUDE_CLI_MODEL", "CODEX_MODEL", "OPENAI_MODEL",
+                 "CODEX_CLI_TIMEOUT"):
         assert name in keys, name
-    assert all(k.lower() in Settings.model_fields for k in keys), sorted(
-        k for k in keys if k.lower() not in Settings.model_fields)
+    cli_auth = {"CLAUDE_CODE_OAUTH_TOKEN", "CODEX_API_KEY"}     # read by the claude / codex CLIs, not Settings
+    assert cli_auth <= keys
+    assert all(k.lower() in Settings.model_fields for k in keys - cli_auth), sorted(
+        k for k in keys - cli_auth if k.lower() not in Settings.model_fields)
 
 
 

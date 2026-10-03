@@ -3,13 +3,23 @@ FROM python:3.12-slim
 # Set working directory
 WORKDIR /workspace
 
-# Install system dependencies for moviepy
+# Install system dependencies for moviepy (curl + ca-certificates: the Node.js setup below)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     imagemagick \
     fonts-dejavu-core \
     fonts-liberation \
     fontconfig \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 + the headless script-LLM CLIs that app/llm.py shells out to (LLM_PROVIDER=claude_cli | codex).
+# Auth comes from .env (CLAUDE_CODE_OAUTH_TOKEN, CODEX_API_KEY) or the mounted ~/.codex; see docker-compose.yml.
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && npm install -g @anthropic-ai/claude-code @openai/codex \
+    && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/*
 
 # Fix ImageMagick policy to allow text processing
