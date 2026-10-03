@@ -12,7 +12,9 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
 from app.llm import generate_json
-from app.script_quality import DURATION_SECONDS, WordBudget, canonical_role, check_roles, count_words, word_budget
+from app.script_quality import (DURATION_SECONDS, WORDS_PER_SECOND, WordBudget, canonical_role, check_roles,
+                                count_words, word_budget)
+from app.story import DEFAULT_STORY_MODE, check_story, default_title, scene_count, split_scenes
 
 logger = logging.getLogger(__name__)
 
@@ -151,7 +153,7 @@ class ScriptGeneratorError(Exception):
 class ScriptGenerator:
     """Generates viral TikTok/Shorts scripts using OpenAI GPT-4o"""
 
-    BASE_SYSTEM_PROMPT = """You write scripts for short vertical videos (TikTok, YouTube Shorts, Reels).
+    _SCRIPT_HEAD = """You write scripts for short vertical videos (TikTok, YouTube Shorts, Reels).
 Your one job: keep a scrolling viewer watching to the last second, then make the replay feel seamless.
 
 You MUST respond with a valid JSON object containing:
@@ -178,7 +180,9 @@ VOICE:
 - Never use these phrases: "in today's world", "let's dive in", "dive into", "buckle up", "game-changer", "mind-blowing", "you won't believe", "the answer may surprise you", "stay tuned", "without further ado", "at the end of the day", "fun fact", "it's important to note", "in conclusion".
 - Every claim must be true and specific.
 
-CRITICAL IMAGE PROMPT RULES:
+"""
+
+    IMAGE_RULES = """CRITICAL IMAGE PROMPT RULES:
 - Every image prompt MUST describe a photorealistic scene. NO cartoons, illustrations, vector art, or anime.
 - All prompts must share the SAME visual style: cinematic, realistic, natural lighting, muted tones.
 - Describe real-world scenes, objects, and environments. Think National Geographic or documentary footage.
@@ -191,17 +195,23 @@ CRITICAL IMAGE PROMPT RULES:
 - Focus on OBJECTS, PLACES, CONCEPTS, and ACTIONS — not people's faces. Wide shots, aerial views, close-ups of objects, environments, and symbolic imagery work best.
 Each image prompt should be detailed enough for an AI to generate a compelling photorealistic visual."""
 
-    V2_INSTRUCTION = """
+    BASE_SYSTEM_PROMPT = _SCRIPT_HEAD + IMAGE_RULES
+
+    _V2_HEAD = """
 
 ADDITIONAL REQUIRED FIELDS:
 - "hook_variants": 3 alternative hook options (list of strings), each following the HOOK rules
-- "motion_prompts": One motion description per image prompt (same count as image_prompts).
+"""
+
+    MOTION_RULES = """- "motion_prompts": One motion description per image prompt (same count as image_prompts).
   Each MUST name the main subject's visible physical action: what moves and how it moves.
   You may add ONE camera move after the action. The clip must clearly move from start to finish.
   NEVER write a static shot, a camera move over a still subject, or "subtle", "slight" or parallax-only motion.
   Examples: "rust flakes crumble off the chain as it swings",
   "waves roll over the scattered coins, sand swirls", "molten gold pours into a mold and splashes, camera pushes in"
-- "pacing_hints": One pacing value per scene (same count as image_prompts). Use: "fast" for exciting moments,
+"""
+
+    _V2_TAIL = """- "pacing_hints": One pacing value per scene (same count as image_prompts). Use: "fast" for exciting moments,
   "normal" for standard pacing, "slow" for emotional moments, "dramatic_pause" for reveals.
 - "scene_texts": Split the full narration (hook + body) into segments, one per image prompt.
   Each segment is the EXACT text that should be spoken while that scene's image is shown.
@@ -211,6 +221,8 @@ ADDITIONAL REQUIRED FIELDS:
 - "emoji_subtitles": 3-5 key phrases from the script with contextual emojis added.
   Example: "Bitcoin crashed 📉😱", "Scientists discovered 🔬🧬"
 """
+
+    V2_INSTRUCTION = _V2_HEAD + MOTION_RULES + _V2_TAIL
 
     MASCOT_INSTRUCTION = """
 
@@ -229,8 +241,13 @@ DO NOT just mention the character - describe what they are DOING in each scene."
 
     def _build_system_prompt(self, enable_v2: bool = False, video_style: str = "photorealistic") -> str:
         """Build the system prompt, optionally including mascot instructions."""
-        prompt = self.BASE_SYSTEM_PROMPT
+        prompt = self._styled(self.BASE_SYSTEM_PROMPT, video_style)
+        if enable_v2:
+            prompt += self.V2_INSTRUCTION
+        return prompt
 
+    def _styled(self, prompt: str, video_style: str) -> str:
+        """Apply the video style to the image rules inside `prompt`, and append the mascot section."""
         # Override the photorealistic-only rule for non-photorealistic styles
         if video_style != "photorealistic" and video_style in self.STYLE_GUIDE:
             style_label = video_style.replace("_", " ").upper()
@@ -247,9 +264,6 @@ DO NOT just mention the character - describe what they are DOING in each scene."
                 mascot_prompt=settings.mascot_prompt
             )
             prompt += mascot_section
-
-        if enable_v2:
-            prompt += self.V2_INSTRUCTION
 
         return prompt
 
@@ -307,8 +321,18 @@ DO NOT just mention the character - describe what they are DOING in each scene."
         ),
     }
 
+    STORY_SOURCE = """
+
+SOURCE STORY (the user's own material): build the script from this story. Follow it faithfully: keep its facts, names, numbers and the order of events. Do not invent facts, people or events it does not contain. You may shorten, reword and restructure it for short-form retention.
+<<<STORY
+{story}
+STORY>>>"""
+
+    def _story_block(self, story: str) -> str:
+        return self.STORY_SOURCE.format(story=story) if story else ""
+
     def generate_script(self, topic: str, enable_v2: bool = False,
-                        video_style: str = "", video_duration: str = "") -> ScriptOutput:
+                        video_style: str = "", video_duration: str = "", story: str = "") -> ScriptOutput:
         """
         Generate a viral TikTok script for the given topic.
 
@@ -316,6 +340,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
             topic: The topic or theme for the video
             video_style: Image style — "photorealistic", "cartoon", or "illustration"
             video_duration: Video length — "short", "medium", or "long"
+            story: optional user story ("Your story", adapt mode) the script must follow faithfully
 
         Returns:
             ScriptOutput: Validated script with hook, body, image_prompts, and keywords
@@ -333,7 +358,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
         style_hint = self.STYLE_GUIDE.get(style, self.STYLE_GUIDE["photorealistic"])
 
         user_prompt = (
-            f"Create a viral TikTok script about: {topic}\n\n"
+            f"Create a viral TikTok script about: {topic}{self._story_block(story)}\n\n"
             f"DURATION: {duration_hint}\n\n"
             f"IMAGE STYLE: {style_hint}"
         )
@@ -358,7 +383,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
         except Exception as e:
             raise ScriptGeneratorError(f"Script generation failed: {e}")
 
-    REVISE_PROMPT = """Rewrite this short-form video script about: {topic}
+    REVISE_PROMPT = """Rewrite this short-form video script about: {topic}{source}
 
 LENGTH PROBLEM: the narration (hook + body) is {words} words. Rewrite it to {target} words (anything from {lo} to {hi} words is fine), about {seconds} seconds spoken. {direction}
 
@@ -370,12 +395,13 @@ CURRENT SCRIPT (JSON):
 {script_json}"""
 
     def revise_length(self, script: ScriptOutput, *, topic: str, words: int, budget: WordBudget,
-                      enable_v2: bool = False, video_style: str = "") -> ScriptOutput:
-        """One revision call with explicit length feedback (spec 2026-10-03 §7). Raises ScriptGeneratorError."""
+                      enable_v2: bool = False, video_style: str = "", story: str = "") -> ScriptOutput:
+        """One revision call with explicit length feedback (spec 2026-10-03 §7). Raises ScriptGeneratorError.
+        story (adapt mode) stays in the prompt so the revision cannot drift from the source."""
         style = video_style or settings.video_style
         too_long = words > budget.hi
         user_prompt = self.REVISE_PROMPT.format(
-            topic=topic, words=words, target=budget.target, lo=budget.lo, hi=budget.hi, seconds=budget.seconds,
+            topic=topic, source=self._story_block(story), words=words, target=budget.target, lo=budget.lo, hi=budget.hi, seconds=budget.seconds,
             direction=("Cut filler and merge or drop the weakest scene; keep the specifics." if too_long else
                        "Add concrete specifics (numbers, names, cause and effect), not filler."),
             v2_lists=", motion_prompts, pacing_hints and scene_texts" if enable_v2 else "",
@@ -404,18 +430,21 @@ CURRENT SCRIPT (JSON):
         return script, warnings
 
     def write_script(self, topic: str, enable_v2: bool = False, video_style: str = "",
-                     video_duration: str = "") -> "ScriptResult":
+                     video_duration: str = "", story: str = "") -> "ScriptResult":
         """Draft -> normalize -> roles -> word-budget gate -> at most one revision (spec 2026-10-03 §7).
-        Only the first draft can fail the run; the gate and the revision never do."""
+        Only the first draft can fail the run; the gate and the revision never do.
+        story = "Your story" in adapt mode: source material both calls must follow faithfully."""
         budget = word_budget(video_duration or settings.video_duration)
+        extra = {"story": story} if story else {}
         script, warnings = self._prepare(self.generate_script(
-            topic, enable_v2=enable_v2, video_style=video_style, video_duration=budget.preset))
+            topic, enable_v2=enable_v2, video_style=video_style, video_duration=budget.preset, **extra))
         words = draft_words = count_words(f"{script.hook} {script.body}")
         revision = "not_needed"
         if not budget.contains(words):
             try:
                 revised, revised_warnings = self._prepare(self.revise_length(
-                    script, topic=topic, words=words, budget=budget, enable_v2=enable_v2, video_style=video_style))
+                    script, topic=topic, words=words, budget=budget, enable_v2=enable_v2, video_style=video_style,
+                    **extra))
             except ScriptGeneratorError as e:
                 logger.warning("Script length revision failed, keeping the draft: %s", e)
                 revision = "failed"
@@ -434,3 +463,104 @@ CURRENT SCRIPT (JSON):
                   "word_range": [budget.lo, budget.hi], "draft_words": draft_words, "words": words,
                   "revision": revision}
         return ScriptResult(script, warnings, length)
+
+    # ------------------------------------------------------------------ "Your story" (app.story)
+
+    STORY_HEAD = """You plan the visuals for a short vertical video (TikTok, YouTube Shorts, Reels) whose narration is already written.
+The narration is FIXED. It is split into numbered scenes; you must not change, add, remove or reorder any of its words. You only decide what is shown on screen while each scene is spoken.
+
+You MUST respond with a valid JSON object containing:
+- "title": a short title for the video, 8 words or fewer.
+- "hook_headline": 2 to 6 punchy words shown on screen while scene 1 plays. Do NOT repeat scene 1; add the number or the stakes.
+- "image_prompts": exactly one visual description per scene, in scene order.
+- "motion_prompts": exactly one motion description per scene, in scene order (rules below).
+- "scene_roles": one role per scene, each one of "hook", "open_loop", "body", "rehook", "payoff", "loop". The first is always "hook"; pick the others from what each scene does in the story.
+- "keywords": relevant keywords for metadata and discoverability.
+
+"""
+
+    STORY_PROMPT = """The narration of this video is the user's own story. It is FIXED: do not rewrite it.
+It is split into exactly {n} scenes. Return exactly {n} image_prompts, {n} motion_prompts and {n} scene_roles, one per scene, in order.
+Each image_prompt must show what its scene says, literally and specifically.
+
+SCENES (JSON list, scene 1 first):
+{scenes_json}
+
+IMAGE STYLE: {style_hint}"""
+
+    def _story_system_prompt(self, video_style: str) -> str:
+        image_rules = self.IMAGE_RULES.replace(
+            'First write "scene_texts" to split the narration into segments. Then write EACH image_prompt',
+            "Write EACH image_prompt")
+        prompt = self.STORY_HEAD + image_rules + "\n\nMOTION PROMPT RULES:\n" + self.MOTION_RULES
+        return self._styled(prompt, video_style)
+
+    def write_story_script(self, story: str, *, mode: str = DEFAULT_STORY_MODE, enable_v2: bool = True,
+                           video_style: str = "", video_duration: str = "", title: str = "") -> "ScriptResult":
+        """The script of a "Your story" run (app.story).
+
+        adapt: write_script with the story as source material (draft + word-budget gate + revision).
+        verbatim: the narration is exactly the story (whitespace normalised). It is split into scenes locally
+        (app.story.split_scenes); ONE LLM call returns image/motion prompts, roles, hook_headline, keywords and a
+        title for those fixed scene texts; anything else it returns is ignored. Counts are reconciled with
+        normalize_prompt_counts (a short list merges trailing scenes, never drops words). The length gate does
+        not apply: a story outside the duration preset only gets a story_length warning.
+        Raises ScriptGeneratorError when the call fails or returns no image prompts; ValueError for a bad story."""
+        story, mode = check_story(story, mode)
+        if mode == "adapt":
+            result = self.write_script(title or default_title(story), enable_v2=enable_v2, video_style=video_style,
+                                       video_duration=video_duration, story=story)
+            result.length["story_mode"] = "adapt"
+            return result
+
+        budget = word_budget(video_duration or settings.video_duration)
+        words = count_words(story)
+        scenes = split_scenes(story, scene_count(words, budget.preset))
+        style = video_style or settings.video_style
+        user_prompt = self.STORY_PROMPT.format(
+            n=len(scenes), scenes_json=json.dumps(scenes, ensure_ascii=False, indent=1),
+            style_hint=self.STYLE_GUIDE.get(style, self.STYLE_GUIDE["photorealistic"]))
+        try:
+            data = generate_json(user_prompt, system=self._story_system_prompt(style), temperature=0.7,
+                                 max_tokens=min(1200 + 250 * len(scenes), 8000))
+        except Exception as e:
+            raise ScriptGeneratorError(f"Story visuals generation failed: {e}")
+        if not isinstance(data, dict):
+            raise ScriptGeneratorError("Story visuals generation failed: the response is not a JSON object")
+
+        images = _text_list(data.get("image_prompts"))
+        if not images:
+            raise ScriptGeneratorError("Story visuals generation failed: the response has no image prompts")
+        llm_title = data.get("title").strip() if isinstance(data.get("title"), str) else ""
+        keywords = _text_list(data.get("keywords")) or (title or default_title(story)).split()[:5] or ["story"]
+        script = ScriptOutput.model_construct(
+            hook=scenes[0], body=" ".join(scenes[1:]), image_prompts=images, keywords=keywords,
+            hook_variants=[], hook_viral_score=0, motion_prompts=_text_list(data.get("motion_prompts")),
+            pacing_hints=[], scene_texts=list(scenes), emoji_subtitles=[],
+            hook_headline=data.get("hook_headline") if isinstance(data.get("hook_headline"), str) else "",
+            scene_roles=_text_list(data.get("scene_roles")))
+        script, warnings = self._prepare(script)
+        scenes = list(script.scene_texts)                 # normalize_prompt_counts may have merged the tail
+        script = script.model_copy(update={"hook": scenes[0], "body": " ".join(scenes[1:])})
+        if " ".join(scenes) != story:                     # the guarantee of verbatim mode; never expected
+            raise ScriptGeneratorError("Story scenes no longer join to the story text")
+
+        seconds = round(words / WORDS_PER_SECOND, 1)
+        if not budget.contains(words):
+            warnings.append(_warning(
+                "story_length",
+                f"Your story is {words} words (about {seconds:g} s spoken); the {budget.preset} preset is "
+                f"{budget.lo}-{budget.hi} words. The video follows your story.",
+                {"words": words, "seconds": seconds, "preset": budget.preset, "range": [budget.lo, budget.hi]}))
+        length = {"preset": budget.preset, "target_seconds": seconds, "target_words": words,
+                  "word_range": [budget.lo, budget.hi], "draft_words": words, "words": words,
+                  "revision": "not_applicable", "story_mode": "verbatim", "scenes": len(scenes),
+                  "title": llm_title}
+        return ScriptResult(script, warnings, length)
+
+
+def _text_list(value) -> list:
+    """An LLM list field as clean strings: non-lists become [], blanks and non-strings are dropped."""
+    if not isinstance(value, list):
+        return []
+    return [x.strip() for x in value if isinstance(x, str) and x.strip()]

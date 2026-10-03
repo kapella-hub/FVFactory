@@ -67,8 +67,9 @@ def tts_units(chars: int) -> int:
 
 
 def llm_calls(revision: Optional[str]) -> int:
-    """Script LLM calls: the draft, plus the length revision when one was attempted."""
-    return 1 if revision in (None, "", "not_needed") else 2
+    """Script LLM calls: the draft, plus the length revision when one was attempted.
+    "not_applicable" = a verbatim story: one visuals call, never a revision."""
+    return 1 if revision in (None, "", "not_needed", "not_applicable") else 2
 
 
 def stage_costs(*, narration_chars: int, image_count: int, mock_images: bool, llm_calls: int,
