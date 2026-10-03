@@ -40,17 +40,17 @@ class ParticleSystem:
         if self.config["count"] == 0:
             self.particles = []
             return
-        random.seed(seed)
+        rng = random.Random(seed)  # private RNG: never reseed the global one (thread-safe, keeps music choice random)
         self.particles = []
         for _ in range(self.config["count"]):
             self.particles.append({
-                "x": random.uniform(0, width),
-                "y": random.uniform(0, height),
-                "size": random.uniform(*self.config["size_range"]),
-                "opacity": random.randint(*self.config["opacity_range"]),
-                "dx": random.uniform(-0.3, 0.3) * self.config["speed"],
-                "dy": random.uniform(-0.5, -0.1) * self.config["speed"],
-                "phase": random.uniform(0, 2 * math.pi),
+                "x": rng.uniform(0, width),
+                "y": rng.uniform(0, height),
+                "size": rng.uniform(*self.config["size_range"]),
+                "opacity": rng.randint(*self.config["opacity_range"]),
+                "dx": rng.uniform(-0.3, 0.3) * self.config["speed"],
+                "dy": rng.uniform(-0.5, -0.1) * self.config["speed"],
+                "phase": rng.uniform(0, 2 * math.pi),
             })
 
     def render_frame(self, t: float) -> np.ndarray:

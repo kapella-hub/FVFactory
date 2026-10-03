@@ -434,41 +434,7 @@ class VideoEditor:
 
     def _apply_color_grade(self, frame: np.ndarray, grade_name: str) -> np.ndarray:
         """Apply color grading to a video frame."""
-        grade = self.COLOR_GRADES.get(grade_name, None)
-        if not grade:
-            return frame
-
-        result = frame.astype(np.float32)
-
-        if "contrast" in grade:
-            mean = result.mean()
-            result = (result - mean) * grade["contrast"] + mean
-
-        if "saturation" in grade:
-            gray = np.mean(result, axis=2, keepdims=True)
-            result = gray + (result - gray) * grade["saturation"]
-
-        if "blue_shift" in grade:
-            result[:, :, 2] = result[:, :, 2] + grade["blue_shift"]
-
-        if "warmth" in grade:
-            result[:, :, 0] = result[:, :, 0] + grade["warmth"]
-            result[:, :, 2] = result[:, :, 2] - grade["warmth"] * 0.5
-
-        if "brightness" in grade:
-            result = result + grade["brightness"]
-
-        if "sepia" in grade:
-            sepia_amount = grade["sepia"]
-            gray = np.mean(result, axis=2, keepdims=True)
-            sepia_frame = np.stack([
-                gray[:, :, 0] * 1.2,
-                gray[:, :, 0] * 1.0,
-                gray[:, :, 0] * 0.8,
-            ], axis=2)
-            result = result * (1 - sepia_amount) + sepia_frame * sepia_amount
-
-        return np.clip(result, 0, 255).astype(np.uint8)
+        return apply_color_grade(frame, grade_name)
 
     def _create_karaoke_clips(
         self,
@@ -1386,3 +1352,43 @@ def assemble_video(
         audio_path, image_paths, output_filename, hook_text,
         enable_subtitles, enable_music
     )
+
+
+def apply_color_grade(frame: np.ndarray, grade_name: str) -> np.ndarray:
+    """Apply a VideoEditor.COLOR_GRADES preset to one RGB frame (module level so the shot
+    renderer can grade frames without building a VideoEditor)."""
+    grade = VideoEditor.COLOR_GRADES.get(grade_name, None)
+    if not grade:
+        return frame
+
+    result = frame.astype(np.float32)
+
+    if "contrast" in grade:
+        mean = result.mean()
+        result = (result - mean) * grade["contrast"] + mean
+
+    if "saturation" in grade:
+        gray = np.mean(result, axis=2, keepdims=True)
+        result = gray + (result - gray) * grade["saturation"]
+
+    if "blue_shift" in grade:
+        result[:, :, 2] = result[:, :, 2] + grade["blue_shift"]
+
+    if "warmth" in grade:
+        result[:, :, 0] = result[:, :, 0] + grade["warmth"]
+        result[:, :, 2] = result[:, :, 2] - grade["warmth"] * 0.5
+
+    if "brightness" in grade:
+        result = result + grade["brightness"]
+
+    if "sepia" in grade:
+        sepia_amount = grade["sepia"]
+        gray = np.mean(result, axis=2, keepdims=True)
+        sepia_frame = np.stack([
+            gray[:, :, 0] * 1.2,
+            gray[:, :, 0] * 1.0,
+            gray[:, :, 0] * 0.8,
+        ], axis=2)
+        result = result * (1 - sepia_amount) + sepia_frame * sepia_amount
+
+    return np.clip(result, 0, 255).astype(np.uint8)

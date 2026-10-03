@@ -55,3 +55,11 @@ def test_assemble_video_accepts_v2_params():
     assert "color_grade" in params
     assert "enable_sfx" in params
     assert "enable_intro" in params
+
+
+def test_module_level_color_grade_matches_method():
+    import numpy as np
+    from app.video_editor import apply_color_grade
+    frame = np.random.randint(0, 255, (20, 20, 3), dtype=np.uint8)
+    assert (apply_color_grade(frame, "history") == VideoEditor()._apply_color_grade(frame, "history")).all()
+    assert apply_color_grade(frame, "nonexistent") is frame
