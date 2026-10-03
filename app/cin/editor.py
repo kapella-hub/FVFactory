@@ -195,7 +195,9 @@ def _swap_final(job: JobPaths, final_tmp: Path, report: RunReport, tries: int = 
 
 # ---------------------------------------------------------------- re-render (spec §9.3)
 
-_CARRIED_WARNINGS = ("prompt_count_normalized", "clip_retry")
+_CARRIED_WARNINGS = ("prompt_count_normalized", "clip_retry",
+                     # script-level facts: a rerender reuses the same script (spec 2026-10-03 §8)
+                     "script_length_off_target", "scene_roles_derived", "hook_headline_fallback")
 
 
 def clip_specs_from_plan(plan: ShotPlan, job: JobPaths, enable_motion: bool = True) -> list:
@@ -258,6 +260,7 @@ def rerender_job(job_dir, *, pacing: Optional[str] = None, subtitle_style: Optio
     report = RunReport(job=job.name, options={**prev.options, **opts.to_json(), "rerender": True})
     report.cost = prev.cost                      # no new spend
     report.clips = prev.clips
+    report.script = prev.script
     report.warnings = [w for w in prev.warnings if w.get("code") in _CARRIED_WARNINGS]
     if job.report.exists():                      # keep the good render's record next to final.prev.mp4
         shutil.copy2(job.report, job.root / "run_report.prev.json")

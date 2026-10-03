@@ -233,3 +233,19 @@ def test_rebuild_legacy_plan_without_roles_keeps_pause_transitions(tmp_path):
     new = rebuild_plan(job, "standard")
     assert all(s.role is None for s in new.scenes)
     assert [s.transition_in for s in new.shots] == [s.transition_in for s in old.shots]
+
+
+
+def test_rerender_carries_script_section_and_script_warnings(tmp_path, monkeypatch):
+    job, _ = saved_job(tmp_path)
+    prev = RunReport.load(job.report)
+    prev.script = {"preset": "medium", "words": 150, "narration_seconds": 58.1}
+    for code in ("script_length_off_target", "scene_roles_derived", "hook_headline_fallback"):
+        prev.warn(code, code)
+    prev.save(job.report)
+    monkeypatch.setattr("app.cin.editor.render_job", lambda *a, **k: job.final)
+    rerender_job(job.root, pacing="fast")
+    rep = RunReport.load(job.report)
+    assert rep.script == {"preset": "medium", "words": 150, "narration_seconds": 58.1}
+    assert [w["code"] for w in rep.warnings] == ["script_length_off_target", "scene_roles_derived",
+                                                 "hook_headline_fallback"]

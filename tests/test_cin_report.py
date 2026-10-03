@@ -74,3 +74,19 @@ def test_save_quietly_logs_instead_of_raising(tmp_path, caplog):
     assert report.save_quietly(tmp_path / "missing_dir" / "run_report.json") is False
     assert "Could not write run report" in caplog.text
     assert report.save_quietly(tmp_path / "run_report.json") is True
+
+
+
+def test_script_section_round_trips_and_old_reports_load_empty(tmp_path):
+    report = RunReport(job="j")
+    report.script = {"preset": "medium", "words": 118, "narration_seconds": 46.2}
+    path = tmp_path / "run_report.json"
+    report.save(path)
+    assert RunReport.load(path).script == {"preset": "medium", "words": 118, "narration_seconds": 46.2}
+    path.write_text(json.dumps({"job": "old", "status": "ok"}), encoding="utf-8")
+    assert RunReport.load(path).script == {}
+
+
+def test_script_warning_codes_registered():
+    from app.cin.report import WARNING_CODES
+    assert {"script_length_off_target", "scene_roles_derived", "hook_headline_fallback"} <= set(WARNING_CODES)

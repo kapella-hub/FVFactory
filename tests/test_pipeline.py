@@ -44,13 +44,18 @@ def offline(monkeypatch, tmp_path, gold):
         return ScriptOutput(hook=gold["scene_texts"][0], body=gold["scene_texts"][1],
                             image_prompts=["gold bar", "gold cube", "vault", "scale", "hand"],
                             keywords=["gold"], motion_prompts=["slow push", "orbit"],
-                            scene_texts=state["scene_texts"])
+                            scene_texts=state["scene_texts"], scene_roles=state.get("scene_roles", []),
+                            hook_headline=state.get("hook_headline", ""))
 
     def fake_tts(self, text, voice_id=None, output_path=None):
         make_tone(output_path, gold["duration"])
         return AudioResult(file_path=str(output_path), duration=gold["duration"])
 
+    def no_llm(*args, **kwargs):
+        raise AssertionError("LLM call attempted")
+
     monkeypatch.setattr(main.ScriptGenerator, "generate_script", fake_script)
+    monkeypatch.setattr("app.content_engine.generate_json", no_llm)   # the length revision fails -> draft kept
     monkeypatch.setattr(AssetManager, "generate_audio", fake_tts)
     monkeypatch.setattr("app.cin.align.transcribe_words", lambda path, model: gold["words"])
     monkeypatch.setattr(main.MetadataGenerator, "generate_metadata",
@@ -84,7 +89,12 @@ def test_job_folder_and_sources_written(offline, monkeypatch):
         assert (job / rel).exists(), rel
     report = report_of(job)
     assert report["status"] == "ok"
-    assert [w["code"] for w in report["warnings"]] == ["prompt_count_normalized"]   # 5 prompts, 2 scenes
+    assert [w["code"] for w in report["warnings"]] == [
+        "prompt_count_normalized",      # 5 prompts, 2 scenes
+        "scene_roles_derived",          # the fake script has no scene_roles
+        "script_length_off_target",     # 24 words; the revision call fails (no LLM) and the draft is kept
+        "hook_headline_fallback",       # the fake script has no hook_headline
+    ]
     assert set(report["durations"]) >= {"script", "tts", "align", "images", "clips"}
     plan = json.loads((job / "sources/shot_plan.json").read_text(encoding="utf-8"))
     assert all(s["source"]["type"] == "still" for s in plan["shots"])                 # --mock: stills, no warning
@@ -324,3 +334,40 @@ def test_post_render_plan_save_failure_does_not_fail_run(offline, monkeypatch):
     assert rep["status"] == "ok"
     assert [w["code"] for w in rep["warnings"] if w["code"] == "plan_save_failed"] == ["plan_save_failed"]
     assert rep["cost"]["actual"]            # cost logging still ran
+
+
+
+def test_report_records_word_budget_and_narration_timing(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True, video_duration="short")
+    script = report_of(only_job(offline.out))["script"]
+    assert script == {"preset": "short", "target_seconds": 30, "target_words": 78, "word_range": [67, 89],
+                      "draft_words": 24, "words": 24, "revision": "failed",
+                      "narration_seconds": 8.0, "seconds_vs_target": -22.0, "words_per_second": 3.0}
+
+
+def test_script_roles_and_headline_reach_the_shot_plan(offline, monkeypatch):
+    offline.state["scene_roles"] = ["hook", "loop"]
+    offline.state["hook_headline"] = "HEAVIER THAN A CAR"
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True)
+    job = only_job(offline.out)
+    plan = json.loads((job / "sources/shot_plan.json").read_text(encoding="utf-8"))
+    assert [s["role"] for s in plan["scenes"]] == ["hook", "loop"]
+    assert plan["hook_headline"]["text"] == "HEAVIER THAN A CAR"
+    styled = [s["scene"] for s in plan["shots"] if s["transition_in"] != "cut"]
+    assert styled == [1]                                   # the loop scene
+    codes = [w["code"] for w in report_of(job)["warnings"]]
+    assert "scene_roles_derived" not in codes and "hook_headline_fallback" not in codes
+
+
+def test_roles_survive_alignment_fallback(offline, monkeypatch):
+    offline.state["scene_texts"] = ["Gold is heavy.", "A small cube weighs as much as a car."]   # paraphrased
+    offline.state["scene_roles"] = ["hook", "loop"]
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True)
+    job = only_job(offline.out)
+    assert "alignment_fallback" in [w["code"] for w in report_of(job)["warnings"]]
+    plan = json.loads((job / "sources/shot_plan.json").read_text(encoding="utf-8"))
+    assert [s["role"] for s in plan["scenes"]] == ["hook", "loop"]
+    assert [s["scene"] for s in plan["shots"] if s["transition_in"] != "cut"] == [1]

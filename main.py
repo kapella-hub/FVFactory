@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from app.config import settings
-from app.content_engine import ScriptGenerator, normalize_prompt_counts
+from app.content_engine import ScriptGenerator
 from app.asset_manager import AssetManager
 from app.video_editor import VideoEditor
 from app.animator import PortraitAnimator, AnimatorError
@@ -27,7 +27,7 @@ from app.cin.clip_sourcing import StrictModeError, generate_segment_clips
 from app.cin.editor import RenderOptions, render_job
 from app.cin.job import create_job, prune_sources
 from app.cin.report import RunReport
-from app.cin.caption_groups import make_hook_headline
+from app.cin.caption_groups import make_hook_headline, script_headline_text
 from app.cin.shot_plan import PACING, build_shot_plan, plan_segments
 from app.cin.music_library import MOODS, MUSIC_SOURCES
 
@@ -227,6 +227,16 @@ def _print_script(script) -> None:
     print()
 
 
+def _record_narration(report: RunReport, seconds: float) -> None:
+    """Actual narration length vs the word budget's target (spec 2026-10-03 §7). Report only, no gate."""
+    s = report.script
+    s["narration_seconds"] = round(seconds, 2)
+    if s.get("target_seconds"):
+        s["seconds_vs_target"] = round(seconds - s["target_seconds"], 2)
+    if s.get("words") and seconds > 0:
+        s["words_per_second"] = round(s["words"] / seconds, 2)
+
+
 def _run_shot_editor(job, script, narration: str, duration: float, options: RenderOptions,
                      report: RunReport, asset_manager: AssetManager, use_mock_images: bool,
                      motion_on: bool):
@@ -260,8 +270,13 @@ def _run_shot_editor(job, script, narration: str, duration: float, options: Rend
             enable_motion=motion_on, model_key=model.key,
             fallback_model=settings.fal_video_fallback_model if settings.motion_provider == "fal" else None,
         )
-    plan = build_shot_plan(alignment, options.pacing, specs)
-    plan.hook_headline = make_hook_headline(script.hook, plan.duration)
+    plan = build_shot_plan(alignment, options.pacing, specs, roles=script.scene_roles or None)
+    plan.hook_headline = make_hook_headline(script.hook, plan.duration, headline=script.hook_headline)
+    if script_headline_text(script.hook_headline) is None:
+        report.warn("hook_headline_fallback",
+                    "Script hook_headline missing or longer than 6 words; "
+                    + ("using the hook's first sentence" if plan.hook_headline else "no headline shown"),
+                    {"hook_headline": script.hook_headline})
     for w in plan.warnings:
         report.warn(w["code"], w["message"], w["detail"])
     plan.save(job.shot_plan)
@@ -431,12 +446,12 @@ def run_pipeline(
     try:
         logger.info("Generating script...")
         with report.stage("script"):
-            script = ScriptGenerator().generate_script(
+            result = ScriptGenerator().write_script(
                 topic, enable_v2=enable_motion, video_style=video_style, video_duration=video_duration)
-        script, change = normalize_prompt_counts(script)
-        if change:
-            report.warn("prompt_count_normalized",
-                        "LLM returned mismatched prompt counts; normalized before any paid generation", change)
+        script = result.script
+        report.script = dict(result.length)
+        for w in result.warnings:
+            report.warn(w["code"], w["message"], w["detail"])
         options.subtitle_style = resolve_subtitle_style(subtitle_style, video_style)
         report.options["subtitle_style"] = options.subtitle_style
         _print_script(script)
@@ -447,6 +462,7 @@ def run_pipeline(
         with report.stage("tts"):
             audio_result = asset_manager.generate_audio(full_narration, voice_id=voice, output_path=job.narration)
         logger.info(f"Audio generated: {audio_result.duration:.1f} seconds")
+        _record_narration(report, audio_result.duration)
 
         specs, classic_clips = None, None
         if classic:

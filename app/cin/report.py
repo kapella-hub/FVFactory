@@ -19,7 +19,7 @@ WARNING_CODES = (
     "still_fallback", "alignment_fallback", "font_fallback", "music_missing", "sfx_missing",
     "speed_adjusted", "prompt_count_normalized", "clip_retry", "loudness_skipped",
     "platform_check_failed", "final_swap_failed", "music_track_skipped", "sfx_file_skipped",
-    "plan_save_failed",
+    "plan_save_failed", "script_length_off_target", "scene_roles_derived", "hook_headline_fallback",
 )
 
 
@@ -35,6 +35,7 @@ class RunReport:
     cost: dict = field(default_factory=lambda: {"estimated": None, "actual": [], "total": 0.0})
     durations: dict = field(default_factory=dict)
     clips: dict = field(default_factory=dict)
+    script: dict = field(default_factory=dict)  # word budget + narration timing (spec 2026-10-03 §7)
     version: int = 1
 
     def __post_init__(self):
