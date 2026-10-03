@@ -113,3 +113,22 @@ def test_env_example_documents_shot_editor_settings():
         assert name in keys, name
     assert all(k.lower() in Settings.model_fields for k in keys), sorted(
         k for k in keys if k.lower() not in Settings.model_fields)
+
+
+
+def test_quality_tier_settings_defaults_and_validation():
+    s = make()
+    assert s.quality_tier == "standard" and s.max_cost_per_video == 0.0
+    assert make(quality_tier="premium", max_cost_per_video=4.5).max_cost_per_video == 4.5
+    for bad in ({"quality_tier": "gold"}, {"max_cost_per_video": -1}, {"max_cost_per_video": float("nan")},
+                {"max_cost_per_video": float("inf")}, {"max_cost_per_video": "abc"}):
+        with pytest.raises(ValidationError):
+            make(**bad)
+
+
+def test_env_example_documents_quality_tier_settings():
+    import re
+    from pathlib import Path
+    text = (Path(__file__).parents[1] / ".env.example").read_text(encoding="utf-8")
+    keys = set(re.findall(r"^#?\s*([A-Z][A-Z0-9_]+)=", text, flags=re.M))
+    assert {"QUALITY_TIER", "MAX_COST_PER_VIDEO"} <= keys

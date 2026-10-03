@@ -1,5 +1,6 @@
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -175,6 +176,14 @@ class Settings(BaseSettings):
     pacing: Literal["calm", "standard", "fast"] = "standard"
     strict: bool = False                    # True: fail the run instead of shipping a still shot
     music_source: Literal["mine", "generated", "any", "none"] = "any"   # spec §8.1
+
+    # === Quality tiers (spec 2026-10-03) ===
+    # standard = Kling v3 Standard, premium = Kling v3 Pro, custom = fal_video_model. Tiers change the
+    # motion model only; every shot stays motion footage.
+    quality_tier: Literal["standard", "premium", "custom"] = "standard"
+    # USD per video. A run whose estimate exceeds it stops before the next paid stage (never degrades
+    # to stills or a cheaper model). 0 = no cap.
+    max_cost_per_video: float = Field(0.0, ge=0, allow_inf_nan=False)
 
     # ElevenLabs music / SFX library builders (spec §8.1-8.2). Prices: https://elevenlabs.io/pricing/api
     elevenlabs_music_model: str = "music_v1"        # API default; "music_v2" / "music_v2_5" also accepted
