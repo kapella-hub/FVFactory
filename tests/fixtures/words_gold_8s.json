@@ -1,0 +1,34 @@
+{
+  "duration": 8.0,
+  "narration": "Gold is heavier than you think. A single cube this size weighs as much as a small car, and it fits in your hand.",
+  "scene_texts": [
+    "Gold is heavier than you think.",
+    "A single cube this size weighs as much as a small car, and it fits in your hand."
+  ],
+  "words": [
+    {"word": " Gold", "start": 0.05, "end": 0.33, "probability": 0.93},
+    {"word": " is", "start": 0.37, "end": 0.56, "probability": 0.93},
+    {"word": " heavier", "start": 0.59, "end": 1.01, "probability": 0.93},
+    {"word": " than", "start": 1.05, "end": 1.33, "probability": 0.93},
+    {"word": " you", "start": 1.36, "end": 1.6, "probability": 0.93},
+    {"word": " think.", "start": 1.64, "end": 1.96, "probability": 0.93},
+    {"word": " A", "start": 2.32, "end": 2.46, "probability": 0.93},
+    {"word": " single", "start": 2.49, "end": 2.87, "probability": 0.93},
+    {"word": " cube", "start": 2.9, "end": 3.19, "probability": 0.93},
+    {"word": " this", "start": 3.22, "end": 3.5, "probability": 0.93},
+    {"word": " size", "start": 3.54, "end": 3.82, "probability": 0.93},
+    {"word": " weighs", "start": 3.85, "end": 4.23, "probability": 0.93},
+    {"word": " as", "start": 4.26, "end": 4.45, "probability": 0.93},
+    {"word": " much", "start": 4.49, "end": 4.77, "probability": 0.93},
+    {"word": " as", "start": 4.81, "end": 5.0, "probability": 0.93},
+    {"word": " a", "start": 5.03, "end": 5.18, "probability": 0.93},
+    {"word": " small", "start": 5.21, "end": 5.54, "probability": 0.93},
+    {"word": " car,", "start": 5.57, "end": 5.81, "probability": 0.93},
+    {"word": " and", "start": 5.96, "end": 6.2, "probability": 0.93},
+    {"word": " it", "start": 6.23, "end": 6.42, "probability": 0.93},
+    {"word": " fits", "start": 6.46, "end": 6.74, "probability": 0.93},
+    {"word": " in", "start": 6.77, "end": 6.97, "probability": 0.93},
+    {"word": " your", "start": 7.0, "end": 7.28, "probability": 0.93},
+    {"word": " hand.", "start": 7.32, "end": 7.6, "probability": 0.93}
+  ]
+}
