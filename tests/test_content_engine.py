@@ -110,8 +110,73 @@ def test_duration_guide_matches_word_budget():
 
 def test_mascot_never_added_to_photoreal_prompts(monkeypatch):
     from app.config import settings
-    monkeypatch.setattr(settings, "mascot_enabled", True)
-    monkeypatch.setattr(settings, "mascot_prompt", "A cute robot, vector art style")
+    monkeypatch.setattr(settings, "mascot_prompt", "A cute robot")
     gen = ScriptGenerator()
-    assert "MASCOT" not in gen._build_system_prompt(video_style="photorealistic")
-    assert "A cute robot" in gen._build_system_prompt(video_style="cartoon")
+    assert "A cute robot" not in gen._build_system_prompt(video_style="photorealistic", mascot=True)
+    assert "A cute robot" in gen._build_system_prompt(video_style="cartoon", mascot=True)
+
+
+# ------------------------------------------------------------------ mascot is a per-video choice
+
+ROBOT = "A cute robot with glowing blue eyes"
+
+
+def _mascot_settings(monkeypatch, enabled=True):
+    from app.config import settings
+    monkeypatch.setattr(settings, "mascot_enabled", enabled)   # the global must no longer be read here
+    monkeypatch.setattr(settings, "mascot_prompt", ROBOT)
+
+
+def test_anime_prompt_has_no_mascot_when_the_run_says_no(monkeypatch):
+    _mascot_settings(monkeypatch, enabled=True)
+    for v2 in (False, True):
+        prompt = ScriptGenerator()._build_system_prompt(enable_v2=v2, video_style="anime", mascot=False)
+        assert ROBOT not in prompt and "COMPANION" not in prompt
+    assert ROBOT not in ScriptGenerator()._build_system_prompt(video_style="anime")    # default: off
+
+
+def test_anime_prompt_gets_the_softened_companion_when_asked(monkeypatch):
+    _mascot_settings(monkeypatch, enabled=False)
+    prompt = ScriptGenerator()._build_system_prompt(enable_v2=True, video_style="anime", mascot=True)
+    assert ROBOT in prompt and "companion" in prompt.lower()
+    assert "MAIN SUBJECT" in prompt and "Never replace" in prompt
+    for old in ("MUST prominently feature", "main focus of each image", "vector"):
+        assert old not in prompt
+
+
+def _capture_llm(monkeypatch):
+    systems = []
+
+    def fake(prompt, system=None, **kwargs):
+        systems.append(system)
+        n = prompt.count('\n "') or 9
+        return {"hook": "Baba Yaga lives in a hut that walks.", "body": " ".join(["forest"] * 90),
+                "title": "Baba Yaga", "hook_headline": "THE WALKING HUT",
+                "image_prompts": [f"img {i}" for i in range(n)], "motion_prompts": ["trees sway"] * n,
+                "keywords": ["folklore"], "scene_roles": []}
+    monkeypatch.setattr("app.content_engine.generate_json", fake)
+    return systems
+
+
+def test_topic_write_script_threads_mascot_to_draft_and_revision(monkeypatch):
+    _mascot_settings(monkeypatch, enabled=False)
+    systems = _capture_llm(monkeypatch)
+    ScriptGenerator().write_script("baba yaga", video_style="anime", video_duration="short", mascot=True)
+    assert len(systems) == 2                                   # draft + length revision (90+ words for short)
+    assert all(ROBOT in s for s in systems)
+    systems.clear()
+    ScriptGenerator().write_script("baba yaga", video_style="anime", video_duration="short", mascot=False)
+    assert systems and not any(ROBOT in s for s in systems)
+
+
+def test_story_never_gets_the_mascot(monkeypatch):
+    _mascot_settings(monkeypatch, enabled=True)
+    systems = _capture_llm(monkeypatch)
+    story = "Baba Yaga lives deep in the forest. Her hut stands on chicken legs. It turns to face visitors."
+    gen = ScriptGenerator()
+    gen.write_story_script(story, mode="verbatim", video_style="anime")
+    gen.write_story_script(story, mode="adapt", video_style="anime")
+    assert len(systems) >= 2 and not any(ROBOT in s for s in systems)
+    systems.clear()
+    gen.generate_script("Baba Yaga", video_style="anime", story=story, mascot=True)   # belt and braces
+    assert systems and ROBOT not in systems[0]

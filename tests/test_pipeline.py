@@ -856,3 +856,56 @@ def test_bad_story_is_rejected_before_any_work(offline, kwargs):
     with pytest.raises(ValueError):
         main.run_pipeline("", use_mock_images=True, **kwargs)
     assert not offline.out.exists() or not any(offline.out.iterdir())
+
+
+# ------------------------------------------------------------------ mascot: a per-video choice, never for a story
+
+def _spy_mascot(monkeypatch):
+    seen = {"script": [], "assets": []}
+    real = main.ScriptGenerator.generate_script
+
+    def spy(self, topic, **kwargs):
+        seen["script"].append(kwargs.get("mascot", False))
+        return real(self, topic, **kwargs)
+    original = AssetManager._enhance_prompt_with_style
+    monkeypatch.setattr(main.ScriptGenerator, "generate_script", spy)
+    monkeypatch.setattr(AssetManager, "_enhance_prompt_with_style",
+                        lambda self, prompt: seen["assets"].append(self.mascot) or original(self, prompt))
+    monkeypatch.setattr(main, "render_job", fake_render)
+    return seen
+
+
+@pytest.mark.parametrize("setting,arg,expected", [(True, None, True), (False, None, False),
+                                                  (True, False, False), (False, True, True)])
+def test_mascot_defaults_to_settings_and_reaches_script_and_images(offline, monkeypatch, setting, arg, expected):
+    monkeypatch.setattr(settings, "mascot_enabled", setting)
+    seen = _spy_mascot(monkeypatch)
+    main.run_pipeline("Baba Yaga", use_mock_images=True, video_style="anime", mascot=arg)
+    assert seen["script"] and set(seen["script"]) == {expected}
+    assert seen["assets"] and set(seen["assets"]) == {expected}
+    assert report_of(only_job(offline.out))["options"]["mascot"] is expected
+
+
+def test_photoreal_run_never_gets_the_mascot(offline, monkeypatch):
+    seen = _spy_mascot(monkeypatch)
+    main.run_pipeline("Baba Yaga", use_mock_images=True, video_style="photorealistic", mascot=True)
+    assert set(seen["assets"]) == {False}
+    assert report_of(only_job(offline.out))["options"]["mascot"] is False
+
+
+@pytest.mark.parametrize("mode", ["verbatim", "adapt"])
+def test_story_run_never_gets_the_mascot(offline, monkeypatch, mode):
+    monkeypatch.setattr(settings, "mascot_enabled", True)
+    monkeypatch.setattr(settings, "mascot_prompt", "A cute robot with glowing blue eyes")
+    seen = _spy_mascot(monkeypatch)
+    systems = []
+    if mode == "verbatim":
+        _story_llm(monkeypatch)
+        import app.content_engine as engine
+        visuals = engine.generate_json
+        monkeypatch.setattr("app.content_engine.generate_json",
+                            lambda prompt, system=None, **k: systems.append(system) or visuals(prompt, system, **k))
+    main.run_pipeline("", story=STORY, story_mode=mode, use_mock_images=True, video_style="anime", mascot=True)
+    assert set(seen["script"]) <= {False} and set(seen["assets"]) == {False}
+    assert (systems or mode == "adapt") and not any("robot" in (s or "") for s in systems)
+    assert report_of(only_job(offline.out))["options"]["mascot"] is False

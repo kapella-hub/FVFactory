@@ -218,11 +218,15 @@ def test_mock_image_never_mentions_the_mascot_for_photoreal(monkeypatch, tmp_pat
     original = ImageDraw.ImageDraw.text
     monkeypatch.setattr(ImageDraw.ImageDraw, "text",
                         lambda self, xy, text, *a, **k: drawn.append(text) or original(self, xy, text, *a, **k))
-    AssetManager(video_style="photorealistic").generate_images(["p"], use_mock=True, output_dir=tmp_path / "a")
+    AssetManager(video_style="photorealistic", mascot=True).generate_images(["p"], use_mock=True,
+                                                                           output_dir=tmp_path / "a")
     assert drawn and not any("MASCOT" in t for t in drawn)
     drawn.clear()
-    AssetManager(video_style="cartoon").generate_images(["p"], use_mock=True, output_dir=tmp_path / "b")
+    AssetManager(video_style="cartoon", mascot=True).generate_images(["p"], use_mock=True, output_dir=tmp_path / "b")
     assert any("MASCOT" in t for t in drawn)
+    drawn.clear()       # the run's choice, not the global: a run without the mascot never labels one
+    AssetManager(video_style="cartoon").generate_images(["p"], use_mock=True, output_dir=tmp_path / "c")
+    assert drawn and not any("MASCOT" in t for t in drawn)
 
 
 def _tts_response(status, body=b"fake_audio", text=""):

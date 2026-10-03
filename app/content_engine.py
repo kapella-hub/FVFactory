@@ -226,28 +226,29 @@ ADDITIONAL REQUIRED FIELDS:
 
     MASCOT_INSTRUCTION = """
 
-IMPORTANT - MASCOT CHARACTER REQUIREMENT:
-Every image prompt MUST prominently feature the following character: {mascot_prompt}
+COMPANION CHARACTER (this video's mascot):
+A recurring companion character appears in the scenes: {mascot_prompt}
 
-The character should be:
-- Performing an action directly related to the scene/topic
-- Showing appropriate emotions (excited, surprised, thoughtful, etc.)
-- The main focus of each image
+Rules for the companion:
+- The topic's own subject (the person, creature, place or object the script is about) stays the MAIN SUBJECT of every image. Never replace it with the companion.
+- The companion is a smaller presence in the scene: beside, behind or reacting to the main subject, doing something related to the scene (pointing, watching, reacting with an emotion).
+- Draw the companion in the same visual style as the rest of the image; it has no art style of its own.
+- Describe what the companion is DOING; do not just mention it.
 
-Example: If discussing "Bitcoin crashed", the prompt should be:
-"{mascot_prompt}, looking at a red stock chart crashing down with a panic expression"
+Example: for "Bitcoin crashed", a prompt could be:
+"a red stock chart crashing down on a trading screen, with {mascot_prompt} beside it reacting with a panic expression\""""
 
-DO NOT just mention the character - describe what they are DOING in each scene."""
-
-    def _build_system_prompt(self, enable_v2: bool = False, video_style: str = "photorealistic") -> str:
-        """Build the system prompt, optionally including mascot instructions."""
-        prompt = self._styled(self.BASE_SYSTEM_PROMPT, video_style)
+    def _build_system_prompt(self, enable_v2: bool = False, video_style: str = "photorealistic",
+                             mascot: bool = False) -> str:
+        """Build the system prompt; mascot=True adds the companion section (never for photorealistic)."""
+        prompt = self._styled(self.BASE_SYSTEM_PROMPT, video_style, mascot=mascot)
         if enable_v2:
             prompt += self.V2_INSTRUCTION
         return prompt
 
-    def _styled(self, prompt: str, video_style: str) -> str:
-        """Apply the video style to the image rules inside `prompt`, and append the mascot section."""
+    def _styled(self, prompt: str, video_style: str, mascot: bool = False) -> str:
+        """Apply the video style to the image rules inside `prompt`, and append the mascot section when this
+        run asked for it (run_pipeline resolves the per-video choice; the global is not read here)."""
         # Override the photorealistic-only rule for non-photorealistic styles
         if video_style != "photorealistic" and video_style in self.STYLE_GUIDE:
             style_label = video_style.replace("_", " ").upper()
@@ -259,7 +260,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
                 f"ALWAYS use style-specific keywords for {style_label} in every image prompt."
             )
 
-        if settings.mascot_enabled and settings.mascot_prompt and video_style != "photorealistic":
+        if mascot and settings.mascot_prompt and video_style != "photorealistic":
             mascot_section = self.MASCOT_INSTRUCTION.format(
                 mascot_prompt=settings.mascot_prompt
             )
@@ -335,7 +336,8 @@ STORY>>>"""
         return self.STORY_SOURCE.format(story=story) if story else ""
 
     def generate_script(self, topic: str, enable_v2: bool = False,
-                        video_style: str = "", video_duration: str = "", story: str = "") -> ScriptOutput:
+                        video_style: str = "", video_duration: str = "", story: str = "",
+                        mascot: bool = False) -> ScriptOutput:
         """
         Generate a viral TikTok script for the given topic.
 
@@ -344,6 +346,8 @@ STORY>>>"""
             video_style: Image style — "photorealistic", "cartoon", or "illustration"
             video_duration: Video length — "short", "medium", or "long"
             story: optional user story ("Your story", adapt mode) the script must follow faithfully
+            mascot: add the companion character to the image prompts (never with a story: its characters
+                are the subjects)
 
         Returns:
             ScriptOutput: Validated script with hook, body, image_prompts, and keywords
@@ -367,7 +371,8 @@ STORY>>>"""
             f"DURATION: {duration_hint}\n\n"
             f"IMAGE STYLE: {style_hint}"
         )
-        system_prompt = self._build_system_prompt(enable_v2=enable_v2, video_style=style)
+        system_prompt = self._build_system_prompt(enable_v2=enable_v2, video_style=style,
+                                                  mascot=mascot and not story)
         return self._request(user_prompt, system_prompt, temperature=0.8)
 
     def _request(self, user_prompt: str, system_prompt: str, temperature: float) -> ScriptOutput:
@@ -400,7 +405,8 @@ CURRENT SCRIPT (JSON):
 {script_json}"""
 
     def revise_length(self, script: ScriptOutput, *, topic: str, words: int, budget: WordBudget,
-                      enable_v2: bool = False, video_style: str = "", story: str = "") -> ScriptOutput:
+                      enable_v2: bool = False, video_style: str = "", story: str = "",
+                      mascot: bool = False) -> ScriptOutput:
         """One revision call with explicit length feedback (spec 2026-10-03 §7). Raises ScriptGeneratorError.
         story (adapt mode) stays in the prompt so the revision cannot drift from the source."""
         style = video_style or settings.video_style
@@ -416,7 +422,8 @@ CURRENT SCRIPT (JSON):
             style_hint=self.STYLE_GUIDE.get(style, self.STYLE_GUIDE["photorealistic"]),
             script_json=json.dumps(script.model_dump(), ensure_ascii=False, indent=1),
         )
-        system_prompt = self._build_system_prompt(enable_v2=enable_v2, video_style=style)
+        system_prompt = self._build_system_prompt(enable_v2=enable_v2, video_style=style,
+                                                  mascot=mascot and not story)
         return self._request(user_prompt, system_prompt, temperature=0.7)
 
     def _prepare(self, script: ScriptOutput) -> Tuple[ScriptOutput, list]:
@@ -436,12 +443,15 @@ CURRENT SCRIPT (JSON):
         return script, warnings
 
     def write_script(self, topic: str, enable_v2: bool = False, video_style: str = "",
-                     video_duration: str = "", story: str = "") -> "ScriptResult":
+                     video_duration: str = "", story: str = "", mascot: bool = False) -> "ScriptResult":
         """Draft -> normalize -> roles -> word-budget gate -> at most one revision (spec 2026-10-03 §7).
         Only the first draft can fail the run; the gate and the revision never do.
-        story = "Your story" in adapt mode: source material both calls must follow faithfully."""
+        story = "Your story" in adapt mode: source material both calls must follow faithfully.
+        mascot: this run's companion-character choice, passed to both calls (ignored with a story)."""
         budget = word_budget(video_duration or settings.video_duration)
         extra = {"story": story} if story else {}
+        if mascot and not story:
+            extra["mascot"] = True
         script, warnings = self._prepare(self.generate_script(
             topic, enable_v2=enable_v2, video_style=video_style, video_duration=budget.preset, **extra))
         words = draft_words = count_words(f"{script.hook} {script.body}")
@@ -499,7 +509,7 @@ IMAGE STYLE: {style_hint}"""
             'First write "scene_texts" to split the narration into segments. Then write EACH image_prompt',
             "Write EACH image_prompt")
         prompt = self.STORY_HEAD + image_rules + "\n\nMOTION PROMPT RULES:\n" + self.MOTION_RULES
-        return self._styled(prompt, video_style)
+        return self._styled(prompt, video_style)          # never a mascot: the story's characters are the subjects
 
     def write_story_script(self, story: str, *, mode: str = DEFAULT_STORY_MODE, enable_v2: bool = True,
                            video_style: str = "", video_duration: str = "", title: str = "") -> "ScriptResult":

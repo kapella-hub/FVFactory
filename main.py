@@ -481,6 +481,8 @@ def run_pipeline(
     story: str = "",
     story_mode: Optional[str] = None,
     source: Optional[str] = None,
+    # Companion character in the image prompts (None = settings.mascot_enabled)
+    mascot: Optional[bool] = None,
 ) -> str:
     """
     Run the full video generation pipeline into output/<job>/ and return the path of final.mp4.
@@ -497,6 +499,8 @@ def run_pipeline(
     words). story_mode verbatim (default: the narration is exactly the story) or adapt (the story is source
     material for the script writer). source ("topic" | "auto") is recorded in run_report.json; a story run is
     always "story". Bad stories raise ValueError before any work.
+    mascot (None = settings.mascot_enabled) adds the companion character to the image prompts; never for a
+    story (its characters are the subjects) or a photorealistic run. report options.mascot = what applied.
     """
     story_text = ""
     if story:
@@ -509,6 +513,7 @@ def run_pipeline(
     if pacing not in PACING:
         raise ValueError(f"Unknown pacing {pacing!r}; choose one of {sorted(PACING)}")
     strict = settings.strict if strict is None else strict
+    mascot = settings.mascot_enabled if mascot is None else bool(mascot)
     music_source = music_source or settings.music_source
     if music_source not in MUSIC_SOURCES:
         raise ValueError(f"Unknown music_source {music_source!r}; choose one of {list(MUSIC_SOURCES)}")
@@ -535,11 +540,12 @@ def run_pipeline(
         enable_sfx=enable_sfx, music_mood=resolve_music_mood(niche, video_style), music_source=music_source,
         strict=strict,
     )
+    mascot = mascot and not story_text and options.video_style != "photorealistic"
     report = RunReport(job=job.name, options={
         **options.to_json(), "topic": topic, "niche": niche or "", "enable_motion": motion_on,
         "use_mock_images": use_mock_images, "classic": classic,
         "quality_tier": quality_tier, "clip_model": model.key, "max_cost": max_cost,
-        "source": source, **({"story_mode": story_mode} if story_text else {}),
+        "source": source, **({"story_mode": story_mode} if story_text else {}), "mascot": mascot,
     })
     report.cost = {"estimated": {}, "cap": max_cost, "actual": [], "total": 0.0}
     paid = {"llm_n": 0, "narration": "", "specs": None, "classic_clips": None, "logged": False}
@@ -561,7 +567,8 @@ def run_pipeline(
                     video_duration=video_duration, title=title)
             else:
                 result = ScriptGenerator().write_script(
-                    topic, enable_v2=enable_motion, video_style=video_style, video_duration=video_duration)
+                    topic, enable_v2=enable_motion, video_style=video_style, video_duration=video_duration,
+                    mascot=mascot)
         script = result.script
         report.script = dict(result.length)
         report.script["source"] = source
@@ -589,7 +596,7 @@ def run_pipeline(
         _cost_checkpoint(report, estimate, max_cost, job)
 
         logger.info("Generating audio narration...")
-        asset_manager = AssetManager(video_style=options.video_style)
+        asset_manager = AssetManager(video_style=options.video_style, mascot=mascot)
         with report.stage("tts"):
             audio_result = asset_manager.generate_audio(full_narration, voice_id=voice, output_path=job.narration)
         logger.info(f"Audio generated: {audio_result.duration:.1f} seconds")

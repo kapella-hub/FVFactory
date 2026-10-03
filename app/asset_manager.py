@@ -68,8 +68,9 @@ class AssetManager:
     IMAGE_WIDTH = 1080
     IMAGE_HEIGHT = 1920
 
-    def __init__(self, video_style: Optional[str] = None):
+    def __init__(self, video_style: Optional[str] = None, mascot: bool = False):
         self.video_style = video_style or settings.video_style   # the run's style, not just the global default
+        self.mascot = mascot          # this run's companion-character choice (mock image label only)
         self.voice_fallback = None   # {requested, used} when ElevenLabs refused the requested voice
         self.openai_client = None
         if settings.openai_api_key:
@@ -283,7 +284,7 @@ class AssetManager:
 
         # Add mascot indicator if enabled
         mascot_text = ""
-        if settings.mascot_enabled and self.video_style != "photorealistic":
+        if self.mascot and self.video_style != "photorealistic":
             mascot_text = f"\n[MASCOT: {settings.mascot_prompt[:50]}...]"
 
         # Add prompt text (truncated)

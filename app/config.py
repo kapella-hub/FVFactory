@@ -52,13 +52,11 @@ class Settings(BaseSettings):
     use_persona: bool = False         # If True, use animated portrait instead of images
     default_persona: str = ""         # Default persona image filename (e.g., "alex_master.png")
 
-    # Mascot settings for visual branding consistency. Never applied to photorealistic runs
-    # (spec 2026-10-03 §9): a cartoon robot cannot appear in a photographic scene.
+    # Mascot settings for visual branding consistency. mascot_enabled is only the default of the per-video
+    # choice (run_pipeline mascot=None). Never applied to photorealistic runs (spec 2026-10-03 §9) or to
+    # a story (its characters are the subjects). The description names no medium: the video style does.
     mascot_enabled: bool = False
-    mascot_prompt: str = (
-        "A cute, futuristic robot with glowing blue eyes and a cracked screen, "
-        "vector art style"
-    )
+    mascot_prompt: str = "A cute, futuristic robot with glowing blue eyes and a cracked screen"
     # Extra style keywords appended to every image prompt. "" = derive from the run's video_style
     # (asset_manager.STYLE_SUFFIX: one set of keywords per video style).
     image_style: str = ""

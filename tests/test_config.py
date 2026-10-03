@@ -60,6 +60,8 @@ def test_v1_settings_unchanged():
     assert s.elevenlabs_api_key == "test2"
     assert s.output_dir == "output"
     assert s.mascot_enabled is False         # spec 2026-10-03 §9
+    for medium in ("vector", "art style"):   # the run's video style supplies the look, not the mascot
+        assert medium not in s.mascot_prompt.lower()
     assert s.image_style == ""                # "" = derive from video_style
 
 
