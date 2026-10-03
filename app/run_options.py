@@ -19,6 +19,7 @@ from app.cin.report import load_summary
 from app.cin.shot_plan import PACING
 from app.cin.tiers import QUALITY_TIERS
 from app.config import settings
+from app.story import StoryError, check_story
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,60 @@ def pipeline_kwargs(config: Mapping[str, Any]) -> dict:
         "strict": to_bool("strict", config.get("strict"), None),
         "quality_tier": _choice("quality_tier", config.get("quality_tier"), TIER_CHOICES),
         "max_cost": to_max_cost("max_cost", config.get("max_cost"), None),
+    }
+
+
+TITLE_MAX_CHARS = 120
+PERSONA_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")      # app.animator.PortraitAnimator's list
+
+
+def story_options(config: Mapping[str, Any]) -> Optional[dict]:
+    """The "Your story" part of a Generate request -> {"story", "story_mode", "title"}, or None for a topic /
+    auto-discover run. Intent rule: a story_mode with an empty story, or a story that is only whitespace, is
+    an empty story (OptionError, HTTP 422), as are a story over app.story.MAX_STORY_CHARS, an unknown mode,
+    a story together with auto-discover and a title over TITLE_MAX_CHARS. The story comes back normalised."""
+    config = dict(config or {})
+    story, mode = config.get("story"), config.get("story_mode")
+    if story is None or story == "":
+        if not _blank(mode):
+            raise OptionError("Story is empty: paste the narration you want spoken")
+        return None
+    if not isinstance(story, str):
+        raise OptionError("story must be text")
+    try:
+        text, mode = check_story(story, None if _blank(mode) else str(mode))
+    except StoryError as e:
+        raise OptionError(str(e)) from None
+    if to_bool("auto_topic", config.get("auto_topic"), False):
+        raise OptionError("Choose either auto-discover or a story, not both")
+    title = _text(config.get("title"))
+    if len(title) > TITLE_MAX_CHARS:
+        raise OptionError(f"title must be {TITLE_MAX_CHARS} characters or fewer")
+    return {"story": text, "story_mode": mode, "title": title}
+
+
+def available_personas(directory) -> list:
+    """Persona image file names in `directory` (sorted). A missing folder is an empty list; it is never
+    created (PortraitAnimator() would mkdir it)."""
+    path = Path(directory)
+    if not path.is_dir():
+        return []
+    return sorted(p.name for p in path.iterdir() if p.is_file() and p.suffix.lower() in PERSONA_EXTENSIONS)
+
+
+def generate_extras(config: Mapping[str, Any]) -> dict:
+    """Generate-page options that are not scheduler slot options (pipeline_kwargs stays the slot contract):
+    classic editor, persona (+ chroma key) and YouTube upload. A persona must be one of
+    available_personas(settings.personas_dir), so no path can reach the animator. Raises OptionError."""
+    config = dict(config or {})
+    persona = _text(config.get("persona")) or None
+    if persona is not None and persona not in available_personas(settings.personas_dir):
+        raise OptionError(f"Unknown persona {persona!r}; add the image to {settings.personas_dir} first")
+    return {
+        "classic": to_bool("classic", config.get("classic"), False),
+        "persona": persona,
+        "use_chroma_key": bool(persona) and to_bool("use_chroma_key", config.get("use_chroma_key"), False),
+        "upload": to_bool("upload", config.get("upload"), False),
     }
 
 

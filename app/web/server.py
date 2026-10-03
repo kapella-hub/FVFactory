@@ -19,6 +19,24 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 DATA_DIR = Path("data")
 
+# The UI ships as plain files with no build hashes: make the browser revalidate them on every load
+# (ETag / Last-Modified still give a cheap 304), so an updated UI is never hidden behind a cached old one.
+NO_CACHE = {"Cache-Control": "no-cache"}
+
+
+class NoCacheStaticFiles(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers.update(NO_CACHE)
+        return response
+
+
+def _index_response():
+    index = STATIC_DIR / "index.html"
+    if index.exists():
+        return FileResponse(index, headers=NO_CACHE)
+    return None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -71,15 +89,12 @@ app.include_router(scheduler_router, prefix="/api")
 
 # Serve static files only if directory exists
 if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+    app.mount("/static", NoCacheStaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
 @app.get("/")
 async def root():
-    index = STATIC_DIR / "index.html"
-    if index.exists():
-        return FileResponse(index)
-    return {"status": "FVFactory API running", "docs": "/docs"}
+    return _index_response() or {"status": "FVFactory API running", "docs": "/docs"}
 
 
 # SPA catch-all: serve index.html for client-side routes
@@ -88,10 +103,7 @@ async def spa_fallback(path: str):
     # Don't intercept API or static file requests
     if path.startswith("api/") or path.startswith("static/"):
         return {"error": "Not found"}
-    index = STATIC_DIR / "index.html"
-    if index.exists():
-        return FileResponse(index)
-    return {"error": "Not found"}
+    return _index_response() or {"error": "Not found"}
 
 
 def start_server(host: str = "0.0.0.0", port: int = 8000):

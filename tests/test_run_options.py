@@ -239,3 +239,62 @@ def test_max_cost_request_type_rejects_json_booleans():
             Req.model_validate_json(bad)
     for raw, want in (('5', 5), ('5.5', 5.5), ('"5"', "5"), ('""', ""), ('null', None), ('"abc"', "abc")):
         assert Req.model_validate_json('{"max_cost": %s}' % raw).max_cost == want
+
+
+# ---------------------------------------------------------------- "Your story" and the Generate page extras
+
+def test_no_story_means_a_topic_run():
+    from app.run_options import story_options
+    assert story_options({}) is None
+    assert story_options({"story": "", "story_mode": None, "title": "ignored"}) is None
+
+
+def test_story_options_normalize_and_default_to_verbatim():
+    from app.run_options import story_options
+    out = story_options({"story": "  Once.\n\nTwice. ", "title": "  My tale "})
+    assert out == {"story": "Once. Twice.", "story_mode": "verbatim", "title": "My tale"}
+    assert story_options({"story": "Once.", "story_mode": "ADAPT"})["story_mode"] == "adapt"
+
+
+@pytest.mark.parametrize("config, message", [
+    ({"story": "", "story_mode": "verbatim"}, "empty"),            # story mode chosen, nothing pasted
+    ({"story": "  \n "}, "empty"),
+    ({"story": "x" * 4001}, "4000"),
+    ({"story": "Once.", "story_mode": "remix"}, "story_mode"),
+    ({"story": 42}, "text"),
+    ({"story": "Once.", "auto_topic": True}, "auto-discover"),
+    ({"story": "Once.", "title": "t" * 121}, "title"),
+])
+def test_bad_story_options_are_option_errors(config, message):
+    from app.run_options import story_options
+    with pytest.raises(OptionError, match=message):
+        story_options(config)
+
+
+def test_generate_extras_defaults():
+    from app.run_options import generate_extras
+    assert generate_extras({}) == {"classic": False, "persona": None, "use_chroma_key": False, "upload": False}
+
+
+def test_generate_extras_persona_must_be_a_listed_image(monkeypatch, tmp_path):
+    from app.run_options import available_personas, generate_extras
+    (tmp_path / "anna.png").write_bytes(b"png")
+    (tmp_path / "notes.txt").write_text("x", encoding="utf-8")
+    monkeypatch.setattr(settings, "personas_dir", str(tmp_path))
+    assert available_personas(tmp_path) == ["anna.png"]
+    out = generate_extras({"persona": "anna.png", "use_chroma_key": True, "classic": "true", "upload": False})
+    assert out == {"classic": True, "persona": "anna.png", "use_chroma_key": True, "upload": False}
+    for bad in ("bob.png", "../anna.png", "notes.txt"):
+        with pytest.raises(OptionError, match="persona"):
+            generate_extras({"persona": bad})
+
+
+def test_chroma_key_needs_a_persona():
+    from app.run_options import generate_extras
+    assert generate_extras({"use_chroma_key": True})["use_chroma_key"] is False
+
+
+def test_available_personas_never_creates_the_folder(tmp_path):
+    from app.run_options import available_personas
+    missing = tmp_path / "personas"
+    assert available_personas(missing) == [] and not missing.exists()
