@@ -117,8 +117,9 @@ Pure functions: `build_shot_plan(alignment, pacing, clip_specs) -> ShotPlan`. No
 Scene boundaries are fixed by the alignment. Within a scene, candidate cut points are word gaps.
 Each candidate scores `gap_seconds + 0.5 if sentence end + 0.25 if comma`. A small dynamic
 program picks the cut set that keeps every shot within `[min, max]` and minimizes
-`Σ (shot_len − target)² − Σ score`. If no valid set exists (scene shorter than `min`), the scene
-is one shot.
+`Σ (shot_len − target)² − Σ score`. A scene shorter than `min` is one shot. If a longer segment has
+no valid set (word gaps can make strict bounds infeasible), retry with bounds ×(0.8, 1.25), then
+(0, ×1.5), before falling back to one shot.
 
 ### 6.3 Framing
 
@@ -236,7 +237,9 @@ audio (§8) reads `sfx`, `music`, and word timings for ducking.
 1. Video-only render via MoviePy at 30 fps with
    `-c:v libx264 -preset slow -crf 18 -profile:v high -pix_fmt yuv420p -colorspace bt709 -color_primaries bt709 -color_trc bt709`.
 2. Two-pass `loudnorm=I=-14:TP=-1:LRA=11` on the mixed WAV.
-3. Mux with `-c:v copy -c:a aac -b:a 192k -ar 48000 -movflags +faststart`.
+3. Mux with `-c:v copy -c:a aac -b:a 192k -ar 48000 -movflags +faststart`, plus the
+   `h264_metadata` bitstream filter to write BT.709 primaries/transfer (MoviePy's writer leaves
+   them `unknown`; verified with ffprobe).
 4. Port `probe_video`, `get_audio_loudness` and `is_platform_safe` from `src/encoding.py` into
    `app/encoding.py`; record measured loudness and the safety check in the run report.
 
@@ -268,9 +271,12 @@ style, music, SFX and colour grade change fully. The previous output is kept as 
   The classic editor is reachable only with `--classic`.
 - Clip failure: retry once → fallback model (`settings.fal_video_fallback_model`) → still with a
   slow push-in. `strict=True` fails the run instead of shipping a still.
-- `--no-motion` and `--mock` remain as explicit opt-outs (free testing); they produce still-sourced shots.
+- `--no-motion` and `--mock` remain as explicit opt-outs; they produce still-sourced shots. `--mock`
+  skips image and clip spend but still calls the LLM and TTS (≈ $0.01); `validate_config` must not
+  require `FAL_API_KEY` in mock mode. The fully offline check is the patched pytest end-to-end test.
 - `motion_prompts`/`image_prompts`/`scene_texts` length mismatch: normalize after the LLM call
-  (truncate extras, pad `motion_prompts` with a generic camera move) and log it.
+  (merge extra `scene_texts` into the last scene so the narration still joins back; truncate extra
+  prompts; pad `motion_prompts` with a generic camera move) and log it.
 - `run_report.json`: `warnings[]` (each `{code, message, detail}`; codes include
   `still_fallback`, `alignment_fallback`, `font_fallback`, `music_missing`, `sfx_missing`,
   `speed_adjusted`, `prompt_count_normalized`), `loudness` (I, TP, LRA), `platform_safe`,
@@ -324,8 +330,9 @@ Each phase ends with a playable video:
 
 ## 14. Risks
 
-- **Render time:** per-frame crop/resize at 30 fps in Python. Mitigation: precompute framing
-  crops per shot, use `cv2.resize` if available; measure on the VPS in phase A.
+- **Render time:** per-frame crop/resize at 30 fps in Python. Prototype: an 8 s full-size render with
+  captions and grade took ≈ 27–86 s on the dev PC, so a 40 s video is roughly 3–6 minutes.
+  Mitigation: precompute framing crops per shot, use `cv2.resize` if available; measure on the VPS.
 - **Whisper `small` on the VPS:** slower and ≈ 2 GB RAM. Mitigation: `whisper_model` setting.
 - **ElevenLabs Music licensing:** commercial use depends on the plan tier; user to confirm their plan
   before building the generated library.
