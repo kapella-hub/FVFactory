@@ -5,13 +5,14 @@ Uses Claude CLI (via app.llm) with OpenAI API fallback.
 
 import json
 import logging
+from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
 from app.llm import generate_json
-from app.script_quality import DURATION_SECONDS, WordBudget, word_budget
+from app.script_quality import DURATION_SECONDS, WordBudget, check_roles, count_words, word_budget
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +112,18 @@ def duration_guide(budget: WordBudget) -> str:
     return (f"{budget.preset.upper()}: about {budget.seconds} seconds of narration. hook + body together must be "
             f"{budget.target} words (anything from {budget.lo} to {budget.hi} words is fine). "
             f"Use {budget.scenes[0]}-{budget.scenes[1]} scenes, one idea per scene.")
+
+
+def _warning(code: str, message: str, detail: dict) -> dict:
+    return {"code": code, "message": message, "detail": detail}
+
+
+@dataclass
+class ScriptResult:
+    """write_script output: the script to use, run_report warnings, and run_report.json "script"."""
+    script: "ScriptOutput"
+    warnings: list
+    length: dict
 
 
 class ScriptGeneratorError(Exception):
@@ -306,9 +319,12 @@ DO NOT just mention the character - describe what they are DOING in each scene."
             f"IMAGE STYLE: {style_hint}"
         )
         system_prompt = self._build_system_prompt(enable_v2=enable_v2, video_style=style)
+        return self._request(user_prompt, system_prompt, temperature=0.8)
 
+    def _request(self, user_prompt: str, system_prompt: str, temperature: float) -> ScriptOutput:
+        """One LLM call -> validated ScriptOutput; every failure becomes ScriptGeneratorError."""
         try:
-            data = generate_json(user_prompt, system=system_prompt, temperature=0.8, max_tokens=3000)
+            data = generate_json(user_prompt, system=system_prompt, temperature=temperature, max_tokens=3000)
 
             # Validate with Pydantic
             try:
@@ -322,3 +338,80 @@ DO NOT just mention the character - describe what they are DOING in each scene."
             raise ScriptGeneratorError(f"Invalid response: {e}")
         except Exception as e:
             raise ScriptGeneratorError(f"Script generation failed: {e}")
+
+    REVISE_PROMPT = """Rewrite this short-form video script about: {topic}
+
+LENGTH PROBLEM: the narration (hook + body) is {words} words. Rewrite it to {target} words (anything from {lo} to {hi} words is fine), about {seconds} seconds spoken. {direction}
+
+Keep the same structure (hook, open loop, body, re-hook, payoff, loop ending) and the same voice rules. Return every JSON field again. image_prompts, scene_roles{v2_lists} must stay one entry per scene, {scene_lo}-{scene_hi} scenes.{v2_join}
+
+IMAGE STYLE: {style_hint}
+
+CURRENT SCRIPT (JSON):
+{script_json}"""
+
+    def revise_length(self, script: ScriptOutput, *, topic: str, words: int, budget: WordBudget,
+                      enable_v2: bool = False, video_style: str = "") -> ScriptOutput:
+        """One revision call with explicit length feedback (spec 2026-10-03 §7). Raises ScriptGeneratorError."""
+        style = video_style or settings.video_style
+        too_long = words > budget.hi
+        user_prompt = self.REVISE_PROMPT.format(
+            topic=topic, words=words, target=budget.target, lo=budget.lo, hi=budget.hi, seconds=budget.seconds,
+            direction=("Cut filler and merge or drop the weakest scene; keep the specifics." if too_long else
+                       "Add concrete specifics (numbers, names, cause and effect), not filler."),
+            v2_lists=", motion_prompts, pacing_hints and scene_texts" if enable_v2 else "",
+            v2_join=" scene_texts must still join to exactly hook + body." if enable_v2 else "",
+            scene_lo=budget.scenes[0], scene_hi=budget.scenes[1],
+            style_hint=self.STYLE_GUIDE.get(style, self.STYLE_GUIDE["photorealistic"]),
+            script_json=json.dumps(script.model_dump(), ensure_ascii=False, indent=1),
+        )
+        system_prompt = self._build_system_prompt(enable_v2=enable_v2, video_style=style)
+        return self._request(user_prompt, system_prompt, temperature=0.7)
+
+    def _prepare(self, script: ScriptOutput) -> Tuple[ScriptOutput, list]:
+        """Normalize prompt counts and scene roles. Returns (script, warnings); never raises."""
+        warnings = []
+        script, change = normalize_prompt_counts(script)
+        if change:
+            warnings.append(_warning("prompt_count_normalized",
+                                     "LLM returned mismatched prompt counts; normalized before any paid generation",
+                                     change))
+        roles, reason = check_roles(script.scene_roles, len(script.image_prompts))
+        if reason:
+            warnings.append(_warning("scene_roles_derived", f"Scene roles replaced by a heuristic ({reason})",
+                                     {"reason": reason, "llm_roles": list(script.scene_roles), "roles": roles}))
+        if roles != script.scene_roles:
+            script = script.model_copy(update={"scene_roles": roles})
+        return script, warnings
+
+    def write_script(self, topic: str, enable_v2: bool = False, video_style: str = "",
+                     video_duration: str = "") -> "ScriptResult":
+        """Draft -> normalize -> roles -> word-budget gate -> at most one revision (spec 2026-10-03 §7).
+        Only the first draft can fail the run; the gate and the revision never do."""
+        budget = word_budget(video_duration or settings.video_duration)
+        script, warnings = self._prepare(self.generate_script(
+            topic, enable_v2=enable_v2, video_style=video_style, video_duration=budget.preset))
+        words = draft_words = count_words(f"{script.hook} {script.body}")
+        revision = "not_needed"
+        if not budget.contains(words):
+            try:
+                revised, revised_warnings = self._prepare(self.revise_length(
+                    script, topic=topic, words=words, budget=budget, enable_v2=enable_v2, video_style=video_style))
+            except ScriptGeneratorError as e:
+                logger.warning("Script length revision failed, keeping the draft: %s", e)
+                revision = "failed"
+            else:
+                revised_words = count_words(f"{revised.hook} {revised.body}")
+                if abs(revised_words - budget.target) <= abs(words - budget.target):
+                    script, warnings, words, revision = revised, revised_warnings, revised_words, "accepted"
+                else:
+                    revision = "kept_draft"
+        if not budget.contains(words):
+            warnings.append(_warning(
+                "script_length_off_target",
+                f"Narration is {words} words; target {budget.target} ({budget.lo}-{budget.hi}) for {budget.preset}",
+                {"words": words, "target": budget.target, "range": [budget.lo, budget.hi], "revision": revision}))
+        length = {"preset": budget.preset, "target_seconds": budget.seconds, "target_words": budget.target,
+                  "word_range": [budget.lo, budget.hi], "draft_words": draft_words, "words": words,
+                  "revision": revision}
+        return ScriptResult(script, warnings, length)
