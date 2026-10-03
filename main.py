@@ -30,6 +30,7 @@ from app.cin.job import create_job, prune_sources
 from app.cin.report import RunReport
 from app.cin.caption_groups import make_hook_headline
 from app.cin.shot_plan import PACING, build_shot_plan, plan_segments
+from app.cin.music_library import MUSIC_SOURCES
 
 # Configure logging
 logging.basicConfig(
@@ -280,12 +281,14 @@ def _run_shot_editor(job, script, narration: str, duration: float, options: Rend
         raise StrictModeError("strict mode: the plan contains still-fallback shots (see run_report.json); "
                               f"sources kept in {job.root} for --rerender")
     final = render_job(job, plan, options, report)
+    plan.save(job.shot_plan)               # again: render_job filled plan.music / plan.sfx
     return str(final), image_paths, specs
 
 
 def _run_classic(job, script, audio_result, options: RenderOptions, asset_manager: AssetManager,
                  use_mock_images: bool, enable_motion: bool, persona: Optional[str], use_chroma_key: bool):
     """The pre-shot-editor path (--classic, or persona hybrid mode), writing into the job folder."""
+    classic_music = options.enable_music and options.music_source != "none"
     image_paths = asset_manager.generate_images(script.image_prompts, use_mock=use_mock_images,
                                                 output_dir=job.images)
     motion_clip_paths = None
@@ -308,13 +311,13 @@ def _run_classic(job, script, audio_result, options: RenderOptions, asset_manage
             output = video_editor.assemble_hybrid_video(
                 audio_path=audio_result.file_path, image_paths=image_paths, talking_head_path=animated,
                 output_filename="final.mp4", enable_subtitles=options.enable_subtitles,
-                enable_music=options.enable_music, use_chroma_key=use_chroma_key)
+                enable_music=classic_music, use_chroma_key=use_chroma_key)
             return output, image_paths, motion_clip_paths
         logger.warning("Portrait animation failed (content filter), falling back to standard mode")
 
     output = video_editor.assemble_video(
         audio_path=audio_result.file_path, image_paths=image_paths, output_filename="final.mp4",
-        hook_text=script.hook, enable_subtitles=options.enable_subtitles, enable_music=options.enable_music,
+        hook_text=script.hook, enable_subtitles=options.enable_subtitles, enable_music=classic_music,
         motion_clip_paths=motion_clip_paths, pacing_hints=script.pacing_hints or None,
         subtitle_style=options.subtitle_style, color_grade=options.color_grade or None,
         enable_sfx=options.enable_sfx, title=script.hook, scene_texts=script.scene_texts or None,
@@ -385,6 +388,7 @@ def run_pipeline(
     pacing: Optional[str] = None,
     strict: Optional[bool] = None,
     classic: bool = False,
+    music_source: Optional[str] = None,
 ) -> str:
     """
     Run the full video generation pipeline into output/<job>/ and return the path of final.mp4.
@@ -394,11 +398,15 @@ def run_pipeline(
     so a fixed run can be rebuilt with `python main.py --rerender output/<job>`.
     pacing/strict default to settings.pacing / settings.strict. classic=True (or --classic, or a
     persona) uses the old VideoEditor path; renderer errors never fall back to it silently.
+    music_source defaults to settings.music_source (mine | generated | any | none).
     """
     pacing = pacing or settings.pacing
     if pacing not in PACING:
         raise ValueError(f"Unknown pacing {pacing!r}; choose one of {sorted(PACING)}")
     strict = settings.strict if strict is None else strict
+    music_source = music_source or settings.music_source
+    if music_source not in MUSIC_SOURCES:
+        raise ValueError(f"Unknown music_source {music_source!r}; choose one of {list(MUSIC_SOURCES)}")
     classic = classic or not settings.cinematic_enabled or bool(persona)
     motion_on = enable_motion and not use_mock_images
 
@@ -407,7 +415,8 @@ def run_pipeline(
     options = RenderOptions(
         pacing=pacing, subtitle_style=subtitle_style, video_style=video_style or settings.video_style,
         color_grade=settings.color_grade, enable_subtitles=enable_subtitles, enable_music=enable_music,
-        enable_sfx=enable_sfx, music_mood=resolve_music_mood(niche, video_style), strict=strict,
+        enable_sfx=enable_sfx, music_mood=resolve_music_mood(niche, video_style), music_source=music_source,
+        strict=strict,
     )
     report = RunReport(job=job.name, options={
         **options.to_json(), "topic": topic, "niche": niche or "", "enable_motion": motion_on,
@@ -531,6 +540,9 @@ def parse_args(argv=None):
                         help="Rebuild output/<job>/final.mp4 from its sources/ with zero API calls")
     parser.add_argument("--color-grade", type=str, default=None,
                         help="Colour grade preset for --rerender (tech, finance, history, science, default; '' = none)")
+    parser.add_argument("--music-source", choices=list(MUSIC_SOURCES), default=None,
+                        help="Music pool: mine, generated, any or none (default: settings.music_source; "
+                             "with --rerender: keep the job's track)")
 
     return parser.parse_args(argv)
 
@@ -569,6 +581,7 @@ def run_auto_mode(args):
                 pacing=args.pacing,
                 strict=args.strict or None,
                 classic=args.classic,
+                music_source=args.music_source,
             )
         except Exception as e:
             logger.error(f"Failed: {e}")
@@ -665,6 +678,7 @@ def run_interactive_mode(args):
             pacing=args.pacing,
             strict=args.strict or None,
             classic=args.classic,
+            music_source=args.music_source,
         )
 
         print()
@@ -689,7 +703,8 @@ def main():
         from app.cin.editor import rerender_job
         try:
             out = rerender_job(args.rerender, pacing=args.pacing, subtitle_style=args.subtitle_style,
-                               no_sfx=args.no_sfx, no_music=args.no_music, color_grade=args.color_grade)
+                               no_sfx=args.no_sfx, no_music=args.no_music, color_grade=args.color_grade,
+                               music_source=args.music_source)
         except Exception as e:  # noqa: BLE001
             logger.error(f"Re-render failed: {e}")
             sys.exit(1)

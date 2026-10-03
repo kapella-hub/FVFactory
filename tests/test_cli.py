@@ -134,4 +134,13 @@ def test_main_rerender_skips_config_validation(monkeypatch):
         main.main()
     assert exit_info.value.code == 0
     assert calls == {"job_dir": "output/job", "pacing": "fast", "subtitle_style": None,
-                     "no_sfx": True, "no_music": False, "color_grade": None}
+                     "no_sfx": True, "no_music": False, "color_grade": None, "music_source": None}
+
+
+def test_music_source_flag():
+    import pytest
+    assert parse_args([]).music_source is None
+    assert parse_args(["--music-source", "generated"]).music_source == "generated"
+    assert parse_args(["--rerender", "output/j", "--music-source", "none"]).music_source == "none"
+    with pytest.raises(SystemExit):
+        parse_args(["--music-source", "spotify"])

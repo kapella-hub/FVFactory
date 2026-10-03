@@ -15,7 +15,11 @@ from typing import Optional
 from app.cin.align import Alignment
 from app.cin.clip_sourcing import probe_clip_duration
 from app.cin.job import JobPaths, open_job
-from app.cin.mix import mix_audio
+from app.cin.audio_dsp import speech_windows
+from app.cin.audio_io import SR, AudioDecodeError, decode_audio
+from app.cin.mix import mix_tracks
+from app.cin.music_library import UsageStore, asset_key, asset_path, list_tracks, select_track
+from app.cin.sfx_library import SfxFile, place_sfx, scan_sfx
 from app.cin.captions import build_caption_layer
 from app.cin.renderer import ShotRenderer
 from app.cin.report import RunReport
@@ -48,16 +52,73 @@ class RenderOptions:
         return cls(**{k: v for k, v in (d or {}).items() if k in names})
 
 
-def pick_music(options: RenderOptions, report: RunReport) -> Optional[Path]:
-    """Existing music path (VideoEditor._get_random_music_file); Phase C replaces it."""
-    if not (options.enable_music and settings.music_enabled):
+MIN_TRACK_SECONDS = 3.0     # shorter "tracks" (blips, jingles) are skipped, never looped as a bed
+
+
+def music_wanted(options: RenderOptions) -> bool:
+    return bool(options.enable_music and settings.music_enabled and options.music_source != "none")
+
+
+def _usable_track(path: Path, report: RunReport) -> bool:
+    try:
+        head = decode_audio(path, max_seconds=MIN_TRACK_SECONDS + 0.5)
+    except AudioDecodeError as e:
+        report.warn("music_track_skipped", f"Unreadable music file skipped: {Path(path).name}",
+                    {"file": asset_key(path), "reason": str(e)[:300]})
+        return False
+    if len(head) < MIN_TRACK_SECONDS * SR:
+        report.warn("music_track_skipped",
+                    f"Music file shorter than {MIN_TRACK_SECONDS:.0f}s skipped: {Path(path).name}",
+                    {"file": asset_key(path), "seconds": round(len(head) / SR, 2)})
+        return False
+    return True
+
+
+def pick_music(options: RenderOptions, report: RunReport, keep: Optional[str] = None) -> Optional[Path]:
+    """spec §8.1: least-recently-used usable track for options.music_mood / music_source.
+    keep (a re-render's previous track) is reused as-is when it still exists and decodes."""
+    if not music_wanted(options):
         return None
-    from app.video_editor import VideoEditor
-    path = VideoEditor(music_mood=options.music_mood)._get_random_music_file(options.music_mood)
+    if keep and asset_path(keep).is_file() and _usable_track(asset_path(keep), report):
+        return asset_path(keep)
+    candidates = list_tracks(settings.music_dir, options.music_mood, options.music_source)
+    path = select_track(candidates, UsageStore(), accept=lambda p: _usable_track(p, report))
     if path is None:
-        report.warn("music_missing", f"No music files for mood '{options.music_mood or 'any'}' "
-                    f"under {settings.music_dir}", {"mood": options.music_mood})
+        report.warn("music_missing",
+                    f"No usable music for mood '{options.music_mood or 'any'}' "
+                    f"(music_source={options.music_source}) under {settings.music_dir}; "
+                    "add tracks or run --build-music-library",
+                    {"mood": options.music_mood, "music_source": options.music_source,
+                     "candidates": len(candidates)})
     return path
+
+
+def sfx_pool(report: RunReport) -> dict:
+    """{kind: [SfxFile]} from settings.sfx_dir; unreadable files are skipped with a warning."""
+    pool = {}
+    for kind, paths in scan_sfx(settings.sfx_dir).items():
+        files = []
+        for p in paths:
+            try:
+                frames = len(decode_audio(p, channels=1, max_seconds=60.0))
+            except AudioDecodeError as e:
+                report.warn("sfx_file_skipped", f"Unreadable SFX file skipped: {p.name}",
+                            {"file": asset_key(p), "reason": str(e)[:300]})
+                continue
+            files.append(SfxFile(p, kind, frames / SR))
+        pool[kind] = files
+    return pool
+
+
+def _speech_spans(job: JobPaths, plan: ShotPlan) -> list:
+    """Word (t0, t1) timings for ducking: alignment.json tokens, else the plan's caption words."""
+    if job.alignment.exists():
+        try:
+            al = Alignment.from_json(json.loads(job.alignment.read_text(encoding="utf-8")))
+            return [(t.t0, t.t1) for t in al.tokens]
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            logger.warning("alignment.json unreadable for ducking (%s); using caption timings", e)
+    return [(w.t0, w.t1) for g in plan.captions for w in g.words]
 
 
 def render_job(job: JobPaths, plan: ShotPlan, options: RenderOptions, report: RunReport) -> Path:
@@ -74,11 +135,24 @@ def render_job(job: JobPaths, plan: ShotPlan, options: RenderOptions, report: Ru
 
     with report.stage("mix"):
         sfx_on = options.enable_sfx and settings.enable_sfx
-        info = mix_audio(job.narration, job.mix, plan.duration, music_path=pick_music(options, report),
-                         scene_starts=[s.t0 for s in plan.scenes], enable_sfx=sfx_on)
-        report.options["music_file"] = info["music"]
-        if sfx_on and not info["sfx"]:
-            report.warn("sfx_missing", f"No SFX files under {settings.sfx_dir}", {})
+        windows = speech_windows(_speech_spans(job, plan), plan.duration)
+        music_path = pick_music(options, report, keep=(plan.music or {}).get("file"))
+        pool = sfx_pool(report) if sfx_on else {}
+        plan.sfx = place_sfx(plan, pool) if sfx_on else []
+        if sfx_on and not any(pool.values()):
+            report.warn("sfx_missing", f"No usable SFX files under {settings.sfx_dir} "
+                        "(add whoosh*/impact*/riser* files or run --build-sfx-library)", {})
+        info = mix_tracks(job.narration, job.mix, plan.duration, music_path=music_path,
+                          duck_windows=windows, sfx=[{**e, "path": asset_path(e["file"])} for e in plan.sfx])
+        for err in info["sfx_errors"]:
+            report.warn("sfx_file_skipped", f"SFX file failed to decode during the mix: {err['file']}", err)
+        if music_path is not None and info["music"] is None:
+            report.warn("music_missing", f"Music file failed during the mix: {music_path.name}",
+                        {"file": asset_key(music_path), "reason": info["music_error"]})
+        plan.music = ({"file": asset_key(music_path), "mood": options.music_mood,
+                       "source": options.music_source, "duck_windows": windows}
+                      if info["music"] else None)
+        report.options["music_file"] = plan.music["file"] if plan.music else None
 
     with report.stage("encode"):
         measured = measure_loudness(job.mix)
@@ -150,11 +224,13 @@ def rebuild_plan(job: JobPaths, pacing: str, enable_motion: bool = True) -> Shot
     old = ShotPlan.load(job.shot_plan)
     plan = build_shot_plan(alignment, pacing, clip_specs_from_plan(old, job, enable_motion))
     plan.hook_headline = old.hook_headline        # set from script.hook at generation; not in alignment.json
+    plan.music = old.music          # same track unless --music-source asks for a new one (spec §9.3)
     return plan
 
 
 def rerender_job(job_dir, *, pacing: Optional[str] = None, subtitle_style: Optional[str] = None,
-                 no_sfx: bool = False, no_music: bool = False, color_grade: Optional[str] = None) -> str:
+                 no_sfx: bool = False, no_music: bool = False, color_grade: Optional[str] = None,
+                 music_source: Optional[str] = None) -> str:
     """Rebuild final.mp4 from sources/ with zero API calls (spec §9.3)."""
     job = open_job(job_dir)
     prev = RunReport.load(job.report) if job.report.exists() else RunReport(job=job.name)
@@ -169,6 +245,8 @@ def rerender_job(job_dir, *, pacing: Optional[str] = None, subtitle_style: Optio
         opts.enable_music = False
     if color_grade is not None:
         opts.color_grade = color_grade
+    if music_source:
+        opts.music_source = music_source
 
     report = RunReport(job=job.name, options={**prev.options, **opts.to_json(), "rerender": True})
     report.cost = prev.cost                      # no new spend
@@ -179,6 +257,8 @@ def rerender_job(job_dir, *, pacing: Optional[str] = None, subtitle_style: Optio
     try:
         with report.stage("plan"):
             plan = rebuild_plan(job, opts.pacing, enable_motion=bool(prev.options.get("enable_motion", True)))
+            if music_source:
+                plan.music = None       # re-select from the requested source
         for w in plan.warnings:
             report.warn(w["code"], w["message"], w["detail"])
         final = render_job(job, plan, opts, report)

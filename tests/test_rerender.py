@@ -93,3 +93,71 @@ def test_failed_rerender_keeps_old_plan_and_saves_prev_report(tmp_path, monkeypa
     assert job.shot_plan.read_bytes() == old_plan
     prev = job.root / "run_report.prev.json"
     assert prev.exists() and prev.read_bytes() == old_report
+
+
+def _music_lib(tmp_path, monkeypatch):
+    from app.config import settings
+    from tests.conftest import make_tone_wav
+    music = tmp_path / "lib" / "music"
+    a = make_tone_wav(music / "cinematic" / "a.wav", 10.0, 900, 0.3)
+    b = make_tone_wav(music / "cinematic" / "generated" / "cinematic_01.wav", 10.0, 700, 0.3)
+    monkeypatch.setattr(settings, "music_dir", str(music))
+    monkeypatch.setattr(settings, "music_enabled", True)
+    monkeypatch.setattr(settings, "enable_sfx", False)
+    return a, b
+
+
+class _Tiny:
+    def __init__(self, plan, job, **kwargs):
+        self.plan = plan
+
+    def render(self, out_path, overlays=None):
+        from tests.conftest import make_test_clip
+        return make_test_clip(out_path, self.plan.duration)
+
+
+def _music_job(tmp_path, monkeypatch, root="a"):
+    job, alignment, specs = build_gold_job(tmp_path / root)
+    plan = build_shot_plan(alignment, "standard", specs)
+    opts = RenderOptions(music_mood="cinematic", enable_sfx=False, enable_subtitles=False)
+    monkeypatch.setattr("app.cin.editor.ShotRenderer", _Tiny)
+    render_job(job, plan, opts, RunReport(job=job.name))
+    plan.save(job.shot_plan)
+    RunReport(job=job.name, options={**opts.to_json(), "enable_motion": True}).save(job.report)
+    return job, plan
+
+
+def test_rerender_keeps_music_without_override(tmp_path, monkeypatch):
+    a, b = _music_lib(tmp_path, monkeypatch)
+    job, plan = _music_job(tmp_path, monkeypatch)
+    assert plan.music["file"] == a.as_posix()
+    rerender_job(job.root, pacing="fast")
+    assert ShotPlan.load(job.shot_plan).music["file"] == a.as_posix()      # no LRU re-pick
+
+
+def test_rerender_music_source_override_reselects(tmp_path, monkeypatch):
+    a, b = _music_lib(tmp_path, monkeypatch)
+    job, plan = _music_job(tmp_path, monkeypatch)
+    rerender_job(job.root, music_source="generated")
+    new = ShotPlan.load(job.shot_plan)
+    assert new.music["file"] == b.as_posix() and new.music["source"] == "generated"
+    assert RunReport.load(job.report).options["music_source"] == "generated"
+    rerender_job(job.root, no_music=True)
+    assert ShotPlan.load(job.shot_plan).music is None
+
+
+def test_rerender_moved_job_keeps_repo_relative_music(tmp_path, monkeypatch):
+    """Library paths are cwd-relative asset paths, never resolved against the job folder."""
+    from app.config import settings
+    monkeypatch.chdir(tmp_path)
+    from tests.conftest import make_tone_wav
+    make_tone_wav(tmp_path / "assets" / "music" / "cinematic" / "rel.wav", 10.0, 800, 0.3)
+    monkeypatch.setattr(settings, "music_dir", "assets/music")
+    monkeypatch.setattr(settings, "music_enabled", True)
+    monkeypatch.setattr(settings, "enable_sfx", False)
+    job, plan = _music_job(tmp_path, monkeypatch)
+    assert plan.music["file"] == "assets/music/cinematic/rel.wav"
+    moved = tmp_path / "moved" / job.name
+    shutil.copytree(job.root, moved)
+    rerender_job(moved, pacing="fast")
+    assert ShotPlan.load(open_job(moved).shot_plan).music["file"] == "assets/music/cinematic/rel.wav"

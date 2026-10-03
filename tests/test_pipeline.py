@@ -239,3 +239,33 @@ def test_shot_plan_gets_hook_headline_from_script(offline, monkeypatch):
     main.run_pipeline("Gold facts", use_mock_images=True)
     plan = json.loads((only_job(offline.out) / "sources/shot_plan.json").read_text(encoding="utf-8"))
     assert plan["hook_headline"] == {"text": "Gold is heavier than you think", "t0": 0.0, "t1": 2.5}
+
+
+def test_music_source_reaches_render_and_plan_saved_after_render(offline, monkeypatch):
+    seen = {}
+
+    def render_with_music(job, plan, options, report):
+        seen["music_source"] = options.music_source
+        plan.music = {"file": "assets/music/epic/x.mp3", "mood": "", "source": options.music_source,
+                      "duck_windows": [[0.0, 1.0]]}
+        plan.sfx = [{"t": 0.0, "kind": "impact", "file": "assets/sfx/impact.mp3", "gain_db": -6.0}]
+        return fake_render(job, plan, options, report)
+
+    monkeypatch.setattr(main, "render_job", render_with_music)
+    main.run_pipeline("Gold facts", use_mock_images=True, music_source="generated")
+    job = only_job(offline.out)
+    plan = json.loads((job / "sources/shot_plan.json").read_text(encoding="utf-8"))
+    assert seen["music_source"] == "generated"
+    assert plan["music"]["source"] == "generated" and plan["sfx"][0]["kind"] == "impact"
+    assert report_of(job)["options"]["music_source"] == "generated"
+
+
+def test_music_source_defaults_to_settings_and_rejects_unknown(offline, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(settings, "music_source", "mine")
+    monkeypatch.setattr(main, "render_job",
+                        lambda job, plan, options, report: seen.update(src=options.music_source) or fake_render(job, plan, options, report))
+    main.run_pipeline("Gold facts", use_mock_images=True)
+    assert seen["src"] == "mine"
+    with pytest.raises(ValueError):
+        main.run_pipeline("Gold facts", use_mock_images=True, music_source="spotify")
