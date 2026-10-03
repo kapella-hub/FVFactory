@@ -73,6 +73,30 @@ def test_ui_files_are_revalidated_on_every_load(client, path):
     assert resp.headers["cache-control"] == "no-cache"
 
 
+@pytest.mark.parametrize("path", ["/", "/generate", "/library"])
+def test_index_links_carry_a_version_so_old_cached_files_are_never_used(client, path):
+    """Browsers that cached styles.css/js before no-cache existed kept the old layout (brand overlapping the
+    page title); a version query on every asset link forces fresh files after each update."""
+    import re
+    html = client.get(path).text
+    links = re.findall(r'(?:href|src)="(/static/[^"]+)"', html)
+    assert links and all(re.search(r"\?v=[0-9a-f]{8,}$", link) for link in links), links
+
+
+def test_asset_version_changes_when_a_ui_file_changes(client, tmp_path, monkeypatch):
+    import re
+    import shutil
+    import app.web.server as server
+    static = tmp_path / "static"
+    shutil.copytree(server.STATIC_DIR, static)
+    monkeypatch.setattr(server, "STATIC_DIR", static)
+    first = re.search(r"\?v=([0-9a-f]+)", client.get("/").text).group(1)
+    css = static / "css" / "styles.css"
+    css.write_text(css.read_text(encoding="utf-8") + "/* change */", encoding="utf-8")
+    second = re.search(r"\?v=([0-9a-f]+)", client.get("/").text).group(1)
+    assert first != second
+
+
 def test_static_files_still_answer_304_when_unchanged(client):
     first = client.get("/static/js/generate.js")
     again = client.get("/static/js/generate.js", headers={"If-None-Match": first.headers["etag"]})

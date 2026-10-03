@@ -1,13 +1,15 @@
 """FastAPI application server for FVFactory."""
 
+import hashlib
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -31,11 +33,27 @@ class NoCacheStaticFiles(StaticFiles):
         return response
 
 
+_ASSET_LINK = re.compile(r'((?:href|src)="/static/[^"?]+)"')
+
+
+def _asset_version() -> str:
+    """Fingerprint of the UI files (names, sizes, mtimes): it changes whenever any of them changes."""
+    h = hashlib.sha1()
+    for f in sorted(p for p in STATIC_DIR.rglob("*") if p.is_file()):
+        st = f.stat()
+        h.update(f"{f.relative_to(STATIC_DIR).as_posix()}:{st.st_size}:{st.st_mtime_ns};".encode())
+    return h.hexdigest()[:12]
+
+
 def _index_response():
+    """index.html with ?v=<fingerprint> on every /static link. no-cache alone did not help browsers that had
+    cached styles.css / js before that header existed: they kept the old layout (brand over the title)."""
     index = STATIC_DIR / "index.html"
-    if index.exists():
-        return FileResponse(index, headers=NO_CACHE)
-    return None
+    if not index.exists():
+        return None
+    version = _asset_version()
+    html = _ASSET_LINK.sub(lambda m: f'{m.group(1)}?v={version}"', index.read_text(encoding="utf-8"))
+    return HTMLResponse(html, headers=NO_CACHE)
 
 
 @asynccontextmanager
