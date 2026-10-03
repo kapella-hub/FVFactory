@@ -791,3 +791,34 @@ def test_unknown_fallback_warning_is_logged_once_per_value(llm_settings, monkeyp
         provider_chain()
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert len(warnings) == 2 and "ollama" in warnings[0] and "llama" in warnings[1]
+
+
+def test_settings_js_exposes_each_provider_model():
+    js = (Path(__file__).parents[1] / "app/web/static/js/settings.js").read_text(encoding="utf-8")
+    for key in ("claude_cli_model", "codex_model", "codex_reasoning_effort", "openai_model"):
+        assert f'data-key="{key}"' in js, key
+    assert "Script Writer (LLM)" in js
+
+
+
+@pytest.mark.parametrize("provider", ["claude_cli", "codex"])
+def test_cli_script_writer_needs_no_openai_key_in_any_provider_mode(monkeypatch, provider):
+    """provider_mode only used to make an OpenAI key mandatory; with a headless CLI writing scripts that
+    blocked startup for no reason."""
+    import main
+    _validation_settings(monkeypatch, provider)
+    monkeypatch.setattr(settings, "provider_mode", "api")
+    monkeypatch.setattr(main.shutil, "which", lambda name: "/usr/bin/" + name)
+    assert main.validate_config(use_mock=True, enable_motion=False) is True
+
+
+def test_openai_script_writer_still_needs_the_key(monkeypatch):
+    import main
+    _validation_settings(monkeypatch, "openai")
+    assert main.validate_config(use_mock=True, enable_motion=False) is False
+
+
+def test_settings_js_keeps_an_unlisted_image_provider_and_drops_provider_mode():
+    js = (Path(__file__).parents[1] / "app/web/static/js/settings.js").read_text(encoding="utf-8")
+    assert "setProviderMode(" not in js.split("function setProviderMode")[0]     # no Provider Mode buttons
+    assert "imageProviderOptions" in js                                          # current value always listed

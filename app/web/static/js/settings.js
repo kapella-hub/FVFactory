@@ -41,21 +41,9 @@ const SettingsPage = (() => {
     el.innerHTML = `
       <!-- Providers -->
       ${accordion('Providers', 'providers', true, `
-        <div class="form-group">
-          <label class="form-label">Provider Mode</label>
-          <div class="btn-group">
-            ${['local', 'api', 'mixed'].map(m => `
-              <button class="btn-group__item ${config.provider_mode === m ? 'btn-group__item--active' : ''}"
-                      onclick="SettingsPage.setProviderMode('${m}')" data-mode="${m}">
-                ${m.charAt(0).toUpperCase() + m.slice(1)}
-              </button>
-            `).join('')}
-          </div>
-        </div>
-
-        <div class="form-row mt-4">
+        <div class="form-row">
           <div class="form-group">
-            <label class="form-label">LLM Provider</label>
+            <label class="form-label">Script Writer (LLM)</label>
             <select class="form-select" data-key="llm_provider">
               ${[['claude_cli', 'Claude Code (headless)'], ['codex', 'Codex CLI (headless)'], ['openai', 'OpenAI API']]
                 .map(([p, label]) => `<option value="${p}" ${(config.llm_provider || 'claude_cli') === p ? 'selected' : ''}>${label}</option>`).join('')}
@@ -72,9 +60,38 @@ const SettingsPage = (() => {
 
         <div class="form-row">
           <div class="form-group">
+            <label class="form-label">Claude Model</label>
+            <select class="form-select" data-key="claude_cli_model">
+              ${[...new Set(['sonnet', 'opus', 'haiku', config.claude_cli_model || 'sonnet'])]
+                .map(m => `<option value="${escapeHtml(m)}" ${(config.claude_cli_model || 'sonnet') === m ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Codex Model</label>
+            <input class="form-input mono" data-key="codex_model" type="text"
+                   value="${escapeHtml(config.codex_model ?? 'gpt-5.5')}" placeholder="blank = Codex CLI default">
+            <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1)">A ChatGPT-plan Codex login accepts gpt-5.5.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Codex Reasoning Effort</label>
+            <select class="form-select" data-key="codex_reasoning_effort">
+              ${[['', 'Codex config default'], ['none', 'none'], ['low', 'low'], ['medium', 'medium'], ['high', 'high'], ['xhigh', 'xhigh']]
+                .map(([v, label]) => `<option value="${v}" ${(config.codex_reasoning_effort ?? 'medium') === v ? 'selected' : ''}>${label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">OpenAI Model (API)</label>
+            <input class="form-input mono" data-key="openai_model" type="text"
+                   value="${escapeHtml(config.openai_model ?? '')}" placeholder="e.g. gpt-5.4-mini-2026-03-17">
+            <div style="font-size:var(--text-xs);color:var(--text-muted);margin-top:var(--space-1)">Paid API; needs OPENAI_API_KEY in .env.</div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
             <label class="form-label">Image Provider</label>
             <select class="form-select" data-key="image_provider">
-              ${['fal', 'local', 'replicate'].map(p => `<option value="${p}" ${config.image_provider === p ? 'selected' : ''}>${p === 'fal' ? 'fal.ai FLUX (recommended)' : p === 'local' ? 'Local FLUX' : 'Replicate'}</option>`).join('')}
+              ${imageProviderOptions()}
             </select>
           </div>
         </div>
@@ -258,6 +275,16 @@ const SettingsPage = (() => {
 
   function toggleAccordion(id) {
     document.getElementById(id)?.classList.toggle('accordion--open');
+  }
+
+  // Image provider choices. The current value is always listed (e.g. IMAGE_PROVIDER=flux in .env, which the
+  // pipeline treats as Replicate), so saving the page never switches the provider silently.
+  function imageProviderOptions() {
+    const known = [['fal', 'fal.ai FLUX schnell (fast, cheapest)'], ['replicate', 'Replicate FLUX 1.1 Pro (higher quality)'],
+                   ['local', 'Local FLUX (GPU)']];
+    const current = config.image_provider || 'fal';
+    if (!known.some(([v]) => v === current)) known.unshift([current, `${current} (current: Replicate FLUX 1.1 Pro)`]);
+    return known.map(([v, label]) => `<option value="${escapeHtml(v)}" ${current === v ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('');
   }
 
   function setProviderMode(mode) {

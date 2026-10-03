@@ -55,10 +55,10 @@ def validate_config(use_mock: bool = False, enable_motion: bool = True) -> bool:
     --mock makes no image or motion API calls, so those keys are not required then."""
     errors = []
 
-    # LLM: only need OpenAI key if using OpenAI provider
-    if settings.llm_provider == "openai" or settings.provider_mode == "api":
-        if not settings.openai_api_key:
-            errors.append("OPENAI_API_KEY is required when llm_provider=openai or provider_mode=api")
+    # LLM: only the OpenAI script writer needs the OpenAI key (provider_mode no longer forces it: with a
+    # headless Claude/Codex writer that blocked startup for nothing)
+    if settings.llm_provider == "openai" and not settings.openai_api_key:
+        errors.append("OPENAI_API_KEY is required when llm_provider=openai")
     cli = llm.CLI_COMMANDS.get(settings.llm_provider)
     if cli and not shutil.which(cli):            # not an error: the fallback chain may still answer
         fallback = llm.provider_chain()[1:]
