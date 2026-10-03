@@ -30,6 +30,7 @@ async def get_config():
         "llm_fallback": settings.llm_fallback,
         "claude_cli_model": settings.claude_cli_model,
         "codex_model": settings.codex_model,
+        "codex_reasoning_effort": settings.codex_reasoning_effort,
         "openai_model": settings.openai_model,
         "codex_cli_timeout": settings.codex_cli_timeout,
         "image_provider": settings.image_provider,

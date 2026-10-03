@@ -155,7 +155,10 @@ class Settings(BaseSettings):
     llm_provider: Literal["claude_cli", "codex", "openai"] = "claude_cli"
     llm_fallback: str = "codex,openai"
     claude_cli_model: str = "sonnet"        # claude -p --model
-    codex_model: str = ""                   # codex exec -m; "" = the Codex CLI default model
+    codex_model: str = "gpt-5.5"            # codex exec -m; "" = the Codex CLI default (from ~/.codex/config.toml,
+                                            # which may name a model a ChatGPT login cannot use)
+    codex_reasoning_effort: str = "medium"  # -c model_reasoning_effort; "" = the Codex config value
+                                            # (gpt-5.5 accepts none|low|medium|high|xhigh, not "max")
     openai_model: str = "gpt-5.4-mini-2026-03-17"
     codex_cli_timeout: int = 300            # seconds
     image_provider: str = "fal"             # "fal" | "local" | "replicate"

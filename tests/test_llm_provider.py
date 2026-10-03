@@ -84,6 +84,7 @@ def llm_settings(monkeypatch):
     monkeypatch.setattr(settings, "llm_fallback", "codex,openai")
     monkeypatch.setattr(settings, "claude_cli_model", "sonnet")
     monkeypatch.setattr(settings, "codex_model", "")
+    monkeypatch.setattr(settings, "codex_reasoning_effort", "")
     monkeypatch.setattr(settings, "codex_cli_timeout", 300)
     monkeypatch.setattr(settings, "openai_model", "gpt-5.4-mini-2026-03-17")
     import app.llm
@@ -109,7 +110,8 @@ def test_settings_defaults_for_the_llm_chain():
     assert s.llm_provider == "claude_cli"
     assert s.llm_fallback == "codex,openai"
     assert s.claude_cli_model == "sonnet"
-    assert s.codex_model == ""
+    assert s.codex_model == "gpt-5.5"              # a ChatGPT-login Codex rejects most other model names
+    assert s.codex_reasoning_effort == "medium"   # gpt-5.5 rejects the "max" effort some configs set
     assert s.openai_model == "gpt-5.4-mini-2026-03-17"
     assert s.codex_cli_timeout == 300
     assert s.cost_codex_cli == 0.0
@@ -177,7 +179,18 @@ def test_codex_model_flag_only_when_set(llm_settings, monkeypatch):
         CodexCLIProvider().generate("x")
     cmd = seen["cmd"]
     assert cmd[cmd.index("-m") + 1] == "gpt-5.5" and cmd[-1] == "-"
+    assert "-c" not in cmd                                   # effort "" = the Codex config value
     assert seen["kwargs"]["timeout"] == 42
+
+
+def test_codex_reasoning_effort_override(llm_settings, monkeypatch):
+    from app.llm import CodexCLIProvider
+    monkeypatch.setattr(settings, "codex_reasoning_effort", "medium")
+    seen = {}
+    with patch("app.llm.subprocess.run", side_effect=_codex_run(seen)):
+        CodexCLIProvider().generate("x")
+    cmd = seen["cmd"]
+    assert cmd[cmd.index("-c") + 1] == 'model_reasoning_effort="medium"' and cmd[-1] == "-"
 
 
 def test_codex_generate_json(llm_settings):
@@ -230,7 +243,9 @@ def test_claude_cli_prompt_on_stdin_and_model_setting(mock_run, llm_settings, mo
     assert ClaudeCLIProvider(timeout=30).generate("Say hello", system="Be kind", json_mode=True) == "ok"
     cmd = mock_run.call_args.args[0]
     assert os.path.basename(cmd[0]).lower().startswith("claude")
-    assert cmd[1:] == ["-p", "--model", "opus", "--output-format", "json"]
+    assert cmd[1:] == ["-p", "--model", "opus", "--output-format", "json", "--strict-mcp-config"]
+    cwd = mock_run.call_args.kwargs["cwd"]                     # an empty temp dir, never the repo
+    assert os.path.basename(cwd).startswith("fvf-claude-") and not os.path.exists(cwd)
     prompt = mock_run.call_args.kwargs["input"]
     assert prompt.index("Be kind") < prompt.index("Say hello") < prompt.index("Respond with valid JSON only")
     assert mock_run.call_args.kwargs["timeout"] == 30

@@ -65,22 +65,27 @@ class ClaudeCLIProvider:
         Returns the text result.
         Raises RuntimeError on failure.
         """
+        # Run from an empty temp dir with no MCP servers: the repo's CLAUDE.md, project hooks and the
+        # user's MCP servers would otherwise load into every call (slow, and ~$0.5 of context each).
         cmd = [
             _cli("claude"), "-p",
             "--model", settings.claude_cli_model,
             "--output-format", "json",
+            "--strict-mcp-config",
         ]
 
         try:
-            result = subprocess.run(
-                cmd,
-                input=_full_prompt(prompt, system, json_mode),
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=self.timeout,
-            )
+            with tempfile.TemporaryDirectory(prefix="fvf-claude-", ignore_cleanup_errors=True) as tmp:
+                result = subprocess.run(
+                    cmd,
+                    input=_full_prompt(prompt, system, json_mode),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=self.timeout,
+                    cwd=tmp,
+                )
         except FileNotFoundError:
             raise RuntimeError("Claude CLI not found")
         except subprocess.TimeoutExpired:
@@ -141,6 +146,8 @@ class CodexCLIProvider:
             ]
             if settings.codex_model:
                 cmd += ["-m", settings.codex_model]
+            if settings.codex_reasoning_effort:
+                cmd += ["-c", f'model_reasoning_effort="{settings.codex_reasoning_effort}"']
             cmd.append("-")                      # instructions from stdin
 
             try:
