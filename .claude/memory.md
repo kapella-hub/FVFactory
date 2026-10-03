@@ -201,5 +201,5 @@ streamlit run app/dashboard.py
 
 - Landed: shot-based editor (alignment, cut DP, framing, clip sourcing, shot renderer, two-pass loudnorm mux), job folders `output/<job>/{final.mp4,run_report.json,sources/}`, `--pacing/--strict/--classic`, `--rerender <job>` (zero API calls).
 - Verified: full suite = 12 known unrelated failures (4 test_uploader, 6 test_trends, 1 test_trend_scout, 1 test_local_image_gen); mock end-to-end and fast re-render OK.
-- Known: mock run showed `alignment_fallback` (match_ratio 0.0) and final true peak -0.75 dBTP; claude_cli provider needs PYTHONUTF8=1 on Windows (cp1252 decode error).
+- Fixed since: alignment works (ffmpeg decode, 97.2% match on real narration); final true peak is now -1.38 dBTP (loudnorm target -1.5); Claude CLI output is decoded as UTF-8 (no PYTHONUTF8 needed).
 - Next: Phase B (hook headline, caption rewrite/safe zone), Phase C (music/SFX libraries, ducking, voice polish), Phase D (web/scheduler plumbing).
