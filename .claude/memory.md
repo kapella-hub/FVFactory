@@ -248,19 +248,23 @@ streamlit run app/dashboard.py
   run_report script.words_per_second after the first paid runs.
 - Sub-project 3 (quality tiers) followed; see below.
 ## Quality tiers (sub-project 3) - done (2026-10-03)
-- Tiers pick the motion model: standard -> kling (Kling v3 Standard, $0.084/s), premium -> kling-pro (Kling v3 Pro,
-  $0.112/s), custom -> settings.fal_video_model. Kling clips are sent with generate_audio=false and whole-second lengths
-  "3".."15". Old Kling v1/v1.5 endpoints were dead on fal; the keys now point at v3. h3-turbo / h3 (MiniMax H3) are opt-in
-  via custom, unverified 9:16. hailuo = Minimax video-01 ($0.50/clip). Prices: settings.clip_pricing (list prices).
+- Tiers pick the motion model: standard -> h3-turbo (MiniMax H3 Max Turbo, $0.04/s, 768x1344, whole seconds 5-15;
+  ~$2.7 of motion for a ~56 s video), premium -> kling-pro (Kling v3 Pro, $0.112/s), custom -> settings.fal_video_model.
+  Standard was Kling v3 Standard ($0.084/s, 724x1268) until the motion-quality follow-up (spec section 16): its first real
+  video ($5.88) barely moved. Kling clips are sent with generate_audio=false and whole-second lengths "3".."15". Old Kling
+  v1/v1.5 endpoints were dead on fal; the keys now point at v3. h3 (MiniMax H3 Max, $0.08/s) is opt-in via custom.
+  hailuo = Minimax video-01 ($0.50/clip). Prices: settings.clip_pricing (list prices).
+- Motion prompts must name the subject's visible action (no static / subtle / parallax-only prompts). Warning low_motion
+  (app/cin/motion_check.py): clips whose mean signalstats YDIF at 270 px is below settings.low_motion_threshold (1.2,
+  0 = off); scores in run_report clips.motion_scores; carried by --rerender.
 - app/cin/tiers.py (resolve_clip_model), app/cin/cost_estimate.py (pre_tts / pre_clips estimates, CostCapError,
   tier_estimates, clip_model_options), app/motion_gen.build_fal_arguments (per-model fal payload).
 - Cap max_cost_per_video (0 = off; --max-cost, web form, scheduler slot, Settings): checked after the script (before TTS)
   and before clip generation; over cap the run fails with cost_cap_exceeded - never degrades to stills/cheaper model.
-  Medium video estimate ~ $4.5 standard / $5.9 premium total (list price).
+  Medium video motion estimate ~ $2.0 standard / $5.6 premium (list price).
 - run_report.json: cost.estimated {pre_tts, pre_clips}, cost.cap; options quality_tier / clip_model / max_cost.
   Warning tier_ignored. Classic/persona runs get checkpoint 1 too (one clip per image at 5 s; estimate_classic).
   Failed or capped runs log what they already paid (_log_partial_costs: script, narration, images on disk, clips).
-- Open items (paid, need user approval): first Standard/Premium paid runs (check 9:16 + cost.actual vs estimate);
-  one H3 Turbo test clip (~$0.20 at 768P) before H3 could become the Standard default (paid checks need
-  FAL_API_KEY, which is not in the local .env);
+- Open items (paid, need user approval): first H3 Turbo Standard video and Premium paid run (check cost.actual vs
+  estimate and the low_motion warning);
   calibrate WORDS_PER_SECOND / SCENE_RANGE from run reports (Kling allows 3-15 s clips now).

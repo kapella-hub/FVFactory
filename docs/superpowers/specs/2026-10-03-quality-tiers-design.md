@@ -293,3 +293,31 @@ behaviour a user sees:
   `_log_costs` uses); `cap_ignored` is gone. The classic editor still has no second checkpoint.
 - A failed or capped run logs what it already paid (`main._log_partial_costs`): script calls, the narration
   when TTS ran, the images on disk, and generated clips; never twice when the failure comes after cost logging.
+
+## 16. Follow-up: motion quality (2026-10-03)
+
+User feedback on the first real Standard video (`output/20261003_141804_why_gold_never_rusts`, Kling v3
+Standard, $5.88): "why is it not full motion? seems pricey for such video".
+
+- **Evidence.** No stills and no frozen frames: every shot was a clip at speed 1.0. The mean luma frame
+  difference (ffmpeg `signalstats` YDIF at 270 px wide, frame 0 excluded) is 0.95 for `scene02_a` (rusty
+  chains), 1.07 for `scene10_a`, 1.47 for `scene04_a`, 6.18 for the coin opener and 16.6 for the star
+  collision. The script prompt asked for "how the camera moves" with examples such as "static shot with
+  subtle parallax", and `GENERIC_MOTION_PROMPT` was "slow cinematic push-in with subtle camera drift":
+  Kling obeyed with slow camera drift over a near-static subject. Kling v3 Standard also returns
+  724x1268 (upscaled to 1080x1920) at $0.084/s; 66 s were billed for a 56 s video.
+- **Standard tier -> `h3-turbo`** (MiniMax H3 Max Turbo, $0.04/s, whole seconds 5-15 at 768P). Verified
+  live 2026-10-03: 768x1344 portrait from a 9:16 image, 24 fps, 5.17 s for duration 5, strong subject
+  motion from a crude image. Premium stays `kling-pro`. Typical motion estimates (word-budget target,
+  middle scene count): short $1.40, medium $2.00, long $2.88; a ~56 s video is about $2.7 of motion.
+  The H3 labels no longer say "unverified 9:16".
+- **Motion-prompt rule.** Each motion prompt names the main subject's visible physical action (what moves
+  and how, e.g. "rust flakes crumble off the chain as it swings"), may add one camera move, and must not
+  be a static, "subtle", "slight" or parallax-only move. `GENERIC_MOTION_PROMPT` is now "the main subject
+  moves with clear, natural motion while the camera pushes in".
+- **`low_motion` warning.** `app/cin/motion_check.py`: `clip_motion_score(path)` is the mean YDIF above
+  (None on any error or a 30 s timeout). After clip generation the shot editor scores every clip and adds
+  one `low_motion` warning listing the clips below `settings.low_motion_threshold` (default 1.2, 0 = off),
+  e.g. "2 of 11 clips barely move (scene02_a 0.95, scene10_a 1.07)"; every score is kept in
+  `run_report.json` `clips.motion_scores`. It never fails a run, and `--rerender` carries the warning
+  because it reuses the same clips.
