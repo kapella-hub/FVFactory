@@ -353,7 +353,7 @@ def test_report_records_word_budget_and_narration_timing(offline, monkeypatch):
     assert script == {"preset": "short", "target_seconds": 30, "target_words": 66, "word_range": [57, 75],
                       "draft_words": 24, "words": 24, "revision": "failed",
                       "narration_seconds": 8.0, "seconds_vs_target": -22.0, "words_per_second": 3.0,
-                      "llm_provider": "claude_cli"}
+                      "llm_provider": "claude_cli", "source": "topic"}
 
 
 def test_script_roles_and_headline_reach_the_shot_plan(offline, monkeypatch):
@@ -763,3 +763,96 @@ def test_report_llm_provider_is_the_setting_when_no_llm_answered(offline, monkey
     rep = report_of(only_job(offline.out))
     assert rep["script"]["llm_provider"] == "claude_cli"
     assert [i["item"] for i in rep["cost"]["actual"]] == ["claude_cli", "claude_cli"]
+
+
+# ------------------------------------------------------------------ "Your story" runs
+
+STORY = ("Gold never rusts. A bar sunk with a ship in 1857 came up shining in 1988. "
+         "Divers wiped off the sand and it gleamed like new.")
+
+
+def _story_llm(monkeypatch, calls=None):
+    def visuals(prompt, system=None, **kwargs):
+        if calls is not None:
+            calls.append(prompt)
+        n = prompt.count('\n "') or 1
+        return {"title": "Gold Never Rusts", "hook_headline": "150 YEARS UNDERWATER",
+                "image_prompts": [f"gold bar {i}" for i in range(n)],
+                "motion_prompts": ["sand swirls off the gold bar"] * n,
+                "scene_roles": ["hook"] + ["body"] * (n - 1), "keywords": ["gold"]}
+    monkeypatch.setattr("app.content_engine.generate_json", visuals)
+
+
+def _record_tts(monkeypatch, gold, spoken):
+    def tts(self, text, voice_id=None, output_path=None):
+        spoken.append(text)
+        make_tone(output_path, gold["duration"])
+        return AudioResult(file_path=str(output_path), duration=gold["duration"])
+    monkeypatch.setattr(AssetManager, "generate_audio", tts)
+
+
+def test_verbatim_story_is_spoken_word_for_word(offline, monkeypatch, gold):
+    spoken, meta = [], {}
+    _story_llm(monkeypatch)
+    _record_tts(monkeypatch, gold, spoken)
+    monkeypatch.setattr(main.MetadataGenerator, "generate_metadata",
+                        lambda self, topic, hook, keywords, niche="": meta.update(topic=topic) or {"title_tiktok": topic})
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("", story="  " + STORY.replace(". ", ".\n\n"), use_mock_images=True)
+    assert spoken == [STORY]
+    job = only_job(offline.out)
+    assert job.name.endswith("gold_never_rusts_a_bar_sunk_with_a")      # default title: first 8 words
+    rep = report_of(job)
+    assert rep["status"] == "ok"
+    assert rep["script"]["source"] == "story" and rep["script"]["story_mode"] == "verbatim"
+    assert rep["script"]["revision"] == "not_applicable"
+    assert rep["options"]["source"] == "story" and rep["options"]["story_mode"] == "verbatim"
+    assert meta["topic"] == "Gold Never Rusts"                           # no title given: the LLM's title
+    assert [i["item"] for i in rep["cost"]["actual"]].count("claude_cli") == 1
+
+
+def test_story_title_names_the_job_and_the_metadata_topic(offline, monkeypatch, gold):
+    meta = {}
+    _story_llm(monkeypatch)
+    _record_tts(monkeypatch, gold, [])
+    monkeypatch.setattr(main.MetadataGenerator, "generate_metadata",
+                        lambda self, topic, hook, keywords, niche="": meta.update(topic=topic) or {"title_tiktok": topic})
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("The Shining Bar", story=STORY, use_mock_images=True)
+    assert only_job(offline.out).name.endswith("the_shining_bar")
+    assert meta["topic"] == "The Shining Bar"
+
+
+def test_adapt_story_goes_through_the_script_writer_with_the_story(offline, monkeypatch, gold):
+    seen = {}
+    real = main.ScriptGenerator.generate_script
+
+    def spy(self, topic, **kwargs):
+        seen.update(kwargs, topic=topic)
+        return real(self, topic, **kwargs)
+    monkeypatch.setattr(main.ScriptGenerator, "generate_script", spy)
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("", story=STORY, story_mode="adapt", use_mock_images=True)
+    assert seen["story"] == STORY and seen["topic"] == "Gold never rusts. A bar sunk with a"
+    rep = report_of(only_job(offline.out))
+    assert rep["script"]["source"] == "story" and rep["script"]["story_mode"] == "adapt"
+
+
+def test_topic_runs_record_their_source(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True, source="auto")
+    rep = report_of(only_job(offline.out))
+    assert rep["script"]["source"] == "auto" and "story_mode" not in rep["script"]
+
+
+def test_topic_source_defaults_to_topic(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True)
+    assert report_of(only_job(offline.out))["script"]["source"] == "topic"
+
+
+@pytest.mark.parametrize("kwargs", [{"story": "   \n "}, {"story": "x" * 4001}, {"story": "Hi.", "story_mode": "remix"}])
+def test_bad_story_is_rejected_before_any_work(offline, kwargs):
+    with pytest.raises(ValueError):
+        main.run_pipeline("", use_mock_images=True, **kwargs)
+    assert not offline.out.exists() or not any(offline.out.iterdir())

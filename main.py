@@ -17,6 +17,7 @@ from typing import Optional
 from app import llm
 from app.config import settings
 from app.content_engine import ScriptGenerator
+from app.story import STORY_MODES, check_story, default_title
 from app.asset_manager import AssetManager
 from app.video_editor import VideoEditor
 from app.animator import PortraitAnimator, AnimatorError
@@ -476,6 +477,10 @@ def run_pipeline(
     # Quality tiers (spec 2026-10-03)
     quality_tier: Optional[str] = None,
     max_cost: Optional[float] = None,
+    # "Your story" (Generate page source / --story-file)
+    story: str = "",
+    story_mode: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> str:
     """
     Run the full video generation pipeline into output/<job>/ and return the path of final.mp4.
@@ -488,7 +493,18 @@ def run_pipeline(
     music_source defaults to settings.music_source (mine | generated | any | none).
     quality_tier (standard | premium | custom) picks the motion model; max_cost (USD, 0 = no cap)
     stops the run with CostCapError at a cost checkpoint. Both default to the Settings values.
+    story (app.story): the user's own story; topic is then its optional title (default: the story's first
+    words). story_mode verbatim (default: the narration is exactly the story) or adapt (the story is source
+    material for the script writer). source ("topic" | "auto") is recorded in run_report.json; a story run is
+    always "story". Bad stories raise ValueError before any work.
     """
+    story_text = ""
+    if story:
+        story_text, story_mode = check_story(story, story_mode)      # StoryError is a ValueError
+    title = (topic or "").strip()
+    if story_text:
+        topic = title or default_title(story_text)
+    source = "story" if story_text else (source or "topic")
     pacing = pacing or settings.pacing
     if pacing not in PACING:
         raise ValueError(f"Unknown pacing {pacing!r}; choose one of {sorted(PACING)}")
@@ -523,6 +539,7 @@ def run_pipeline(
         **options.to_json(), "topic": topic, "niche": niche or "", "enable_motion": motion_on,
         "use_mock_images": use_mock_images, "classic": classic,
         "quality_tier": quality_tier, "clip_model": model.key, "max_cost": max_cost,
+        "source": source, **({"story_mode": story_mode} if story_text else {}),
     })
     report.cost = {"estimated": {}, "cap": max_cost, "actual": [], "total": 0.0}
     paid = {"llm_n": 0, "narration": "", "specs": None, "classic_clips": None, "logged": False}
@@ -538,17 +555,23 @@ def run_pipeline(
         logger.info("Generating script...")
         llm.reset_last_provider()                # a value left by an earlier run in this thread
         with report.stage("script"):
-            result = ScriptGenerator().write_script(
-                topic, enable_v2=enable_motion, video_style=video_style, video_duration=video_duration)
+            if story_text:
+                result = ScriptGenerator().write_story_script(
+                    story_text, mode=story_mode, enable_v2=enable_motion, video_style=video_style,
+                    video_duration=video_duration, title=title)
+            else:
+                result = ScriptGenerator().write_script(
+                    topic, enable_v2=enable_motion, video_style=video_style, video_duration=video_duration)
         script = result.script
         report.script = dict(result.length)
+        report.script["source"] = source
         report.script["llm_provider"] = llm.last_provider() or settings.llm_provider
         for w in result.warnings:
             report.warn(w["code"], w["message"], w["detail"])
         options.subtitle_style = resolve_subtitle_style(subtitle_style, video_style)
         report.options["subtitle_style"] = options.subtitle_style
         _print_script(script)
-        full_narration = f"{script.hook} {script.body}"
+        full_narration = " ".join(part for part in (script.hook, script.body) if part)   # a 1-scene story has no body
         llm_n = llm_calls(report.script.get("revision"))
         paid["llm_n"] = llm_n
         # checkpoint 1: nothing but the script is paid yet (spec 2026-10-03 §8.2)
@@ -594,12 +617,14 @@ def run_pipeline(
 
         logger.info("Generating metadata...")
         meta_gen = MetadataGenerator()
-        metadata = meta_gen.generate_metadata(topic=topic, hook=script.hook, keywords=script.keywords,
+        # A story without a title: the visuals call's short title beats the story's first words.
+        meta_topic = (title or report.script.get("title") or topic) if story_text else topic
+        metadata = meta_gen.generate_metadata(topic=meta_topic, hook=script.hook, keywords=script.keywords,
                                               niche=settings.niche)
         meta_gen.save_metadata(video_id, metadata)
         logger.info("Generating thumbnail...")
         meta_gen.generate_thumbnail(video_path=output_path, video_id=video_id,
-                                    title=metadata.get("title_tiktok", topic))
+                                    title=metadata.get("title_tiktok", meta_topic))
 
         if upload:
             try:
@@ -704,6 +729,14 @@ def parse_args(argv=None):
     parser.add_argument("--max-cost", type=_max_cost_arg, default=None, metavar="USD",
                         help="Stop the run before the next paid stage when its cost estimate exceeds "
                              "this (0 = no cap; default: settings.max_cost_per_video)")
+    parser.add_argument("--story-file", type=str, default=None, metavar="PATH",
+                        help="Make one video from your own story (UTF-8 text file) instead of a topic")
+    parser.add_argument("--story-mode", choices=list(STORY_MODES), default=None,
+                        help="verbatim (default): the narration is exactly your story; "
+                             "adapt: the script writer reworks it into a short-form script")
+    parser.add_argument("--title", type=str, default=None,
+                        help="Title of a --story-file video (job folder and metadata; "
+                             "default: the story's first words)")
     parser.add_argument("--rerender", type=str, default=None, metavar="JOB_DIR",
                         help="Rebuild output/<job>/final.mp4 from its sources/ with zero API calls")
     parser.add_argument("--color-grade", type=str, default=None,
@@ -742,6 +775,7 @@ def run_auto_mode(args):
             topic = topics[0].title
 
         logger.info(f"[{i+1}/{count}] Auto generating: {topic}")
+        source = "topic" if args.topic else "auto"
 
         # Resolve voice (supports "auto" to pick based on niche)
         voice_id = resolve_voice(args.voice, niche=args.niche)
@@ -763,10 +797,50 @@ def run_auto_mode(args):
                 music_source=args.music_source,
                 quality_tier=args.tier,
                 max_cost=args.max_cost,
+                source=source,
             )
         except Exception as e:
             logger.error(f"Failed: {e}")
             continue
+
+
+def load_story_file(path: str) -> str:
+    """--story-file: the file's text (UTF-8, a BOM is dropped), checked like the web form's story.
+    Raises ValueError (missing/unreadable file, empty or too-long story)."""
+    try:
+        text = open(path, encoding="utf-8-sig", newline="").read()
+    except (OSError, UnicodeDecodeError) as e:
+        raise ValueError(f"Cannot read story file {path}: {e}")
+    check_story(text)
+    return text
+
+
+def run_story_mode(args, story: str) -> None:
+    """One video from --story-file (the story was loaded and checked by load_story_file)."""
+    try:
+        output_path = run_pipeline(
+            topic=args.title or "",
+            story=story,
+            story_mode=args.story_mode,
+            use_mock_images=args.mock,
+            enable_music=not args.no_music,
+            enable_motion=not args.no_motion,
+            subtitle_style=args.subtitle_style or settings.subtitle_style,
+            enable_sfx=not args.no_sfx,
+            voice=resolve_voice(args.voice, niche=args.niche),
+            upload=args.upload,
+            niche=args.niche,
+            pacing=args.pacing,
+            strict=args.strict,
+            classic=args.classic,
+            music_source=args.music_source,
+            quality_tier=args.tier,
+            max_cost=args.max_cost,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Story video failed: {e}")
+        sys.exit(1)
+    print(f"Output: {output_path}")
 
 
 def run_interactive_mode(args):
@@ -920,6 +994,14 @@ def main():
         start_server()
         sys.exit(0)
 
+    story = None
+    if args.story_file:              # a bad story file fails before any API key check
+        try:
+            story = load_story_file(args.story_file)
+        except ValueError as e:
+            logger.error(str(e))
+            sys.exit(1)
+
     print()
     print("=" * 50)
     print("  FVFactory v2 - Short-form Video Generator")
@@ -931,7 +1013,9 @@ def main():
         logger.error("Configuration validation failed. Check your .env file.")
         sys.exit(1)
 
-    if args.auto or args.batch:
+    if story is not None:
+        run_story_mode(args, story)
+    elif args.auto or args.batch:
         run_auto_mode(args)
     else:
         run_interactive_mode(args)

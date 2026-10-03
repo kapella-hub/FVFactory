@@ -236,3 +236,47 @@ def test_auto_mode_passes_tier_and_cap(monkeypatch):
     monkeypatch.setattr(main, "run_pipeline", lambda **kw: seen.update(kw))
     main.run_auto_mode(parse_args(["--auto", "--topic", "Gold", "--tier", "custom", "--max-cost", "3"]))
     assert (seen["quality_tier"], seen["max_cost"]) == ("custom", 3.0)
+
+
+def test_story_flags():
+    args = parse_args(["--story-file", "story.txt", "--story-mode", "adapt", "--title", "My story"])
+    assert (args.story_file, args.story_mode, args.title) == ("story.txt", "adapt", "My story")
+    args = parse_args([])
+    assert (args.story_file, args.story_mode, args.title) == (None, None, None)
+    import pytest
+    with pytest.raises(SystemExit):
+        parse_args(["--story-mode", "remix"])
+
+
+def test_main_story_file_runs_one_story_video(monkeypatch, tmp_path):
+    import sys
+    import pytest
+    import main
+    story = tmp_path / "story.txt"
+    story.write_bytes("﻿The bottle washed up.\r\nIt held a map.".encode("utf-8"))
+    seen = {}
+    monkeypatch.setattr(main, "validate_config", lambda **kw: True)
+    monkeypatch.setattr(main, "run_pipeline", lambda **kw: seen.update(kw) or "out/final.mp4")
+    monkeypatch.setattr(sys, "argv", ["main.py", "--story-file", str(story), "--title", "Bottle",
+                                      "--mock", "--pacing", "fast"])
+    main.main()
+    assert seen["story"] == "The bottle washed up.\r\nIt held a map."
+    assert seen["story_mode"] is None and seen["topic"] == "Bottle"
+    assert seen["use_mock_images"] is True and seen["pacing"] == "fast"
+
+
+def test_main_story_file_errors_exit_before_config_validation(monkeypatch, tmp_path):
+    import sys
+    import pytest
+    import main
+    monkeypatch.setattr(main, "validate_config", lambda **kw: (_ for _ in ()).throw(AssertionError("validated")))
+    for content in (None, "   ", "x" * 4001):
+        path = tmp_path / "s.txt"
+        if content is None:
+            path = tmp_path / "missing.txt"
+        else:
+            path.write_text(content, encoding="utf-8")
+        monkeypatch.setattr(sys, "argv", ["main.py", "--story-file", str(path)])
+        with pytest.raises(SystemExit) as exit_info:
+            main.main()
+        assert exit_info.value.code == 1

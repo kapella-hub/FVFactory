@@ -109,6 +109,7 @@ class FVScheduler:
             topic = config.get("topic", "")
             niche = config.get("niche", "")
             voice = resolve_voice(config.get("voice", "auto"), niche)
+            source = "topic" if topic else "auto"          # run_report.json script.source
 
             if not topic:
                 from app.trend_scout import TrendScout
@@ -116,7 +117,7 @@ class FVScheduler:
                 topics = scout.discover_topics(niche=niche, count=1)
                 topic = topics[0].title if topics else "Interesting facts"
 
-            result = run_pipeline(topic=topic, voice=voice, **options)
+            result = run_pipeline(topic=topic, voice=voice, source=source, **options)
 
             finished = datetime.now(timezone.utc).isoformat()
             conn.execute(
