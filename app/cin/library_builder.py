@@ -7,7 +7,6 @@ Prices: https://elevenlabs.io/pricing/api (Music $0.15/min, Sound Effects $0.12/
 Never imported by the render path. Tests always inject `post`."""
 from __future__ import annotations
 
-import logging
 import os
 import time
 from dataclasses import dataclass
@@ -18,8 +17,6 @@ import requests
 
 from app.cin.music_library import GENERATED_DIR, MOODS, MUSIC_EXTENSIONS
 from app.config import settings
-
-logger = logging.getLogger(__name__)
 
 API_ROOT = "https://api.elevenlabs.io/v1"
 MUSIC_URL = f"{API_ROOT}/music"
@@ -137,6 +134,19 @@ def _detail(resp) -> str:
     return text.strip()[:300]
 
 
+def _looks_like_audio(resp) -> bool:
+    """True if the 200 body is audio: audio/* Content-Type, or an MP3 (ID3 tag / MPEG frame sync)."""
+    ctype = ""
+    try:
+        ctype = str((getattr(resp, "headers", None) or {}).get("Content-Type", "")).lower()
+    except Exception:  # noqa: BLE001
+        pass
+    if ctype.startswith("audio/"):
+        return True
+    b = resp.content[:2]
+    return resp.content[:3] == b"ID3" or (len(b) == 2 and b[0] == 0xFF and (b[1] & 0xE0) == 0xE0)
+
+
 def fetch_item(item: LibraryItem, api_key: str, *, post: Optional[Callable] = None,
                sleep: Optional[Callable] = None) -> None:
     """Download one item to item.path via a .part file. Raises LibraryAccessError on 401/402/403,
@@ -152,6 +162,9 @@ def fetch_item(item: LibraryItem, api_key: str, *, post: Optional[Callable] = No
         except requests.RequestException as e:
             last = f"network error: {type(e).__name__}"
         else:
+            if resp.status_code == 200 and resp.content and not _looks_like_audio(resp):
+                last = f"HTTP 200 but the body is not audio: {_detail(resp) or 'unexpected content'}"
+                break                       # a retry would just be billed again
             if resp.status_code == 200 and resp.content:
                 item.path.parent.mkdir(parents=True, exist_ok=True)
                 part = item.path.with_name(item.path.name + ".part")

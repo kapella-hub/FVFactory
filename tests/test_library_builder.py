@@ -56,6 +56,7 @@ def test_music_build_requests_estimate_and_files(env):
     assert body["music_length_ms"] == 60000 and body["force_instrumental"] is True
     assert body["model_id"] == "music_v1" and "no vocals" in body["prompt"]
     assert kw["headers"]["xi-api-key"] == FAKE_KEY
+    assert calls[0][1]["timeout"] == 300
     assert (env / "music" / "epic" / "generated" / "epic_05.mp3").read_bytes() == b"ID3fake-audio"
     assert not list((env / "music").rglob("*.part"))
     assert all(FAKE_KEY not in line for line in lines)
@@ -98,7 +99,7 @@ def test_plan_or_permission_refusal_stops_with_clear_message(env):
 
 
 def test_rate_limit_retries_and_bad_prompt_continues(env):
-    post, calls = recorder([Resp(429, text="busy"), Resp(200, b"ok"),
+    post, calls = recorder([Resp(429, text="busy"), Resp(200, b"ID3ok"),
                             Resp(422, js={"detail": [{"msg": "prompt rejected"}]})])
     sleeps, lines = [], []
     code = lb.build_music_library(per_mood=3, moods=["chill"], yes=True, post=post,
@@ -140,3 +141,24 @@ def test_default_post_resolves_requests_at_call_time(env):
     """The env fixture patched requests.post; a builder call without `post` must hit the patch."""
     with pytest.raises(AssertionError, match="real network call"):
         lb.fetch_item(lb.plan_sfx_items(settings.sfx_dir)[0][0], FAKE_KEY, sleep=lambda s: None)
+
+
+def test_non_audio_200_is_not_saved(env):
+    bad = Resp(200, b'{"detail":"x"}', js={"detail": "quota exceeded"})
+    bad.headers = {"Content-Type": "application/json"}
+    post, calls = recorder([bad])
+    lines = []
+    code = lb.build_music_library(per_mood=1, moods=["epic"], yes=True, post=post,
+                                  sleep=lambda s: None, out=lines.append)
+    assert code == 1 and len(calls) == 1
+    assert any("not audio" in line and "quota exceeded" in line for line in lines)
+    assert not list((env / "music").rglob("*.mp3")) and not list((env / "music").rglob("*.part"))
+
+
+def test_audio_detection_by_header_or_magic(env):
+    ok_hdr = Resp(200, bytes([0, 1]) + b"raw")
+    ok_hdr.headers = {"Content-Type": "audio/mpeg"}
+    sync = Resp(200, bytes([0xFF, 0xFB]) + b"data")
+    post, _ = recorder([ok_hdr, sync])
+    assert lb.build_music_library(per_mood=2, moods=["dark"], yes=True, post=post,
+                                  sleep=lambda s: None, out=lambda s: None) == 0
