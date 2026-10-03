@@ -60,3 +60,18 @@ def test_empty_motion_prompts_all_generic():
 def test_pacing_hints_padded_only_when_present():
     assert normalize_prompt_counts(make(hints=3))[0].pacing_hints == ["fast"] * 3 + ["normal"] * 3
     assert normalize_prompt_counts(make(hints=0))[0].pacing_hints == []
+
+
+def test_scene_roles_padded_with_body_only_when_present():
+    script = make().model_copy(update={"scene_roles": ["hook", "open_loop", "body", "rehook"]})
+    out, change = normalize_prompt_counts(script)
+    assert out.scene_roles == ["hook", "open_loop", "body", "rehook", "body", "body"]
+    assert change["before"]["scene_roles"] == 4 and change["after"]["scene_roles"] == 6
+    assert normalize_prompt_counts(make())[0].scene_roles == []
+
+
+def test_extra_scene_roles_merge_like_scene_texts_and_keep_the_last_role():
+    roles = ["hook", "open_loop", "body", "rehook", "body", "body", "payoff", "loop"]
+    script = make(scenes=8).model_copy(update={"scene_roles": roles})
+    out, _ = normalize_prompt_counts(script)
+    assert out.scene_roles == ["hook", "open_loop", "body", "rehook", "body", "loop"]

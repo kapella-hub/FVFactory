@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
 from app.llm import generate_json
+from app.script_quality import DURATION_SECONDS, WordBudget, word_budget
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +21,7 @@ class ScriptOutput(BaseModel):
 
     hook: str = Field(
         ...,
-        description="First 3 seconds, very catchy opening line"
+        description="First spoken sentence: <= 12 words, ~2 seconds"
     )
     body: str = Field(
         ...,
@@ -46,6 +47,10 @@ class ScriptOutput(BaseModel):
     scene_texts: List[str] = Field(default=[], description="Narration text segments, one per image_prompt")
     emoji_subtitles: List[str] = Field(default=[], description="Key phrases with contextual emojis for subtitles")
 
+    # Retention fields (spec 2026-10-03, optional, backward compatible)
+    hook_headline: str = Field(default="", description="<= 6 punchy words for the top band; not the hook sentence")
+    scene_roles: List[str] = Field(default=[], description="One per scene: hook|open_loop|body|rehook|payoff|loop")
+
     @field_validator("image_prompts")
     @classmethod
     def validate_image_prompts_count(cls, v: List[str]) -> List[str]:
@@ -59,16 +64,19 @@ GENERIC_MOTION_PROMPT = "slow cinematic push-in with subtle camera drift"
 
 def _prompt_counts(script: "ScriptOutput") -> dict:
     return {"image_prompts": len(script.image_prompts), "motion_prompts": len(script.motion_prompts),
-            "scene_texts": len(script.scene_texts), "pacing_hints": len(script.pacing_hints)}
+            "scene_texts": len(script.scene_texts), "pacing_hints": len(script.pacing_hints),
+            "scene_roles": len(script.scene_roles)}
 
 
 def normalize_prompt_counts(script: "ScriptOutput") -> Tuple["ScriptOutput", Optional[dict]]:
-    """Make image_prompts / motion_prompts / scene_texts / pacing_hints the same length (spec §10).
+    """Make image_prompts / motion_prompts / scene_texts / pacing_hints / scene_roles the same length (spec §10; scene_roles: spec 2026-10-03 §5.3).
 
     Runs right after the LLM call, before any paid generation. The scene count is the number of
     image prompts, or fewer scene_texts if the LLM returned fewer. Extra scene_texts are merged into
     the last scene (not dropped) so the scenes still join back to the narration for alignment.
-    Missing motion prompts get GENERIC_MOTION_PROMPT. model_copy(update=...) skips validation on
+    Missing motion prompts get GENERIC_MOTION_PROMPT. scene_roles, when present, are padded with "body" or
+    merged like scene_texts (the merged last scene keeps the last role); validity is checked later by
+    app.script_quality.check_roles. model_copy(update=...) skips validation on
     purpose: truncating to fewer than five scenes is allowed here.
     Returns (script, None) when nothing changed, else (new_script, {"before", "after"}).
     """
@@ -83,14 +91,26 @@ def normalize_prompt_counts(script: "ScriptOutput") -> Tuple["ScriptOutput", Opt
     hints = list(script.pacing_hints)
     if hints:
         hints = hints[:n] + ["normal"] * max(0, n - len(hints))
+    roles = list(script.scene_roles)
+    if len(roles) > n:      # same merge rule as scene_texts: the merged last scene keeps the last role
+        roles = roles[:max(n - 1, 0)] + roles[-1:] if n else []
+    elif roles:
+        roles += ["body"] * (n - len(roles))
     new = script.model_copy(update={"image_prompts": list(script.image_prompts[:n]),
                                     "motion_prompts": motion, "scene_texts": scenes,
-                                    "pacing_hints": hints})
+                                    "pacing_hints": hints, "scene_roles": roles})
     before, after = _prompt_counts(script), _prompt_counts(new)
     if before == after:
         return script, None
     logger.warning("Normalized prompt counts %s -> %s", before, after)
     return new, {"before": before, "after": after}
+
+
+def duration_guide(budget: WordBudget) -> str:
+    """The DURATION line of the user prompt, generated from the word budget so the two never drift."""
+    return (f"{budget.preset.upper()}: about {budget.seconds} seconds of narration. hook + body together must be "
+            f"{budget.target} words (anything from {budget.lo} to {budget.hi} words is fine). "
+            f"Use {budget.scenes[0]}-{budget.scenes[1]} scenes, one idea per scene.")
 
 
 class ScriptGeneratorError(Exception):
@@ -101,18 +121,32 @@ class ScriptGeneratorError(Exception):
 class ScriptGenerator:
     """Generates viral TikTok/Shorts scripts using OpenAI GPT-4o"""
 
-    BASE_SYSTEM_PROMPT = """You are a viral TikTok content creator and scriptwriter.
-Your scripts are engaging, punchy, and optimized for short-form video.
+    BASE_SYSTEM_PROMPT = """You write scripts for short vertical videos (TikTok, YouTube Shorts, Reels).
+Your one job: keep a scrolling viewer watching to the last second, then make the replay feel seamless.
 
 You MUST respond with a valid JSON object containing:
-- "hook": A catchy opening line for the first 3 seconds that stops scrollers
-- "body": The main content. Length should match the topic — say what needs to be said, then stop. Target 30-90 seconds of reading time (the full video including hook should be 30s minimum, 90s maximum). Short punchy topics can be 30-45s. Deep explanations can go up to 90s. Never pad with filler.
-- "image_prompts": Visual scene descriptions for AI image generation. Use as many as the content needs — typically 5-14 scenes. Shorter videos need fewer scenes (5-7), longer ones need more (10-14). Each scene should last 3-8 seconds of narration.
+- "hook": The first spoken sentence. 12 words or fewer, about 2 seconds out loud.
+- "body": Everything spoken after the hook. hook + body is the whole narration; the DURATION section says how many words it must be.
+- "hook_headline": 2 to 6 punchy words shown on screen while the hook plays. Do NOT repeat the hook sentence; add the number or the stakes. Example: hook "This watch costs more than your house." -> hook_headline "$2M FOR A WATCH?"
+- "image_prompts": One visual description per scene. The DURATION section says how many scenes.
+- "scene_roles": One role per scene, same count as image_prompts, each one of "hook", "open_loop", "body", "rehook", "payoff", "loop". The first is always "hook"; the last is "loop".
 - "keywords": Relevant keywords for metadata and discoverability
 
-Make the content sound sophisticated and knowledgeable — like a well-read expert sharing insights.
-Use clear, articulate language. Avoid slang or overly casual phrasing.
-The tone should be authoritative yet accessible, like a documentary narrator or a TED talk.
+STRUCTURE (in this order):
+1. HOOK (scene 1, role "hook"): stop the scroll in under 2 seconds with a contradiction, a specific number, or real stakes. Lead with the most surprising fact, never with a setup.
+   Never open with "In this video", "Have you ever wondered", "Did you know", "Let's talk about", "Imagine", "Today we" or "Welcome".
+2. OPEN LOOP (by about 5 seconds, role "open_loop"): promise a specific payoff and hold it back, e.g. "...and the reason it still works is the strangest part." The viewer must want that answer.
+3. BODY (role "body"): concrete specifics - numbers, names of places and things, cause and effect. One idea per scene; each scene earns the next.
+4. RE-HOOK (40-60% of the way in, role "rehook"): a pattern interrupt that resets attention, e.g. "But here's the part nobody mentions." Then raise the stakes.
+5. PAYOFF (role "payoff"): close the open loop with the answer you promised. Make it specific.
+6. LOOP ENDING (last scene, role "loop"): the last sentence leads straight back into the hook, so the replay sounds like one continuous thought. Either set the hook up ("...and that is why, fifty years later,") or end on a line the hook answers. No goodbye, no "follow for more", no summary.
+
+VOICE:
+- Talk to one person. Use "you" where it fits. Sound like a friend telling you something wild they just found out.
+- Short sentences: 14 words or fewer on average. Plain words a 12-year-old knows.
+- No documentary-narrator or TED-talk voice. No filler, no throat-clearing, no rhetorical windups.
+- Never use these phrases: "in today's world", "let's dive in", "dive into", "buckle up", "game-changer", "mind-blowing", "you won't believe", "the answer may surprise you", "stay tuned", "without further ado", "at the end of the day", "fun fact", "it's important to note", "in conclusion".
+- Every claim must be true and specific.
 
 CRITICAL IMAGE PROMPT RULES:
 - Every image prompt MUST describe a photorealistic scene. NO cartoons, illustrations, vector art, or anime.
@@ -130,8 +164,7 @@ Each image prompt should be detailed enough for an AI to generate a compelling p
     V2_INSTRUCTION = """
 
 ADDITIONAL REQUIRED FIELDS:
-- "hook_variants": 3 alternative hook options (list of strings)
-- "hook_viral_score": Rate the main hook 1-10 on scroll-stopping potential
+- "hook_variants": 3 alternative hook options (list of strings), each following the HOOK rules
 - "motion_prompts": One camera/motion description per image prompt (same count as image_prompts).
   Each should describe how the camera moves or what animates in the scene.
   Examples: "slow zoom in on the subject, particles floating upward",
@@ -140,9 +173,9 @@ ADDITIONAL REQUIRED FIELDS:
   "normal" for standard pacing, "slow" for emotional moments, "dramatic_pause" for reveals.
 - "scene_texts": Split the full narration (hook + body) into segments, one per image prompt.
   Each segment is the EXACT text that should be spoken while that scene's image is shown.
-  The segments must join together to form the complete narration (hook + body).
+  The segments must join together to form the complete narration (hook + body); the first segment starts with the hook.
   This is CRITICAL for syncing visuals to narration. Example for 3 scenes:
-  ["Did you know the ocean holds secrets?", "First, 80% is unexplored...", "Finally, the deepest point..."]
+  ["The ocean floor is darker than outer space.", "We have mapped less than a quarter of it...", "And the deepest point..."]
 - "emoji_subtitles": 3-5 key phrases from the script with contextual emojis added.
   Example: "Bitcoin crashed 📉😱", "Scientists discovered 🔬🧬"
 """
@@ -188,11 +221,7 @@ DO NOT just mention the character - describe what they are DOING in each scene."
 
         return prompt
 
-    DURATION_GUIDE = {
-        "short": "Keep the video SHORT: 30-45 seconds reading time, 5-7 scenes max. Be concise.",
-        "medium": "Target MEDIUM length: 45-75 seconds reading time, 8-10 scenes.",
-        "long": "This should be a LONG deep-dive: 75-90 seconds reading time, 11-14 scenes. Go in depth.",
-    }
+    DURATION_GUIDE = {preset: duration_guide(word_budget(preset)) for preset in DURATION_SECONDS}
 
     STYLE_GUIDE = {
         "photorealistic": (
