@@ -1,6 +1,4 @@
 """Library API endpoints."""
-import json
-import os
 from pathlib import Path
 from fastapi import APIRouter
 from fastapi.responses import FileResponse

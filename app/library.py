@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-_SAFE_ID = re.compile(r"^[A-Za-z0-9_.\- ]+$")
+_SAFE_ID = re.compile(r"[A-Za-z0-9_.\- ]+")
 
 
 def _entry(output_dir: Path, video_id: str, mp4: Path) -> dict:
@@ -41,7 +41,7 @@ def find_videos(output_dir: Path) -> list[dict]:
 
 
 def resolve_video(output_dir: Path, video_id: str) -> Optional[Path]:
-    if not _SAFE_ID.match(video_id) or ".." in video_id:
+    if not _SAFE_ID.fullmatch(video_id) or ".." in video_id:
         return None
     output_dir = Path(output_dir)
     for candidate in (output_dir / video_id / "final.mp4", output_dir / f"{video_id}.mp4"):

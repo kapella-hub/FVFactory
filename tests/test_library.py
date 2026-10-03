@@ -52,3 +52,14 @@ def test_resolve_rejects_path_traversal(tmp_path):
 
 def test_missing_output_dir_returns_empty(tmp_path):
     assert find_videos(tmp_path / "nope") == []
+
+
+def test_safe_id_rejects_trailing_newline_directly():
+    from app.library import _SAFE_ID
+    assert _SAFE_ID.fullmatch("abc") and not _SAFE_ID.fullmatch("abc\n")
+
+
+def test_resolve_rejects_trailing_newline(tmp_path):
+    _touch(tmp_path / "abc" / "final.mp4")
+    assert resolve_video(tmp_path, "abc") is not None
+    assert resolve_video(tmp_path, "abc\n") is None
