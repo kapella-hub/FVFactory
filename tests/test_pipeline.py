@@ -13,7 +13,7 @@ import main
 from app.asset_manager import AssetManager, AudioResult
 from app.cin.clip_sourcing import StrictModeError
 from app.cin.renderer import RenderError
-from app.config import settings
+from app.config import Settings, settings
 from app.content_engine import ScriptOutput
 from tests.conftest import make_tone
 
@@ -32,6 +32,14 @@ def offline(monkeypatch, tmp_path, gold):
     monkeypatch.setattr(settings, "enable_sfx", False)
     monkeypatch.setattr(settings, "motion_provider", "fal")
     monkeypatch.setattr(settings, "fal_video_model", "hailuo")
+    monkeypatch.setattr(settings, "quality_tier", "custom")        # = fal_video_model (hailuo)
+    monkeypatch.setattr(settings, "max_cost_per_video", 0.0)
+    monkeypatch.setattr(settings, "llm_provider", "claude_cli")
+    monkeypatch.setattr(settings, "clip_pricing", Settings(_env_file=None).clip_pricing)
+    monkeypatch.setattr(settings, "cost_flux_image", 0.03)
+    monkeypatch.setattr(settings, "cost_elevenlabs_per_1k_chars", 0.01)
+    monkeypatch.setattr(settings, "cost_openai_gpt4o", 0.005)
+    monkeypatch.setattr(settings, "cost_claude_cli", 0.0)
     monkeypatch.setattr(settings, "elevenlabs_api_key", "")
     monkeypatch.setattr(settings, "openai_api_key", "")
     monkeypatch.setattr(requests, "get", no_network)
@@ -389,3 +397,175 @@ def test_no_headline_warning_when_subtitles_are_off(offline, monkeypatch):
     main.run_pipeline("Gold facts", use_mock_images=True, enable_subtitles=False)
     codes = [w["code"] for w in report_of(only_job(offline.out))["warnings"]]
     assert "hook_headline_fallback" not in codes
+
+
+
+# ---------------------------------------------------------------- quality tiers (spec 2026-10-03 §8)
+# Gold fixture: 24 words, 2 scenes, 8.0 s narration (scene 1 starts at 2.32 s).
+
+def _real_images(monkeypatch):
+    """use_mock_images=False (motion on, images priced) but the image files are drawn locally."""
+    original = AssetManager.generate_images
+    monkeypatch.setattr(AssetManager, "generate_images",
+                        lambda self, prompts, use_mock=True, output_dir=None: original(self, prompts, True, output_dir))
+
+
+def _clip_calls(monkeypatch, make=False):
+    """Replace the motion generator. make=True writes a real tiny clip, else every clip fails."""
+    from tests.conftest import make_test_clip
+    calls = []
+
+    def generate_clip(self, image_path, prompt, output_path, duration=None, model_key=None):
+        calls.append((model_key, duration))
+        return str(make_test_clip(output_path, duration)) if make else None
+
+    monkeypatch.setattr("app.motion_gen.MotionGenerator.generate_clip", generate_clip)
+    return calls
+
+
+def test_cap_below_pre_tts_estimate_stops_before_tts(offline, monkeypatch):
+    """hailuo pre_tts: 24 words / 2.6 = 9.23 s -> 2 scenes of 5.1 s -> 2 clips $1.00 + 2 images $0.06."""
+    _real_images(monkeypatch)
+    tts_calls = []
+    monkeypatch.setattr(AssetManager, "generate_audio", lambda *a, **k: tts_calls.append(1))
+    with pytest.raises(main.CostCapError, match="before text-to-speech") as info:
+        main.run_pipeline("Gold facts", max_cost=1.0)
+    job = only_job(offline.out)
+    assert tts_calls == [] and info.value.job_dir == str(job)
+    rep = report_of(job)
+    assert rep["status"] == "failed" and rep["error"].startswith("CostCapError")
+    cap = [w for w in rep["warnings"] if w["code"] == "cost_cap_exceeded"]
+    assert cap == [{"code": "cost_cap_exceeded", "message": cap[0]["message"],
+                    "detail": {"stage": "pre_tts", "estimate": 1.06, "cap": 1.0}}]
+    assert rep["cost"]["estimated"] == {"pre_tts": {
+        "stage": "pre_tts", "clips": 1.0, "images": 0.06, "tts": 0.0, "llm": 0.0, "spent": 0.0,
+        "total": 1.06, "model": "hailuo", "clip_seconds": 12.0}}
+    assert rep["cost"]["cap"] == 1.0
+
+
+def test_cap_between_estimates_stops_before_any_clip(offline, monkeypatch):
+    """pre_tts $1.06 passes a $1.30 cap; the real alignment needs 3 hailuo clips (scene 1 is 6.18 s),
+    so pre_clips is $1.56 and the run stops before the first clip, keeping the job folder."""
+    _real_images(monkeypatch)
+    calls = _clip_calls(monkeypatch)
+    rendered = []
+    monkeypatch.setattr(main, "render_job", lambda *a: rendered.append(1) or fake_render(*a))
+    with pytest.raises(main.CostCapError, match="kept in") as info:
+        main.run_pipeline("Gold facts", max_cost=1.3)
+    job = only_job(offline.out)
+    assert calls == [] and rendered == [] and str(job) in str(info.value)
+    assert (job / "sources/narration.mp3").exists() and (job / "sources/images/scene00.png").exists()
+    rep = report_of(job)
+    assert rep["status"] == "failed"
+    assert rep["cost"]["estimated"]["pre_tts"]["total"] == 1.06
+    assert rep["cost"]["estimated"]["pre_clips"] == {
+        "stage": "pre_clips", "clips": 1.5, "images": 0.06, "tts": 0.0, "llm": 0.0, "spent": 0.06,
+        "total": 1.56, "model": "hailuo", "clip_seconds": 18.0}
+    assert [w["detail"]["stage"] for w in rep["warnings"] if w["code"] == "cost_cap_exceeded"] == ["pre_clips"]
+
+
+def test_cap_equal_to_the_estimate_is_not_exceeded(offline, monkeypatch):
+    _real_images(monkeypatch)
+    calls = _clip_calls(monkeypatch)                 # every clip fails -> still fallback, not strict
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", max_cost=1.56)
+    rep = report_of(only_job(offline.out))
+    assert rep["status"] == "ok" and len(calls) == 6          # 3 segments x (try + retry)
+    assert "cost_cap_exceeded" not in [w["code"] for w in rep["warnings"]]
+
+
+def test_no_cap_run_logs_exactly_the_pre_clips_estimate(offline, monkeypatch):
+    """Standard tier (Kling v3): scene 0 2.32 s + 0.5 -> 3 s, scene 1 5.68 s + 0.5 -> 7 s = 10 s x $0.084.
+    OpenAI LLM with a failed revision = 2 calls; ElevenLabs TTS = 1 unit. Every clip succeeds."""
+    monkeypatch.setattr(settings, "quality_tier", "standard")
+    monkeypatch.setattr(settings, "llm_provider", "openai")
+    monkeypatch.setattr(settings, "elevenlabs_api_key", "x")
+    _real_images(monkeypatch)
+    calls = _clip_calls(monkeypatch, make=True)
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts")
+    rep = report_of(only_job(offline.out))
+    assert rep["status"] == "ok" and sorted(calls) == [("kling", 3.0), ("kling", 7.0)]
+    est = rep["cost"]["estimated"]
+    assert set(est) == {"pre_tts", "pre_clips"} and rep["cost"]["cap"] == 0.0
+    assert est["pre_clips"] == {"stage": "pre_clips", "clips": 0.84, "images": 0.06, "tts": 0.01, "llm": 0.01,
+                                "spent": 0.08, "total": 0.92, "model": "kling", "clip_seconds": 10.0}
+    assert round(est["pre_clips"]["spent"] + est["pre_clips"]["clips"], 4) == rep["cost"]["total"] == 0.92
+    assert [i["item"] for i in rep["cost"]["actual"]].count("openai_gpt4o") == 2
+    assert rep["options"]["quality_tier"] == "standard" and rep["options"]["clip_model"] == "kling"
+    assert rep["options"]["max_cost"] == 0.0
+
+
+def test_claude_cli_script_is_logged_at_zero(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True)
+    rep = report_of(only_job(offline.out))
+    assert [(i["item"], i["cost"]) for i in rep["cost"]["actual"]] == [("claude_cli", 0.0), ("claude_cli", 0.0)]
+    assert rep["cost"]["total"] == 0.0
+
+
+def test_explicit_tier_with_mock_images_warns_tier_ignored(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True, quality_tier="premium")
+    rep = report_of(only_job(offline.out))
+    assert "tier_ignored" in [w["code"] for w in rep["warnings"]]
+    assert rep["options"]["quality_tier"] == "premium" and rep["options"]["clip_model"] == "kling-pro"
+    assert rep["cost"]["estimated"]["pre_tts"]["clips"] == 0.0
+
+
+def test_settings_default_tier_never_warns(offline, monkeypatch):
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", use_mock_images=True)
+    assert "tier_ignored" not in [w["code"] for w in report_of(only_job(offline.out))["warnings"]]
+
+
+@pytest.mark.parametrize("provider, model", [("local", "local"), ("replicate", "replicate-minimax")])
+def test_tier_has_no_effect_on_local_or_replicate_motion(offline, monkeypatch, provider, model):
+    _real_images(monkeypatch)
+    calls = _clip_calls(monkeypatch)
+    monkeypatch.setattr(settings, "motion_provider", provider)
+    monkeypatch.setattr(main, "render_job", fake_render)
+    main.run_pipeline("Gold facts", quality_tier="premium")
+    rep = report_of(only_job(offline.out))
+    assert rep["options"]["clip_model"] == model and {key for key, _ in calls} == {model}
+    assert "tier_ignored" in [w["code"] for w in rep["warnings"]]
+
+
+def test_classic_run_records_its_model_without_estimates(offline, monkeypatch):
+    def fake_assemble(self, **kwargs):
+        path = self.output_dir / kwargs["output_filename"]
+        path.write_bytes(b"classic")
+        return str(path)
+
+    monkeypatch.setattr(main.VideoEditor, "assemble_video", fake_assemble)
+    main.run_pipeline("Gold facts", use_mock_images=True, classic=True, quality_tier="standard", max_cost=0.01)
+    rep = report_of(only_job(offline.out))
+    assert rep["status"] == "ok" and rep["options"]["clip_model"] == "hailuo"
+    assert rep["cost"]["estimated"] is None and rep["cost"]["cap"] == 0.01
+    assert "tier_ignored" in [w["code"] for w in rep["warnings"]]
+
+
+@pytest.mark.parametrize("kwargs", [{"quality_tier": "gold"}, {"max_cost": -1}, {"max_cost": float("nan")},
+                                    {"max_cost": float("inf")}, {"max_cost": "abc"}, {"max_cost": True}])
+def test_bad_tier_or_cap_rejected_before_any_work(offline, kwargs):
+    with pytest.raises(ValueError):
+        main.run_pipeline("Gold facts", use_mock_images=True, **kwargs)
+    assert not offline.out.exists() or not any(offline.out.iterdir())
+
+
+@pytest.mark.parametrize("model", ["sora", "local"])
+def test_unknown_custom_model_rejected_before_any_work(offline, monkeypatch, model):
+    monkeypatch.setattr(settings, "fal_video_model", model)
+    with pytest.raises(ValueError, match="h3-turbo"):
+        main.run_pipeline("Gold facts", quality_tier="custom")
+    assert not offline.out.exists() or not any(offline.out.iterdir())
+
+
+def test_settings_cap_applies_when_no_cap_is_passed(offline, monkeypatch):
+    _real_images(monkeypatch)
+    monkeypatch.setattr(settings, "max_cost_per_video", 0.5)
+    with pytest.raises(main.CostCapError):
+        main.run_pipeline("Gold facts")
+    assert report_of(only_job(offline.out))["cost"]["cap"] == 0.5
+    with pytest.raises(main.CostCapError):
+        main.run_pipeline("Gold facts", max_cost=None)

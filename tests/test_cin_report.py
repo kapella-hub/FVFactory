@@ -90,3 +90,10 @@ def test_script_section_round_trips_and_old_reports_load_empty(tmp_path):
 def test_script_warning_codes_registered():
     from app.cin.report import WARNING_CODES
     assert {"script_length_off_target", "scene_roles_derived", "hook_headline_fallback"} <= set(WARNING_CODES)
+
+
+def test_quality_tier_warning_codes_registered_and_never_carried():
+    from app.cin.editor import _CARRIED_WARNINGS
+    from app.cin.report import WARNING_CODES
+    assert {"cost_cap_exceeded", "tier_ignored"} <= set(WARNING_CODES)
+    assert not {"cost_cap_exceeded", "tier_ignored"} & set(_CARRIED_WARNINGS)
