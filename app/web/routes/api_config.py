@@ -2,8 +2,9 @@
 import json
 import logging
 from pathlib import Path
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from app.config import settings
+from app.run_options import OptionError, apply_settings_updates, clean_settings_updates, load_config_file
 
 router = APIRouter()
 CONFIG_PATH = Path("data/config.json")
@@ -11,14 +12,12 @@ logger = logging.getLogger(__name__)
 
 
 def _load_config() -> dict:
-    if CONFIG_PATH.exists():
-        return json.loads(CONFIG_PATH.read_text())
-    return {}
+    return load_config_file(CONFIG_PATH)      # missing / corrupt file = empty config, never a 500
 
 
 def _save_config(config: dict):
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(json.dumps(config, indent=2))
+    CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
 
 
 @router.get("/config")
@@ -39,6 +38,9 @@ async def get_config():
         "video_duration": settings.video_duration,
         "subtitle_style": settings.subtitle_style,
         "cinematic_enabled": settings.cinematic_enabled,
+        "pacing": settings.pacing,
+        "music_source": settings.music_source,
+        "strict": settings.strict,
         "enable_motion": settings.enable_motion,
         "enable_sfx": settings.enable_sfx,
         "music_enabled": settings.music_enabled,
@@ -57,12 +59,14 @@ async def get_config():
 
 @router.put("/config")
 async def update_config(updates: dict):
+    try:
+        updates = clean_settings_updates(updates)      # pydantic-settings does not validate setattr
+    except OptionError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     config = _load_config()
     config.update(updates)
     _save_config(config)
-    for key, value in updates.items():
-        if hasattr(settings, key):
-            setattr(settings, key, value)
+    apply_settings_updates(settings, updates)
     return {"status": "ok", "config": config}
 
 

@@ -7,10 +7,12 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from app.cin.report import load_summary
+
 _SAFE_ID = re.compile(r"[A-Za-z0-9_.\- ]+")
 
 
-def _entry(output_dir: Path, video_id: str, mp4: Path) -> dict:
+def _entry(output_dir: Path, video_id: str, mp4: Path, report: Optional[Path] = None) -> dict:
     meta_path = output_dir / "metadata" / f"{video_id}.json"
     thumb_path = output_dir / "thumbnails" / f"{video_id}.png"
     metadata = None
@@ -20,6 +22,7 @@ def _entry(output_dir: Path, video_id: str, mp4: Path) -> dict:
         except (json.JSONDecodeError, OSError):
             metadata = None
     stat = mp4.stat()
+    summary = load_summary(report) if report is not None else None    # legacy flat files have none
     return {
         "id": video_id,
         "filename": mp4.name,
@@ -28,6 +31,8 @@ def _entry(output_dir: Path, video_id: str, mp4: Path) -> dict:
         "size_mb": round(stat.st_size / 1024 / 1024, 1),
         "has_thumbnail": thumb_path.exists(),
         "metadata": metadata,
+        "status": summary["status"] if summary else None,
+        "warnings": summary["warnings"] if summary else [],
     }
 
 
@@ -36,7 +41,8 @@ def find_videos(output_dir: Path) -> list[dict]:
     if not output_dir.exists():
         return []
     entries = [_entry(output_dir, mp4.stem, mp4) for mp4 in output_dir.glob("*.mp4")]
-    entries += [_entry(output_dir, final.parent.name, final) for final in output_dir.glob("*/final.mp4")]
+    entries += [_entry(output_dir, final.parent.name, final, final.parent / "run_report.json")
+                for final in output_dir.glob("*/final.mp4")]
     return sorted(entries, key=lambda e: e["created"], reverse=True)
 
 

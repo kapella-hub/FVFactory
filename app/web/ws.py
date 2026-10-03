@@ -45,8 +45,8 @@ class WSManager:
     async def send_complete(self, job_id: str, result: dict | None = None):
         await self.broadcast({"type": "complete", "job_id": job_id, "result": result})
 
-    async def send_error(self, job_id: str, error: str):
-        await self.broadcast({"type": "error", "job_id": job_id, "error": error})
+    async def send_error(self, job_id: str, error: str, result: dict | None = None):
+        await self.broadcast({"type": "error", "job_id": job_id, "error": error, "result": result})
 
 
 ws_manager = WSManager()

@@ -3,6 +3,8 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from app.run_options import OptionError, pipeline_kwargs
+
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
@@ -12,6 +14,16 @@ class JobCreate(BaseModel):
     cron_expression: str
     enabled: bool = True
     config: dict = {}
+
+
+def _check_config(config: dict | None) -> None:
+    """Reject a slot whose options run_pipeline would refuse at run time (HTTP 422)."""
+    if config is None:
+        return
+    try:
+        pipeline_kwargs(config)
+    except OptionError as e:
+        raise HTTPException(status_code=422, detail=str(e))
 
 
 class JobUpdate(BaseModel):
@@ -29,6 +41,7 @@ async def list_jobs():
 
 @router.post("/scheduler/jobs")
 async def create_job(req: JobCreate):
+    _check_config(req.config)
     from app.scheduler import get_scheduler
     return get_scheduler().add_job(req.name, req.cron_expression, req.config, req.enabled)
 
@@ -44,6 +57,7 @@ async def get_job(job_id: str):
 
 @router.put("/scheduler/jobs/{job_id}")
 async def update_job(job_id: str, req: JobUpdate):
+    _check_config(req.config)
     from app.scheduler import get_scheduler
     job = get_scheduler().update_job(job_id, req.model_dump(exclude_none=True))
     if not job:

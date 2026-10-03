@@ -63,3 +63,26 @@ def test_resolve_rejects_trailing_newline(tmp_path):
     _touch(tmp_path / "abc" / "final.mp4")
     assert resolve_video(tmp_path, "abc") is not None
     assert resolve_video(tmp_path, "abc\n") is None
+
+
+def test_job_folder_entries_carry_run_report_warnings(tmp_path):
+    from app.cin.report import RunReport
+    job = tmp_path / "20261003_0900_gold"
+    _touch(job / "final.mp4")
+    report = RunReport(job=job.name, status="ok")
+    report.warn("still_fallback", "scene 2 is a still", {"scene": 2})
+    report.save(job / "run_report.json")
+    _touch(tmp_path / "legacy.mp4")
+    by_id = {v["id"]: v for v in find_videos(tmp_path)}
+    assert by_id[job.name]["status"] == "ok"
+    assert [w["code"] for w in by_id[job.name]["warnings"]] == ["still_fallback"]
+    assert by_id["legacy"]["warnings"] == [] and by_id["legacy"]["status"] is None
+
+
+def test_missing_or_corrupt_report_never_breaks_the_listing(tmp_path):
+    _touch(tmp_path / "a" / "final.mp4")                      # no run_report.json
+    _touch(tmp_path / "b" / "final.mp4")
+    (tmp_path / "b" / "run_report.json").write_bytes(b"{truncated")
+    videos = {v["id"]: v for v in find_videos(tmp_path)}
+    assert videos["a"]["status"] == "unknown" and videos["a"]["warnings"] == []
+    assert videos["b"]["status"] == "unknown" and videos["b"]["warnings"] == []

@@ -21,6 +21,13 @@ DATA_DIR = Path("data")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     DATA_DIR.mkdir(exist_ok=True)
+    # Settings-page values survive a restart (before Phase D they were applied in-process only).
+    from app.config import settings
+    from app.run_options import apply_saved_settings, load_config_file
+    from app.web.routes.api_config import CONFIG_PATH
+    applied = apply_saved_settings(settings, load_config_file(CONFIG_PATH))
+    if applied:
+        logger.info("Applied saved settings from %s: %s", CONFIG_PATH, ", ".join(sorted(applied)))
     logger.info("FVFactory server starting...")
     yield
     logger.info("FVFactory server shutting down...")
