@@ -122,3 +122,19 @@ def test_headline_does_not_split_after_abbreviations():
     assert hook_headline_text("Born in the U.S. he moved. Later he left.") == "Born in the U.S. he moved"
     assert hook_headline_text("A. Lange built it. Then more.") == "A. Lange built it"
     assert hook_headline_text("Rolex was founded. It grew.") == "Rolex was founded"
+
+
+def test_script_headline_field_wins_over_the_hook_sentence():
+    hook = "This watch costs more than your house."
+    assert make_hook_headline(hook, 40.0, headline="$2M FOR A WATCH?") == \
+        {"text": "$2M FOR A WATCH?", "t0": 0.0, "t1": 2.5}
+    assert make_hook_headline(hook, 40.0, headline="  Worth   more  than a house. ")["text"] == \
+        "Worth more than a house"
+
+
+def test_unusable_script_headline_falls_back_to_the_hook():
+    hook = "Gold is heavy."
+    assert make_hook_headline(hook, 40.0, headline="")["text"] == "Gold is heavy"
+    assert make_hook_headline(hook, 40.0, headline=None)["text"] == "Gold is heavy"
+    assert make_hook_headline(hook, 40.0, headline="one two three four five six seven")["text"] == "Gold is heavy"
+    assert make_hook_headline("a b c d e f g h i", 40.0, headline="...") is None

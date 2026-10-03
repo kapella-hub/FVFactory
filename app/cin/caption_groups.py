@@ -16,6 +16,7 @@ MAX_WORDS = 3
 GAP_BREAK = 0.25                 # spec §7: break at gaps > 0.25 s
 HOOK_MAX_WORDS = 8               # spec §7: headline only if the hook's first sentence is <= 8 words
 HOOK_SECONDS = 2.5               # spec §7: headline shown for [0, 2.5 s]
+HEADLINE_MAX_WORDS = 6           # spec 2026-10-03 §8: the script's own hook_headline field
 _EPS = 1e-6
 NUMBER_WORDS = frozenset({
     "hundred", "thousand", "million", "billion", "trillion", "percent", "%",
@@ -125,9 +126,19 @@ def hook_headline_text(hook: Optional[str]) -> Optional[str]:
     return first.rstrip(".…").strip() or None
 
 
-def make_hook_headline(hook: Optional[str], duration: float) -> Optional[dict]:
-    """shot_plan.json "hook_headline" value (spec §6.6), or None when the hook is too long."""
-    text = hook_headline_text(hook)
+def script_headline_text(headline: Optional[str]) -> Optional[str]:
+    """The script's hook_headline if it is 1..HEADLINE_MAX_WORDS words, else None.
+    Same trailing-punctuation rule as hook_headline_text."""
+    text = " ".join((headline or "").split()).rstrip(".…").strip()
+    if not text or len(text.split()) > HEADLINE_MAX_WORDS:
+        return None
+    return text
+
+
+def make_hook_headline(hook: Optional[str], duration: float, headline: Optional[str] = None) -> Optional[dict]:
+    """shot_plan.json "hook_headline" value (spec §6.6): the script's headline field when usable,
+    else the hook's first sentence (<= HOOK_MAX_WORDS words), else None."""
+    text = script_headline_text(headline) or hook_headline_text(hook)
     if text is None:
         return None
     return {"text": text, "t0": 0.0, "t1": round(min(HOOK_SECONDS, duration), 3)}

@@ -222,8 +222,10 @@ def rebuild_plan(job: JobPaths, pacing: str, enable_motion: bool = True) -> Shot
     """Same scenes and clips, new cuts: --pacing only changes cuts within scenes (spec §9.3)."""
     alignment = Alignment.from_json(json.loads(job.alignment.read_text(encoding="utf-8")))
     old = ShotPlan.load(job.shot_plan)
-    plan = build_shot_plan(alignment, pacing, clip_specs_from_plan(old, job, enable_motion))
-    plan.hook_headline = old.hook_headline        # set from script.hook at generation; not in alignment.json
+    roles = [s.role for s in old.scenes]           # script beats; all None for plans made before them
+    plan = build_shot_plan(alignment, pacing, clip_specs_from_plan(old, job, enable_motion),
+                           roles=roles if any(roles) else None)
+    plan.hook_headline = old.hook_headline        # set from the script at generation; not in alignment.json
     plan.music = old.music          # same track unless --music-source asks for a new one (spec §9.3)
     if alignment.fallback:          # re-derived from alignment.json, never carried from the old report
         plan.warnings.append({

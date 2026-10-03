@@ -222,3 +222,56 @@ def test_save_permission_error_propagates_without_tmp(tmp_path, monkeypatch):
     with pytest.raises(PermissionError):
         plan.save(tmp_path / "shot_plan.json")
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+# ------------------------------------------------------------------ script beats (spec 2026-10-03 §8)
+
+def styled(plan):
+    return [(s.scene, s.transition_in) for s in plan.shots if s.transition_in != "cut"]
+
+
+def test_transitions_follow_beat_roles_not_pauses():
+    a = _synthetic([0.9, 0.2, 0.6, 0.4])       # pauses alone would pick scenes 1, 3, 4
+    roles = ["hook", "open_loop", "rehook", "payoff", "loop"]
+    plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, None)), roles=roles)
+    assert styled(plan) == [(2, "flash"), (3, "zoom_through"), (4, "whip_pan")]
+    assert [s.role for s in plan.scenes] == roles
+
+
+def test_beat_priority_is_rehook_then_payoff_then_loop():
+    a = _synthetic([0.3, 0.3, 0.3, 0.3, 0.3])
+    roles = ["hook", "rehook", "loop", "rehook", "payoff", "loop"]
+    plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, None)), roles=roles)
+    assert [sc for sc, _ in styled(plan)] == [1, 3, 4]       # both rehooks, then payoff; loops lose
+
+
+def test_roles_without_beat_scenes_give_no_styled_transitions():
+    a = _synthetic([0.9, 0.2, 0.6, 0.4])
+    plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, None)), roles=["hook"] + ["body"] * 4)
+    assert styled(plan) == []                   # roles present: no fallback to pauses
+
+
+def test_no_roles_keeps_the_pause_heuristic():
+    a = _synthetic([0.9, 0.2, 0.6, 0.4])
+    for roles in (None, []):
+        plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, None)), roles=roles)
+        assert styled(plan) == [(1, "flash"), (3, "zoom_through"), (4, "whip_pan")]
+        assert all(s.role is None for s in plan.scenes)
+
+
+def test_fewer_roles_than_scenes_leave_the_rest_unset():
+    a = _synthetic([0.5, 0.5, 0.5, 0.5])
+    plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, None)), roles=["hook", "rehook"])
+    assert [s.role for s in plan.scenes] == ["hook", "rehook", None, None, None]
+    assert styled(plan) == [(1, "flash")]
+
+
+def test_roles_round_trip_and_legacy_plans_load_with_role_none(tmp_path):
+    a = _synthetic([0.5, 0.5])
+    plan = build_shot_plan(a, "standard", specs_for(plan_segments(a, None)), roles=["hook", "rehook", "loop"])
+    plan.save(tmp_path / "shot_plan.json")
+    loaded = ShotPlan.load(tmp_path / "shot_plan.json")
+    assert [s.role for s in loaded.scenes] == ["hook", "rehook", "loop"]
+    legacy = build_shot_plan(a, "standard", specs_for(plan_segments(a, None))).to_json()
+    assert all("role" not in s for s in legacy["scenes"])            # old schema, byte-identical
+    assert [s.role for s in ShotPlan.from_json(legacy).scenes] == [None, None, None]

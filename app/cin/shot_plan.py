@@ -31,6 +31,7 @@ FRAMINGS = (1.0, 1.18)       # spec §6.3: full frame / punch-in
 TRANSITION_LEN = 0.3         # spec §6.5
 MAX_TRANSITIONS = 3
 TRANSITION_CYCLE = ("flash", "zoom_through", "whip_pan")
+TRANSITION_ROLES = ("rehook", "payoff", "loop")   # spec 2026-10-03 §8: beat scenes, in priority order
 STILL_MOVE = "push_in"
 MIN_PIECE = 0.25             # never emit a footage/still sliver shorter than this
 # When gap positions make [min, max] infeasible for a segment longer than max, relax the bounds
@@ -100,10 +101,14 @@ class Scene:
     t1: float
     text: str
     segments: list = field(default_factory=list)
+    role: Optional[str] = None        # script beat (spec 2026-10-03 §8); None in plans made before it
 
     def to_json(self) -> dict:
-        return {"index": self.index, "t0": round(self.t0, 3), "t1": round(self.t1, 3),
-                "text": self.text, "segments": [s.to_json() for s in self.segments]}
+        d = {"index": self.index, "t0": round(self.t0, 3), "t1": round(self.t1, 3),
+             "text": self.text, "segments": [s.to_json() for s in self.segments]}
+        if self.role is not None:     # omitted when unknown, so legacy plans round-trip byte-identical
+            d["role"] = self.role
+        return d
 
 
 @dataclass
@@ -172,7 +177,7 @@ class ShotPlan:
     def from_json(cls, d: dict) -> "ShotPlan":
         scenes = [Scene(s["index"], s["t0"], s["t1"], s["text"],
                         [Segment(g["t0"], g["t1"], g["clip"], g["requested_len"], g["start_image"])
-                         for g in s["segments"]]) for s in d["scenes"]]
+                         for g in s["segments"]], s.get("role")) for s in d["scenes"]]
         shots = []
         for s in d["shots"]:
             src = s["source"]
@@ -336,7 +341,10 @@ def _segment_shots(spec: ClipSpec, bounds: list, warnings: list) -> list:
     return pieces
 
 
-def _pick_transitions(alignment: Alignment, shots: list) -> None:
+def _pick_transitions(alignment: Alignment, shots: list, roles: Optional[dict] = None) -> None:
+    """Up to MAX_TRANSITIONS styled scene boundaries. With roles ({scene index: role}), only scenes whose
+    role is in TRANSITION_ROLES qualify, in that priority order (spec 2026-10-03 §8); without roles, the
+    longest preceding pauses win (spec §6.5). Both need a boundary whose two shots are >= TRANSITION_LEN."""
     toks = alignment.tokens
     first_shot = {}
     for i, s in enumerate(shots):
@@ -348,16 +356,26 @@ def _pick_transitions(alignment: Alignment, shots: list) -> None:
             continue
         pause = toks[sc.first_token].t0 - toks[sc.first_token - 1].t1
         a, b = shots[i - 1], shots[i]
-        if pause > 0 and a.t1 - a.t0 >= TRANSITION_LEN and b.t1 - b.t0 >= TRANSITION_LEN:
+        if a.t1 - a.t0 < TRANSITION_LEN or b.t1 - b.t0 < TRANSITION_LEN:
+            continue
+        if roles:
+            role = roles.get(sc.index)
+            if role in TRANSITION_ROLES:
+                candidates.append((-TRANSITION_ROLES.index(role), -sc.index, i))
+        elif pause > 0:
             candidates.append((pause, -sc.index, i))
     chosen = sorted(i for _, _, i in sorted(candidates, reverse=True)[:MAX_TRANSITIONS])
     for n, i in enumerate(chosen):
         shots[i].transition_in = TRANSITION_CYCLE[n % len(TRANSITION_CYCLE)]
 
 
-def build_shot_plan(alignment: Alignment, pacing: str, clip_specs: list, *, fps: int = FPS) -> ShotPlan:
+def build_shot_plan(alignment: Alignment, pacing: str, clip_specs: list, *, fps: int = FPS,
+                    roles: Optional[list] = None) -> ShotPlan:
+    """roles: one script beat per scene (ScriptOutput.scene_roles), or None for plans without beats.
+    Missing entries (fewer roles than scenes) are None; roles only steer transitions and are saved."""
     if pacing not in PACING:
         raise ValueError(f"Unknown pacing {pacing!r}; choose one of {sorted(PACING)}")
+    role_of = {i: r for i, r in enumerate(roles or []) if r}
     target, lo, hi = PACING[pacing]
     gaps = word_gaps(alignment)
     by_scene = {}
@@ -370,7 +388,8 @@ def build_shot_plan(alignment: Alignment, pacing: str, clip_specs: list, *, fps:
         if not specs:
             raise ValueError(f"No clip spec for scene {sc.index}")
         scenes.append(Scene(sc.index, sc.t0, sc.t1, sc.text,
-                            [Segment(s.t0, s.t1, s.path, s.requested_len, s.start_image) for s in specs]))
+                            [Segment(s.t0, s.t1, s.path, s.requested_len, s.start_image) for s in specs],
+                            role_of.get(sc.index)))
         framing_i = 0
         for spec in specs:
             bounds = [spec.t0] + choose_cuts(spec.t0, spec.t1, gaps, target, lo, hi) + [spec.t1]
@@ -382,7 +401,7 @@ def build_shot_plan(alignment: Alignment, pacing: str, clip_specs: list, *, fps:
     if shots:
         shots[0].t0 = 0.0
         shots[-1].t1 = alignment.duration
-    _pick_transitions(alignment, shots)
+    _pick_transitions(alignment, shots, role_of)
     return ShotPlan(
         duration=alignment.duration, fps=fps, pacing=pacing,
         alignment={"method": alignment.method, "fallback": alignment.fallback,

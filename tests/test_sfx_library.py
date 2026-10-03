@@ -107,3 +107,15 @@ def test_seed_rotates_first_variant_across_jobs():
 def test_seed_is_deterministic_and_empty_seed_keeps_order():
     assert place_sfx(plan3(), POOL, seed="job_a") == place_sfx(plan3(), POOL, seed="job_a")
     assert place_sfx(plan3(), POOL) == place_sfx(plan3(), POOL, seed="")
+
+
+def test_risers_follow_beat_transitions():
+    alignment = fixture_alignment("words_rolex_40s.json")
+    specs = [ClipSpec(s.scene, s.index, s.t0, s.t1, s.requested_len, f"sources/images/scene{s.scene:02d}.png")
+             for s in plan_segments(alignment, None)]
+    roles = ["hook"] + ["body"] * (len(alignment.scenes) - 2) + ["loop"]
+    plan = build_shot_plan(alignment, "standard", specs, roles=roles)
+    [loop_shot] = [s for s in plan.shots if s.transition_in != "cut"]
+    assert loop_shot.scene == len(alignment.scenes) - 1
+    risers = [e for e in place_sfx(plan, POOL) if e["kind"] == "riser"]
+    assert len(risers) == 1 and abs(risers[0]["t"] + 2.5 - loop_shot.t0) < 0.01   # ends at the transition

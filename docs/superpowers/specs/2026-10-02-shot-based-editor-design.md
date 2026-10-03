@@ -147,6 +147,7 @@ Default is a hard cut. Up to 3 scene boundaries get a styled transition (flash, 
 whip pan from `app/cin/transitions.py`), 0.3 s, computed from **moving** frames of both shots
 (overlap of 0.15 s each side). Boundaries are chosen by the longest preceding pause. Sub-project 2
 will replace this heuristic with script beat markers.
+*(Amended 2026-10-03: when the script supplies scene_roles, rehook/payoff/loop scenes get the transitions instead; see 2026-10-03-script-upgrades-design.md §8.)*
 
 ### 6.6 `shot_plan.json` contract
 
@@ -195,6 +196,7 @@ audio (§8) reads `sfx`, `music`, and word timings for ducking.
 - **From frame one:** no suppression window.
 - **Hook headline:** top band y ≈ 250–450 for `[0, 2.5 s]`. Text is the hook's first sentence
   if ≤ 8 words, otherwise omitted (sub-project 2 adds a dedicated field).
+  *(Amended 2026-10-03: the script's hook_headline field (≤ 6 words) is used first; see 2026-10-03-script-upgrades-design.md §8.)*
 - **Rendering:** each group is rasterized once per highlight state and alpha-composited inside
   the frame function, replacing one `ImageClip` per word.
 - Existing presets (`bold_impact`, `clean_minimal`, `neon_glow`, `fire`) keep their colours

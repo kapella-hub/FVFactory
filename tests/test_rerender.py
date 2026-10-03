@@ -215,3 +215,21 @@ def test_rerender_post_render_plan_save_failure_warns(tmp_path, monkeypatch):
     assert rerender_job(job.root) == str(job.final)
     rep = RunReport.load(job.report)
     assert rep.status == "ok" and [w["code"] for w in rep.warnings].count("plan_save_failed") == 1
+
+
+def test_rebuild_plan_keeps_roles_and_beat_transitions(tmp_path):
+    job, alignment, specs = build_gold_job(tmp_path)
+    plan = build_shot_plan(alignment, "standard", specs, roles=["hook", "loop"])
+    plan.save(job.shot_plan)
+    new = rebuild_plan(job, "fast")
+    assert [s.role for s in new.scenes] == ["hook", "loop"]
+    assert [(s.scene, s.transition_in) for s in new.shots if s.transition_in != "cut"] == \
+        [(s.scene, s.transition_in) for s in plan.shots if s.transition_in != "cut"]
+
+
+def test_rebuild_legacy_plan_without_roles_keeps_pause_transitions(tmp_path):
+    job, old = saved_job(tmp_path)                       # saved before roles existed: no "role" keys
+    assert all("role" not in s for s in json.loads(job.shot_plan.read_text(encoding="utf-8"))["scenes"])
+    new = rebuild_plan(job, "standard")
+    assert all(s.role is None for s in new.scenes)
+    assert [s.transition_in for s in new.shots] == [s.transition_in for s in old.shots]
