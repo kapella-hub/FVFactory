@@ -30,7 +30,7 @@ from app.cin.job import create_job, prune_sources
 from app.cin.report import RunReport
 from app.cin.caption_groups import make_hook_headline
 from app.cin.shot_plan import PACING, build_shot_plan, plan_segments
-from app.cin.music_library import MUSIC_SOURCES
+from app.cin.music_library import MOODS, MUSIC_SOURCES
 
 # Configure logging
 logging.basicConfig(
@@ -492,6 +492,21 @@ def list_personas() -> list:
     return animator.get_available_personas()
 
 
+def parse_moods(text: str) -> list:
+    moods = [m.strip().lower() for m in text.split(",") if m.strip()]
+    unknown = [m for m in moods if m not in MOODS]
+    if not moods or unknown:
+        raise argparse.ArgumentTypeError(f"unknown mood(s) {unknown or text!r}; choose from {', '.join(MOODS)}")
+    return moods
+
+
+def _per_mood(text: str) -> int:
+    n = int(text)
+    if not 1 <= n <= 20:
+        raise argparse.ArgumentTypeError("--per-mood must be between 1 and 20")
+    return n
+
+
 def parse_args(argv=None):
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(
@@ -543,6 +558,17 @@ def parse_args(argv=None):
     parser.add_argument("--music-source", choices=list(MUSIC_SOURCES), default=None,
                         help="Music pool: mine, generated, any or none (default: settings.music_source; "
                              "with --rerender: keep the job's track)")
+    parser.add_argument("--build-music-library", action="store_true",
+                        help="Generate ~60 s instrumental tracks per mood via ElevenLabs Music "
+                             "(prints a cost estimate and asks first)")
+    parser.add_argument("--build-sfx-library", action="store_true",
+                        help="Generate whoosh x3, impact x2, riser x2 via ElevenLabs Sound Effects")
+    parser.add_argument("--per-mood", type=_per_mood, default=5,
+                        help="Tracks per mood for --build-music-library (default 5)")
+    parser.add_argument("--moods", type=parse_moods, default=None,
+                        help=f"Comma-separated moods for --build-music-library (default: {','.join(MOODS)})")
+    parser.add_argument("--yes", action="store_true",
+                        help="Skip the cost confirmation prompt of the library builders")
 
     return parser.parse_args(argv)
 
@@ -697,6 +723,17 @@ def run_interactive_mode(args):
 def main():
     """Main entry point for FVFactory."""
     args = parse_args()
+
+    # Library builders need only ELEVENLABS_API_KEY: handle them before validate_config().
+    if args.build_music_library or args.build_sfx_library:
+        from app.cin import library_builder
+        code = 0
+        if args.build_sfx_library:
+            code = max(code, library_builder.build_sfx_library(yes=args.yes))
+        if args.build_music_library:
+            code = max(code, library_builder.build_music_library(per_mood=args.per_mood, moods=args.moods,
+                                                                 yes=args.yes))
+        sys.exit(code)
 
     # Re-render needs no API keys and makes no API calls: handle it before validate_config().
     if args.rerender:

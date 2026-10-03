@@ -144,3 +144,38 @@ def test_music_source_flag():
     assert parse_args(["--rerender", "output/j", "--music-source", "none"]).music_source == "none"
     with pytest.raises(SystemExit):
         parse_args(["--music-source", "spotify"])
+
+
+def test_library_builder_flags():
+    import pytest
+    args = parse_args(["--build-music-library", "--per-mood", "3", "--moods", "epic, dark", "--yes"])
+    assert args.build_music_library is True and args.per_mood == 3
+    assert args.moods == ["epic", "dark"] and args.yes is True
+    d = parse_args([])
+    assert d.build_music_library is False and d.build_sfx_library is False
+    assert d.per_mood == 5 and d.moods is None and d.yes is False
+    for bad in (["--moods", "epic,jazz"], ["--per-mood", "0"], ["--per-mood", "50"]):
+        with pytest.raises(SystemExit):
+            parse_args(bad)
+
+
+def test_main_builders_skip_config_validation(monkeypatch):
+    import sys
+    import pytest
+    import main
+    calls = []
+
+    def must_not_validate(*a, **k):
+        raise AssertionError("validate_config must not run for library builders")
+
+    monkeypatch.setattr(main, "validate_config", must_not_validate)
+    monkeypatch.setattr("app.cin.library_builder.build_sfx_library",
+                        lambda **kw: calls.append(("sfx", kw)) or 0)
+    monkeypatch.setattr("app.cin.library_builder.build_music_library",
+                        lambda **kw: calls.append(("music", kw)) or 1)
+    monkeypatch.setattr(sys, "argv", ["main.py", "--build-sfx-library", "--build-music-library",
+                                      "--moods", "epic", "--per-mood", "2", "--yes"])
+    with pytest.raises(SystemExit) as exit_info:
+        main.main()
+    assert exit_info.value.code == 1                       # worst of the two exit codes
+    assert calls == [("sfx", {"yes": True}), ("music", {"per_mood": 2, "moods": ["epic"], "yes": True})]

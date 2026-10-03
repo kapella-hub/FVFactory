@@ -89,6 +89,14 @@ python main.py --auto --classic              # old Ken Burns editor
 
 # Rebuild a finished job from output/<job>/sources with zero API calls
 python main.py --rerender output/<job> --pacing fast --subtitle-style neon_glow --color-grade tech
+python main.py --rerender output/<job> --music-source generated   # re-pick music from another pool
+
+# Music / SFX (shot editor). Libraries: assets/music/<mood>/ (yours), assets/music/<mood>/generated/,
+# assets/sfx/ (yours: whoosh*, impact*, riser*), assets/sfx/generated/. LRU history: data/music_usage.json
+python main.py --auto --music-source mine    # mine | generated | any (default) | none
+python main.py --build-sfx-library           # ElevenLabs Sound Effects, ~$0.02, asks first
+python main.py --build-music-library --per-mood 5 --moods epic,dark   # ElevenLabs Music, $0.15/track, asks first (--yes skips)
+# The ElevenLabs music API needs a paid ElevenLabs plan (commercial use: Starter or above).
 
 # Run tests
 python -m pytest tests/ -v

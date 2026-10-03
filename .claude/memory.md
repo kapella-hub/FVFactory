@@ -213,3 +213,10 @@ streamlit run app/dashboard.py
 - OWED before first VPS deploy: Linux font check inside the Docker image (Docker daemon was not running on the dev box, so it was skipped). Command:
   docker compose --profile generate run --rm --build generator python -c "from app.fonts import load_font; w=lambda f: f.getbbox('WILSDORF')[2]; t,_=load_font('Montserrat-Variable.ttf',75,100); b,fb=load_font('Montserrat-Variable.ttf',75,800); a,fa=load_font('Anton-Regular.ttf',75); n,fn=load_font('BebasNeue-Regular.ttf',75); print('fallback', fb, fa, fn, 'thin', w(t), 'extrabold', w(b)); assert not (fb or fa or fn) and w(b) - w(t) >= 15"
   Expected: fallback False False False thin 417 extrabold 438 (+-1 px). Windows equivalent already passes (FreeType 2.13.3, axis Weight 100-900).
+
+## Shot editor Phase C - done (2026-10-03)
+
+- Phase C (music/SFX/ducking/voice polish) implemented per docs/superpowers/plans/2026-10-02-shot-based-editor-phase-c.md.
+  Libraries are empty until the user adds tracks or runs the builders (ElevenLabs Music needs a paid plan).
+- New CLI: --music-source, --build-music-library, --build-sfx-library, --per-mood, --moods, --yes (builders run before validate_config; always confirm cost first).
+- Next: Phase D (web/scheduler plumbing for music_source).
