@@ -328,6 +328,9 @@ SOURCE STORY (the user's own material): build the script from this story. Follow
 {story}
 STORY>>>"""
 
+    STORY_NO_INVENT = ("Expand only by elaborating details already in the story; add no new facts, names, "
+                       "numbers or events.")
+
     def _story_block(self, story: str) -> str:
         return self.STORY_SOURCE.format(story=story) if story else ""
 
@@ -355,6 +358,8 @@ STORY>>>"""
         duration = video_duration or settings.video_duration
 
         duration_hint = self.DURATION_GUIDE.get(duration, self.DURATION_GUIDE["medium"])
+        if story:
+            duration_hint += " " + self.STORY_NO_INVENT
         style_hint = self.STYLE_GUIDE.get(style, self.STYLE_GUIDE["photorealistic"])
 
         user_prompt = (
@@ -403,7 +408,8 @@ CURRENT SCRIPT (JSON):
         user_prompt = self.REVISE_PROMPT.format(
             topic=topic, source=self._story_block(story), words=words, target=budget.target, lo=budget.lo, hi=budget.hi, seconds=budget.seconds,
             direction=("Cut filler and merge or drop the weakest scene; keep the specifics." if too_long else
-                       "Add concrete specifics (numbers, names, cause and effect), not filler."),
+                       (self.STORY_NO_INVENT if story else
+                        "Add concrete specifics (numbers, names, cause and effect), not filler.")),
             v2_lists=", motion_prompts, pacing_hints and scene_texts" if enable_v2 else "",
             v2_join=" scene_texts must still join to exactly hook + body." if enable_v2 else "",
             scene_lo=budget.scenes[0], scene_hi=budget.scenes[1],

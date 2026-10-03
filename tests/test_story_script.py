@@ -168,3 +168,38 @@ def test_topic_scripts_have_no_story_block(llm):
 def test_unknown_story_mode_is_rejected(llm):
     with pytest.raises(ValueError):
         ScriptGenerator().write_story_script(STORY, mode="remix")
+
+
+NO_INVENT = "elaborating details already in the story"
+
+
+def _short_draft():
+    return {"hook": "A bottle.", "body": "Map.", "image_prompts": [f"img {i}" for i in range(9)],
+            "keywords": ["sea"], "scene_roles": []}
+
+
+def test_adapt_prompts_never_ask_to_invent_facts(llm):
+    fake = llm(_short_draft(), _short_draft())
+    ScriptGenerator().write_story_script(STORY, mode="adapt", video_duration="medium")
+    draft_prompt, revise_prompt = fake.calls[0]["prompt"], fake.calls[1]["prompt"]
+    assert "Add concrete specifics" not in revise_prompt
+    assert NO_INVENT in revise_prompt and NO_INVENT in draft_prompt
+    assert "no new facts, names, numbers or events" in revise_prompt
+
+
+def test_topic_prompts_are_unchanged_by_the_story_wording(llm):
+    fake = llm(*[_short_draft() for _ in range(4)])
+    gen = ScriptGenerator()
+    gen.generate_script("Rolex", video_duration="medium")
+    assert fake.calls[0]["prompt"] == (
+        "Create a viral TikTok script about: Rolex\n\n"
+        f"DURATION: {gen.DURATION_GUIDE['medium']}\n\n"
+        f"IMAGE STYLE: {gen.STYLE_GUIDE['photorealistic']}")
+    from app.script_quality import word_budget
+    script = gen.generate_script("Rolex", video_duration="medium")
+    gen.revise_length(script, topic="Rolex", words=10, budget=word_budget("medium"))
+    gen.revise_length(script, topic="Rolex", words=999, budget=word_budget("medium"))
+    short, long_ = fake.calls[-2]["prompt"], fake.calls[-1]["prompt"]
+    assert "Add concrete specifics (numbers, names, cause and effect), not filler." in short
+    assert "Cut filler and merge or drop the weakest scene; keep the specifics." in long_
+    assert NO_INVENT not in short + long_ and "SOURCE STORY" not in short

@@ -118,3 +118,11 @@ def test_not_applicable_revision_is_one_llm_call():
     """Verbatim stories make one LLM call; the cost estimate and log must not count a revision."""
     assert llm_calls("not_applicable") == 1
     assert llm_calls("accepted") == 2 and llm_calls("not_needed") == 1
+
+
+def test_full_width_sentence_ends_split_a_japanese_story():
+    story = "昨日、私は海へ行きました。 波がとても高かった！ でも楽しかった？ 帰り道に虹が見えた．"
+    sentences = split_sentences(story)
+    assert len(sentences) == 4 and " ".join(sentences) == story
+    scenes = split_scenes(story, 3)
+    assert len(scenes) > 1 and " ".join(scenes) == story

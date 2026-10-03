@@ -22,8 +22,8 @@ SCENE_SECONDS = 5.0               # target spoken seconds per scene
 MAX_SCENES = 20                   # ScriptOutput.image_prompts allows 5-20; longer stories get longer scenes
 TITLE_WORDS = 8                   # default title = the story's first words
 
-# A token ends a sentence when it ends in . ! ? or an ellipsis, optionally followed by closing quotes/brackets.
-_SENTENCE_END = re.compile(r"(?:[.!?]|…)+[\"'”’)\]]*$")
+# A token ends a sentence when it ends in . ! ? (or their full-width forms) or an ellipsis, optionally followed by closing quotes/brackets.
+_SENTENCE_END = re.compile(r"(?:[.!?。！？．]|…)+[\"'”’)\]]*$")
 _ABBREVIATIONS = frozenset({"mr.", "mrs.", "ms.", "dr.", "st.", "jr.", "sr.", "vs.", "e.g.", "i.e.", "mt.",
                             "prof.", "no.", "approx."})
 _SOFT_BREAK = re.compile(r"[,;:—–]$|^[—–-]+$")     # cut a too-long sentence after these
