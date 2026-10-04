@@ -9,7 +9,7 @@ HOOK = "This watch costs more than your house."        # 7 words
 
 
 def script_data(words, scenes=8, roles=ROLES8, headline="$2M FOR A WATCH?"):
-    return {"hook": HOOK, "body": " ".join(["tick"] * (words - 7)),
+    return {"hook": HOOK, "body": " ".join(["tick"] * (words - 7)) + ".",     # a finished last sentence
             "image_prompts": [f"close-up of a watch part {i}" for i in range(scenes)],
             "motion_prompts": ["slow push-in"] * scenes,
             "keywords": ["watches"], "hook_headline": headline, "scene_roles": list(roles)}
@@ -168,3 +168,36 @@ def test_script_output_coerces_mistyped_retention_fields():
     assert s.scene_roles == [] and s.hook_headline == "" and s.hook_variants == []
     s = ScriptOutput(**base, scene_roles=["hook", None, 3], hook_headline=42)
     assert s.scene_roles == ["hook", "3"] and s.hook_headline == ""
+
+
+
+# --- ending: the video ends when the narration does ---------------------------------------------------
+
+def test_default_prompt_demands_a_complete_closing_sentence(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "loop_ending", False)
+    prompt = ScriptGenerator()._build_system_prompt(video_style="photorealistic")
+    assert "6. ENDING" in prompt and "never end mid-sentence" in prompt
+    assert "leads straight back into the hook" not in prompt          # the old dangling-loop rule is gone
+
+
+def test_loop_ending_setting_keeps_the_replay_trick_but_still_a_finished_sentence(monkeypatch):
+    from app.config import settings
+    monkeypatch.setattr(settings, "loop_ending", True)
+    prompt = ScriptGenerator()._build_system_prompt(video_style="anime")
+    assert "6. LOOP ENDING" in prompt and "Never end mid-sentence" in prompt
+
+
+@pytest.mark.parametrize("tail", ["And that is the story of how", "and that is the story of how...",
+                                  "and that is why…"])
+def test_unfinished_last_sentence_is_flagged(llm, tail):
+    data = script_data(99)
+    data["body"] = " ".join(["tick"] * 85) + " " + tail
+    llm(data)
+    result = ScriptGenerator().write_script("watches", video_duration="medium")
+    assert "script_ending_incomplete" in codes(result)
+
+
+def test_finished_last_sentence_is_not_flagged(llm):
+    llm(script_data(99))
+    assert "script_ending_incomplete" not in codes(ScriptGenerator().write_script("watches", video_duration="medium"))

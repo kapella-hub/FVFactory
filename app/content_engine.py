@@ -133,6 +133,12 @@ def duration_guide(budget: WordBudget) -> str:
             f"Use {budget.scenes[0]}-{budget.scenes[1]} scenes, one idea per scene.")
 
 
+def _unfinished_ending(text: str) -> bool:
+    """True when the narration does not end on a finished sentence (no . ! ? or a trailing ellipsis)."""
+    tail = text.rstrip().rstrip("\"'”’)]")
+    return not tail or tail.endswith(("...", "…")) or tail[-1] not in ".!?"
+
+
 def _warning(code: str, message: str, detail: dict) -> dict:
     return {"code": code, "message": message, "detail": detail}
 
@@ -171,7 +177,7 @@ STRUCTURE (in this order):
 3. BODY (role "body"): concrete specifics - numbers, names of places and things, cause and effect. One idea per scene; each scene earns the next.
 4. RE-HOOK (40-60% of the way in, role "rehook"): a pattern interrupt that resets attention, e.g. "But here's the part nobody mentions." Then raise the stakes.
 5. PAYOFF (role "payoff"): close the open loop with the answer you promised. Make it specific.
-6. LOOP ENDING (last scene, role "loop"): the last sentence leads straight back into the hook, so the replay sounds like one continuous thought. Either set the hook up ("...and that is why, fifty years later,") or end on a line the hook answers. No goodbye, no "follow for more", no summary.
+6. ENDING (last scene, role "loop"): finish with one complete, satisfying closing sentence - a punchline, a callback to the hook, or the final consequence. The video ends when the narration ends, so never end mid-sentence or on a lead-in like "and that is the story of how". No goodbye, no "follow for more", no summary.
 
 VOICE:
 - Talk to one person. Use "you" where it fits. Sound like a friend telling you something wild they just found out.
@@ -246,9 +252,19 @@ Example: for "Bitcoin crashed", a prompt could be:
             prompt += self.V2_INSTRUCTION
         return prompt
 
+    ENDING_RULE = """6. ENDING (last scene, role "loop"): finish with one complete, satisfying closing sentence - a punchline, a callback to the hook, or the final consequence. The video ends when the narration ends, so never end mid-sentence or on a lead-in like "and that is the story of how". No goodbye, no "follow for more", no summary."""
+    # settings.loop_ending: the TikTok replay trick, still as a finished sentence (a dangling lead-in sounded
+    # like the video was cut off).
+    LOOP_ENDING_RULE = (
+        '6. LOOP ENDING (last scene, role "loop"): the last sentence is complete and points back to the hook, so a '
+        'replay feels continuous, e.g. "And it all started in one tiny shop." Never end mid-sentence or on a '
+        'dangling lead-in like "and that is the story of how". No goodbye, no "follow for more", no summary.')
+
     def _styled(self, prompt: str, video_style: str, mascot: bool = False) -> str:
         """Apply the video style to the image rules inside `prompt`, and append the mascot section when this
         run asked for it (run_pipeline resolves the per-video choice; the global is not read here)."""
+        if settings.loop_ending:
+            prompt = prompt.replace(self.ENDING_RULE, self.LOOP_ENDING_RULE)
         # Override the photorealistic-only rule for non-photorealistic styles
         if video_style != "photorealistic" and video_style in self.STYLE_GUIDE:
             style_label = video_style.replace("_", " ").upper()
@@ -475,6 +491,12 @@ CURRENT SCRIPT (JSON):
                 "script_length_off_target",
                 f"Narration is {words} words; target {budget.target} ({budget.lo}-{budget.hi}) for {budget.preset}",
                 {"words": words, "target": budget.target, "range": [budget.lo, budget.hi], "revision": revision}))
+        narration = f"{script.hook} {script.body}".strip()
+        if _unfinished_ending(narration):
+            warnings.append(_warning(
+                "script_ending_incomplete",
+                "The narration's last sentence is unfinished, so the video will sound cut off",
+                {"ending": narration[-80:]}))
         length = {"preset": budget.preset, "target_seconds": budget.seconds, "target_words": budget.target,
                   "word_range": [budget.lo, budget.hi], "draft_words": draft_words, "words": words,
                   "revision": revision}

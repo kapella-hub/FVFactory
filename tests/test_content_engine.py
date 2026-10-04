@@ -63,7 +63,7 @@ def test_script_output_retention_fields_default_empty():
 
 def test_system_prompt_asks_for_retention_structure_and_new_fields():
     prompt = ScriptGenerator()._build_system_prompt(enable_v2=False)
-    for needle in ('"hook_headline"', '"scene_roles"', "OPEN LOOP", "RE-HOOK", "PAYOFF", "LOOP ENDING",
+    for needle in ('"hook_headline"', '"scene_roles"', "OPEN LOOP", "RE-HOOK", "PAYOFF", "6. ENDING",
                    '"In this video"', '"Have you ever wondered"', '"Did you know"', "\"Let's talk about\""):
         assert needle in prompt, needle
     assert "like a documentary narrator or a TED talk" not in prompt   # the old tone instruction is gone

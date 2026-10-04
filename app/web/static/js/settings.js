@@ -171,6 +171,7 @@ const SettingsPage = (() => {
           ${settingToggle('enable_sfx', 'SFX', config.enable_sfx !== false)}
           ${settingToggle('music_enabled', 'Music', config.music_enabled !== false)}
           ${settingToggle('strict', 'Strict (fail instead of a still)', config.strict === true)}
+          ${settingToggle('loop_ending', 'Loop ending (last line points back to the opening)', config.loop_ending === true)}
         </div>
 
         <div class="form-group mt-4">

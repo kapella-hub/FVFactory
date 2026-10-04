@@ -27,6 +27,7 @@ async def get_config():
     current = {
         "provider_mode": settings.provider_mode,
         "llm_provider": settings.llm_provider,
+        "loop_ending": settings.loop_ending,
         "llm_fallback": settings.llm_fallback,
         "claude_cli_model": settings.claude_cli_model,
         "codex_model": settings.codex_model,

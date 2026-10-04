@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # choice (run_pipeline mascot=None). Never applied to photorealistic runs (spec 2026-10-03 §9) or to
     # a story (its characters are the subjects). The description names no medium: the video style does.
     mascot_enabled: bool = False
+    loop_ending: bool = False   # True: last line points back to the hook (replay trick); False: a closing line
     mascot_prompt: str = "A cute, futuristic robot with glowing blue eyes and a cracked screen"
     # Extra style keywords appended to every image prompt. "" = derive from the run's video_style
     # (asset_manager.STYLE_SUFFIX: one set of keywords per video style).

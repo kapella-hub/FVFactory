@@ -20,7 +20,7 @@ WARNING_CODES = (
     "speed_adjusted", "prompt_count_normalized", "clip_retry", "loudness_skipped",
     "platform_check_failed", "final_swap_failed", "music_track_skipped", "sfx_file_skipped",
     "plan_save_failed", "script_length_off_target", "scene_roles_derived", "hook_headline_fallback",
-    "cost_cap_exceeded", "tier_ignored", "voice_fallback",      # quality tiers (spec 2026-10-03 §8); never carried by --rerender
+    "cost_cap_exceeded", "tier_ignored", "voice_fallback", "script_ending_incomplete",      # quality tiers (spec 2026-10-03 §8); never carried by --rerender
     "low_motion",                             # clips that barely move (quality tiers spec §16); carried
 )
 
